@@ -955,23 +955,23 @@ async function renderProduit(el, productId) {
     <div class="card">
       <div class="card-head">
         <div class="card-title">📤 Upload rapide</div>
-        <span class="text-sm text-dim">Drive sync à venir dans une prochaine mise à jour</span>
+        <span class="text-sm text-dim">${driveState.connected ? 'Glisse des fichiers depuis ton PC' : '⚠ Connecte-toi à Drive d\'abord'}</span>
       </div>
       <div class="grid-2">
-        <div style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;opacity:0.6">
+        <div class="dropzone" data-upload-target="concurrent" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
           <div style="font-size:24px;margin-bottom:8px">🎥</div>
           <div style="font-weight:600;margin-bottom:4px">Videos concurrent</div>
-          <div class="text-sm text-dim">Raw, avec sous-titres → <span class="mono">00_Ads_Concurrent/</span></div>
+          <div class="text-sm text-dim">Raw, avec sous-titres → <span class="mono">${CONCURRENT_FOLDER_NAME}/</span></div>
+          <input type="file" multiple style="display:none" data-file-input="concurrent" accept="video/*,image/*">
         </div>
-        <div style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;opacity:0.6">
+        <div class="dropzone" data-upload-target="master" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
           <div style="font-size:24px;margin-bottom:8px">🎬</div>
           <div style="font-weight:600;margin-bottom:4px">Masters (nettoyés)</div>
-          <div class="text-sm text-dim">Sans sous-titres → <span class="mono">00_Master_Ads/</span></div>
+          <div class="text-sm text-dim">Sans sous-titres → <span class="mono">${MASTER_FOLDER_NAME}/</span></div>
+          <input type="file" multiple style="display:none" data-file-input="master" accept="video/*,image/*">
         </div>
       </div>
-      <div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)">
-        💡 <strong>Pour activer l'upload</strong> : il faut brancher Google Drive à l'app web (OAuth). C'est une session de dev séparée — on le fera quand tu seras prêt. Pour l'instant, tes employés uploadent directement dans Drive via drive.google.com.
-      </div>
+      ${!driveState.connected ? '<div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)">💡 Connecte-toi à Google Drive (sidebar ☁️) pour activer l\'upload auto.</div>' : ''}
     </div>
 
     <div class="card">
@@ -1005,6 +1005,49 @@ async function renderProduit(el, productId) {
   // Bouton Sync couleurs Drive (placeholder)
   extraSections.querySelector('#btn-sync-colors')?.addEventListener('click', () => {
     toast('🎨 Sync couleurs Drive : nécessite le scope Drive écriture (à venir dans une prochaine version)', 'info', 5000);
+  });
+
+  // Dropzones upload (Drag & drop + clic)
+  extraSections.querySelectorAll('.dropzone').forEach(dz => {
+    const target = dz.dataset.uploadTarget;
+    const targetFolderName = target === 'concurrent' ? CONCURRENT_FOLDER_NAME : MASTER_FOLDER_NAME;
+    const fileInput = dz.querySelector('[data-file-input]');
+    const handleFiles = async (files) => {
+      if (!files || !files.length) return;
+      if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+      if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+      try {
+        await uploadToProductFolder(productId, files, targetFolderName);
+        render();
+      } catch (e) {
+        console.error('[UPLOAD]', e);
+        toast('Erreur upload : ' + (e.message || JSON.stringify(e)), 'error', 6000);
+      }
+    };
+    // Clic → sélecteur fichier
+    dz.addEventListener('click', (e) => {
+      if (!driveState.connected || !canEdit()) return;
+      if (e.target.tagName !== 'INPUT') fileInput?.click();
+    });
+    fileInput?.addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
+    // Drag & drop
+    dz.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (driveState.connected && canEdit()) {
+        dz.style.borderColor = 'var(--gold)';
+        dz.style.background = 'rgba(200,165,90,0.1)';
+      }
+    });
+    dz.addEventListener('dragleave', () => {
+      dz.style.borderColor = '';
+      dz.style.background = '';
+    });
+    dz.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dz.style.borderColor = '';
+      dz.style.background = '';
+      handleFiles(e.dataTransfer.files);
+    });
   });
 
   // Event listeners pour cut/activate markets
@@ -1691,7 +1734,7 @@ async function driveConnect(options = {}) {
     if (!driveState.tokenClient) {
       driveState.tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: cfg.client_id,
-        scope: 'https://www.googleapis.com/auth/drive.readonly',
+        scope: 'https://www.googleapis.com/auth/drive',
         callback: async (resp) => {
           if (resp.error) {
             console.error('[DRIVE] OAuth callback error', resp);
@@ -1762,6 +1805,202 @@ function driveDisconnect() {
 
 async function logSync(msg, type = 'info') {
   await sb.from('sync_log').insert({ msg, type, user_id: currentUser?.id || null });
+}
+
+/* ===== Drive Helpers : Create/Find/Upload Folders & Files ===== */
+const CONCURRENT_FOLDER_NAME = '00_Ads_Concurrent';
+const MASTER_FOLDER_NAME = '00_Master_Ads';
+
+function driveProductFolderName(p) {
+  if (!p.name || p.name === p.id) return p.id;
+  return `${p.id} — ${p.name}`;
+}
+
+async function driveCreateFolder(name, parentId) {
+  const r = await gapi.client.drive.files.create({
+    resource: { name, mimeType: 'application/vnd.google-apps.folder', parents: parentId ? [parentId] : undefined },
+    fields: 'id, name'
+  });
+  return r.result;
+}
+
+async function driveFindFolder(name, parentId) {
+  const safeName = name.replace(/'/g, "\\'");
+  const r = await gapi.client.drive.files.list({
+    q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}' and trashed = false`,
+    fields: 'files(id, name)',
+    pageSize: 1
+  });
+  return (r.result.files || [])[0] || null;
+}
+
+async function driveEnsureFolder(name, parentId) {
+  const existing = await driveFindFolder(name, parentId);
+  if (existing) return existing;
+  return await driveCreateFolder(name, parentId);
+}
+
+async function driveRenameFile(fileId, newName) {
+  return await gapi.client.drive.files.update({ fileId, resource: { name: newName } });
+}
+
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+  return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+function detectFileExtension(name) {
+  const m = name.match(/\.([a-z0-9]+)$/i);
+  return m ? '.' + m[1].toLowerCase() : '';
+}
+
+// Upload d'un fichier vers Drive avec progression (XHR multipart)
+function driveUploadWithProgress(file, parentId, name, onProgress) {
+  return new Promise((resolve, reject) => {
+    const token = gapi.client.getToken()?.access_token;
+    if (!token) { reject(new Error('Pas de token Drive')); return; }
+    const metadata = { name, parents: [parentId] };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+    form.append('file', file);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size');
+    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress({ loaded: e.loaded, total: e.total, ratio: e.loaded / e.total });
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)); } catch (e) { reject(e); }
+      } else {
+        let msg = 'HTTP ' + xhr.status;
+        try { const j = JSON.parse(xhr.responseText); if (j.error?.message) msg = j.error.message; } catch {}
+        reject(new Error(msg));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Erreur réseau pendant upload'));
+    xhr.send(form);
+  });
+}
+
+// Crée toute la structure Drive pour un produit
+async function createProductDriveStructure(product, countries) {
+  if (!driveState.connected || !driveState.accessToken) throw new Error('Pas connecté à Drive');
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+  const rootId = cfg?.root_folder_id;
+  if (!rootId) throw new Error('Dossier racine Drive non configuré');
+
+  const folderName = driveProductFolderName(product);
+  let productFolder = await driveFindFolder(folderName, rootId);
+  if (!productFolder) productFolder = await driveFindFolder(product.id, rootId);
+  if (!productFolder) {
+    productFolder = await driveCreateFolder(folderName, rootId);
+  } else if (productFolder.name !== folderName) {
+    await driveRenameFile(productFolder.id, folderName);
+  }
+  await driveEnsureFolder(CONCURRENT_FOLDER_NAME, productFolder.id);
+  await driveEnsureFolder(MASTER_FOLDER_NAME, productFolder.id);
+  for (const c of countries) {
+    await driveEnsureFolder(c.id, productFolder.id);
+  }
+  // Update product with folder id
+  await sb.from('products').update({ drive_folder_id: productFolder.id }).eq('id', product.id);
+  await logSync(`✅ Structure Drive créée : ${folderName}`, 'success');
+  return productFolder.id;
+}
+
+// Modal avec barres de progression pour l'upload
+async function uploadFilesWithProgressUI(files, parentId, options = {}) {
+  const title = options.title || `Upload ${files.length} fichier${files.length > 1 ? 's' : ''}`;
+  const container = document.getElementById('modal-container');
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.innerHTML = `
+    <div class="modal" style="min-width:500px;max-width:700px">
+      <div class="modal-title">${escapeHtml(title)}</div>
+      <div id="upload-list" style="max-height:60vh;overflow-y:auto"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="upload-close" style="display:none">Fermer</button>
+      </div>
+    </div>
+  `;
+  container.appendChild(bd);
+  const list = bd.querySelector('#upload-list');
+  list.innerHTML = files.map((item, i) => `
+    <div style="padding:10px;margin-bottom:6px;background:var(--bg-input);border-radius:8px" data-up-idx="${i}">
+      <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+        <strong>${escapeHtml(item.displayName)}</strong>
+        <span class="text-dim" data-up-status="${i}">En attente...</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">${escapeHtml(item.file.name)} · ${fmtBytes(item.file.size)}</div>
+      <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+        <div data-up-bar="${i}" style="height:100%;width:0%;background:var(--gold);transition:width 0.2s"></div>
+      </div>
+    </div>
+  `).join('');
+
+  const results = [];
+  for (let i = 0; i < files.length; i++) {
+    const item = files[i];
+    const statusEl = bd.querySelector(`[data-up-status="${i}"]`);
+    const barEl = bd.querySelector(`[data-up-bar="${i}"]`);
+    statusEl.textContent = 'Upload...';
+    try {
+      const r = await driveUploadWithProgress(item.file, parentId, item.displayName, (p) => {
+        barEl.style.width = Math.round(p.ratio * 100) + '%';
+      });
+      barEl.style.width = '100%';
+      barEl.style.background = 'var(--green)';
+      statusEl.textContent = '✅ OK';
+      statusEl.style.color = 'var(--green)';
+      results.push({ ok: true, file: r, item });
+    } catch (e) {
+      barEl.style.background = 'var(--red)';
+      statusEl.textContent = '❌ ' + (e.message || 'Erreur');
+      statusEl.style.color = 'var(--red)';
+      results.push({ ok: false, error: e.message, item });
+    }
+  }
+  const closeBtn = bd.querySelector('#upload-close');
+  closeBtn.style.display = '';
+  closeBtn.addEventListener('click', () => bd.remove());
+  bd.addEventListener('click', (e) => { if (e.target === bd) bd.remove(); });
+  return results;
+}
+
+async function uploadToProductFolder(productId, files, targetFolderName) {
+  const { data: product } = await sb.from('products').select('*').eq('id', productId).single();
+  const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
+  const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
+  const countries = countriesAll.filter(c => enabled.includes(c.id));
+
+  // Assure que la structure Drive existe
+  let productFolderId = product.drive_folder_id;
+  if (!productFolderId) {
+    productFolderId = await createProductDriveStructure(product, countries);
+  }
+  const targetFolder = await driveEnsureFolder(targetFolderName, productFolderId);
+
+  // Liste les fichiers existants pour la numérotation
+  const existingFiles = await driveListFolderContent(targetFolder.id);
+  const existingAds = existingFiles.map(f => { const m = f.name.match(/Ad\s*(\d+)/i); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0);
+  let maxN = existingAds.length ? Math.max(...existingAds) : 0;
+
+  // Prépare les fichiers avec nom Ad N.ext
+  const items = Array.from(files).map(f => {
+    maxN++;
+    return { file: f, displayName: `Ad ${maxN}${detectFileExtension(f.name)}` };
+  });
+
+  const results = await uploadFilesWithProgressUI(items, targetFolder.id, {
+    title: `Upload ${items.length} fichier(s) → ${product.id}/${targetFolderName}`
+  });
+  const okCount = results.filter(r => r.ok).length;
+  await logSync(`📹 ${product.id} : ${okCount} fichier(s) uploadé(s) dans ${targetFolderName}`, 'success');
+  toast(`✅ ${okCount} fichier(s) uploadé(s)`, 'success');
+  return results;
 }
 
 async function driveListFolderContent(folderId) {
