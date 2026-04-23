@@ -158,6 +158,41 @@ a{color:var(--gold);text-decoration:none}
 .role-select{background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:12px;font-family:inherit}
 
 .auth-error{background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:14px}
+
+/* Command palette (Ctrl+K) */
+.cmdk-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);z-index:2000;display:flex;align-items:flex-start;justify-content:center;padding-top:15vh;animation:fadeIn 0.15s}
+.cmdk{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;width:100%;max-width:560px;box-shadow:0 20px 60px rgba(0,0,0,0.6);overflow:hidden}
+.cmdk-input{width:100%;background:transparent;border:none;border-bottom:1px solid var(--border-soft);color:var(--text);padding:18px 20px;font-family:inherit;font-size:15px;outline:none}
+.cmdk-input::placeholder{color:var(--text-mute)}
+.cmdk-results{max-height:50vh;overflow-y:auto;padding:8px 0}
+.cmdk-group-label{padding:8px 20px 4px;font-size:10px;color:var(--text-mute);text-transform:uppercase;letter-spacing:1px;font-weight:600}
+.cmdk-item{padding:8px 20px;cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;transition:background 0.05s}
+.cmdk-item:hover,.cmdk-item.selected{background:var(--bg-card-hover)}
+.cmdk-item.selected{color:var(--gold)}
+.cmdk-item-icon{font-size:16px;width:20px;text-align:center;flex-shrink:0}
+.cmdk-item-main{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmdk-item-sub{color:var(--text-mute);font-size:11px}
+.cmdk-kbd{background:var(--bg-input);border:1px solid var(--border);padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-dim)}
+.cmdk-footer{padding:10px 20px;border-top:1px solid var(--border-soft);font-size:11px;color:var(--text-mute);display:flex;gap:14px}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+/* Batch action bar (Excel-style drag Meta) */
+.batch-action-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-card);border:1px solid var(--gold);border-radius:12px;padding:12px 16px;display:flex;gap:10px;align-items:center;box-shadow:0 12px 40px rgba(0,0,0,0.6);z-index:500}
+.batch-action-bar .bab-count{font-size:13px;color:var(--text);font-weight:600;padding-right:10px;border-right:1px solid var(--border)}
+.batch-action-bar .bab-count strong{color:var(--gold);font-family:'JetBrains Mono',monospace}
+.batch-action-bar button{padding:8px 12px;font-size:12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-input);color:var(--text);cursor:pointer;font-weight:500;font-family:inherit}
+.batch-action-bar button:hover{background:var(--bg-card-hover);border-color:var(--gold)}
+.batch-action-bar .bab-check{background:rgba(52,211,153,0.15);border-color:rgba(52,211,153,0.4);color:var(--green)}
+.batch-action-bar .bab-uncheck{background:rgba(248,113,113,0.12);border-color:rgba(248,113,113,0.35);color:var(--red)}
+.batch-action-bar .bab-cancel{opacity:0.7}
+.check-cell.batch-selected{background:rgba(96,165,250,0.2)!important;box-shadow:inset 0 0 0 2px var(--blue)}
+
+/* Ad Copy icon */
+.ad-copy-icon{display:inline-block;margin-left:8px;cursor:pointer;font-size:14px;color:var(--text-mute);transition:all 0.15s;user-select:none}
+.ad-copy-icon:hover{color:var(--gold);transform:scale(1.1)}
+.ad-copy-icon.filled{color:var(--gold)}
+.ad-link-icon{display:inline-block;margin-left:6px;cursor:pointer;font-size:13px;text-decoration:none}
+.ad-link-icon:hover{transform:scale(1.15)}
 </style>
 </head>
 <body>
@@ -196,6 +231,7 @@ a{color:var(--gold);text-decoration:none}
     <div class="logo-sub">ECOMMERCE</div>
     <nav class="nav">
       <div class="nav-section-label">Vue d'ensemble</div>
+      <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon">🔍</span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
       <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
       <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
@@ -431,6 +467,7 @@ async function render() {
   }
 }
 document.addEventListener('click', (e) => {
+  if (e.target.closest('#btn-open-cmdk')) { e.preventDefault(); openCmdk(); return; }
   const it = e.target.closest('.nav-item');
   if (it && it.dataset.route) { e.preventDefault(); navigate(it.dataset.route); }
 });
@@ -691,44 +728,48 @@ async function renderProduit(el, productId) {
             </tr>
           </thead>
           <tbody>
-            ${ads.map(ad => `
+            ${ads.map(ad => {
+              const copy = ad.ad_copy || {};
+              const hasCopy = copy.url || copy.headline || copy.primary || copy.description || copy.cta;
+              const linkSrc = copy.url ? detectLinkSource(copy.url) : null;
+              return `
               <tr>
-                <td class="ad-col">${escapeHtml(ad.name)}</td>
+                <td class="ad-col">
+                  ${escapeHtml(ad.name)}
+                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="Éditer Ad Copy">📝</span>
+                  ${linkSrc ? `<a href="${escapeHtml(copy.url)}" target="_blank" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
+                </td>
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
                   return `
                     <td class="check-cell auto" title="Auto via Drive">
                       <span class="check-icon ${ac.trad ? 'checked' : ''}"></span>
                     </td>
-                    <td class="check-cell ${canEdit() ? '' : 'readonly'}" data-toggle-meta="${ad.id}|${c.id}" title="${canEdit() ? 'Clique pour toggle' : 'Lecture seule'}">
+                    <td class="check-cell ${canEdit() ? '' : 'readonly'}" data-toggle-meta="${ad.id}|${c.id}" title="${canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule'}">
                       <span class="check-icon meta ${ac.meta ? 'checked' : ''}"></span>
                     </td>
                   `;
                 }).join('')}
               </tr>
-            `).join('')}
+            `;
+            }).join('')}
           </tbody>
         </table>
       </div>
     `}
   `;
 
-  el.querySelectorAll('[data-toggle-meta]').forEach(cell => {
-    cell.addEventListener('click', async () => {
+  // Ad Copy icons
+  el.querySelectorAll('[data-ad-copy]').forEach(icon => {
+    icon.addEventListener('click', (e) => {
+      e.stopPropagation();
       if (!canEdit()) { toast('Permission refusée', 'error'); return; }
-      const [adId, cId] = cell.dataset.toggleMeta.split('|');
-      const existing = (acByAd[adId] || {})[cId];
-      const newMeta = !(existing?.meta);
-      const now = new Date().toISOString();
-      if (existing) {
-        await sb.from('ad_countries').update({ meta: newMeta, meta_at: newMeta ? now : null, updated_at: now, updated_by: currentUser.id })
-          .eq('ad_id', adId).eq('country_id', cId);
-      } else {
-        await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newMeta, meta_at: newMeta ? now : null, updated_by: currentUser.id });
-      }
-      render();
+      editAdCopyFlow(icon.dataset.adCopy);
     });
   });
+
+  // Drag Excel-style + simple click sur Meta cells
+  setupMetaDragSelect(el);
 
   document.getElementById('btn-add-ad')?.addEventListener('click', () => addAdFlow(productId));
 }
@@ -935,6 +976,347 @@ async function renderSettings(el) {
   `;
   const { count } = await sb.from('profiles').select('*', { count: 'exact', head: true });
   document.getElementById('total-users').textContent = count || 0;
+}
+
+/* ============================================================
+   FEATURE: CTRL+K COMMAND PALETTE
+   ============================================================ */
+let cmdkOpen = false;
+
+async function openCmdk() {
+  if (cmdkOpen) return;
+  cmdkOpen = true;
+  const { products, ads } = await fetchAll();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'cmdk-backdrop';
+  backdrop.innerHTML = `
+    <div class="cmdk">
+      <input class="cmdk-input" id="cmdk-input" placeholder="Rechercher produits, ads, pages..." autofocus>
+      <div class="cmdk-results" id="cmdk-results"></div>
+      <div class="cmdk-footer">
+        <span><span class="cmdk-kbd">↑↓</span> naviguer</span>
+        <span><span class="cmdk-kbd">↵</span> ouvrir</span>
+        <span><span class="cmdk-kbd">esc</span> fermer</span>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(backdrop);
+  const input = backdrop.querySelector('#cmdk-input');
+  const results = backdrop.querySelector('#cmdk-results');
+  let selected = 0;
+  let items = [];
+
+  const pages = [
+    { type: 'page', icon: '📊', title: 'Dashboard', route: 'dashboard' },
+    { type: 'page', icon: '📦', title: 'Produits', route: 'produits' }
+  ];
+  if (isAdmin()) {
+    pages.push({ type: 'page', icon: '👥', title: 'Utilisateurs', route: 'users' });
+    pages.push({ type: 'page', icon: '⚙️', title: 'Paramètres', route: 'parametres' });
+  }
+
+  function renderResults() {
+    const q = input.value.trim().toLowerCase();
+    items = [];
+    const matchedPages = pages.filter(p => !q || p.title.toLowerCase().includes(q));
+    const matchedProducts = products.filter(p => !q || p.id.toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
+    const matchedAds = q.length >= 2 ? ads.filter(a => a.name.toLowerCase().includes(q)).slice(0, 15) : [];
+    let html = '';
+    if (matchedPages.length) {
+      html += `<div class="cmdk-group-label">Pages</div>`;
+      matchedPages.forEach(p => {
+        items.push({ action: () => navigate(p.route) });
+        html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon">${p.icon}</span><span class="cmdk-item-main">${escapeHtml(p.title)}</span></div>`;
+      });
+    }
+    if (matchedProducts.length) {
+      html += `<div class="cmdk-group-label">Produits</div>`;
+      matchedProducts.forEach(p => {
+        items.push({ action: () => navigate('produit/' + p.id) });
+        html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon">📦</span><span class="cmdk-item-main"><strong class="mono">${escapeHtml(p.id)}</strong> ${escapeHtml(p.name || '')}</span></div>`;
+      });
+    }
+    if (matchedAds.length) {
+      html += `<div class="cmdk-group-label">Ads</div>`;
+      matchedAds.forEach(a => {
+        const prod = products.find(p => p.id === a.product_id);
+        items.push({ action: () => navigate('produit/' + a.product_id) });
+        html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon">🎬</span><span class="cmdk-item-main">${escapeHtml(a.name)} <span class="cmdk-item-sub">→ ${escapeHtml(prod?.id || '')}</span></span></div>`;
+      });
+    }
+    if (!items.length) html = '<div style="padding:30px;text-align:center;color:var(--text-mute);font-size:13px">Aucun résultat</div>';
+    results.innerHTML = html;
+    selected = 0;
+    updateSelected();
+  }
+  function updateSelected() {
+    results.querySelectorAll('.cmdk-item').forEach((el, i) => el.classList.toggle('selected', i === selected));
+    const selEl = results.querySelectorAll('.cmdk-item')[selected];
+    if (selEl) selEl.scrollIntoView({ block: 'nearest' });
+  }
+  function pickCurrent() {
+    if (!items.length) return;
+    items[selected].action();
+    closeCmdk();
+  }
+  function closeCmdk() {
+    backdrop.remove();
+    cmdkOpen = false;
+  }
+  input.addEventListener('input', renderResults);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); selected = Math.min(selected + 1, items.length - 1); updateSelected(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); selected = Math.max(selected - 1, 0); updateSelected(); }
+    else if (e.key === 'Enter') { e.preventDefault(); pickCurrent(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeCmdk(); }
+  });
+  results.addEventListener('click', (e) => {
+    const it = e.target.closest('.cmdk-item');
+    if (it) { selected = parseInt(it.dataset.idx, 10); pickCurrent(); }
+  });
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) closeCmdk(); });
+  renderResults();
+}
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    if (currentUser) openCmdk();
+  }
+});
+
+/* ============================================================
+   FEATURE: AD COPY (par ad)
+   ============================================================ */
+function detectLinkSource(url) {
+  if (!url) return null;
+  const host = (url.match(/^https?:\/\/([^\/]+)/) || [])[1] || '';
+  if (/afterlib/i.test(host)) return { icon: '🧪', name: 'AfterLib' };
+  if (/facebook|fb\.com/i.test(host)) return { icon: '📘', name: 'Facebook' };
+  if (/tiktok/i.test(host)) return { icon: '🎵', name: 'TikTok' };
+  if (/youtube|youtu\.be/i.test(host)) return { icon: '▶️', name: 'YouTube' };
+  if (/trendtrack/i.test(host)) return { icon: '📈', name: 'TrendTrack' };
+  if (/minea/i.test(host)) return { icon: '🔎', name: 'Minea' };
+  if (/adheart/i.test(host)) return { icon: '❤️', name: 'AdHeart' };
+  if (/bigspy|adspy/i.test(host)) return { icon: '🕵️', name: 'AdSpy' };
+  return { icon: '🔗', name: host };
+}
+
+async function editAdCopyFlow(adId) {
+  const { data: ad } = await sb.from('ads').select('*').eq('id', adId).single();
+  if (!ad) return;
+  const copy = ad.ad_copy || {};
+  const r = await modal(`
+    <div class="modal-title">📝 Ad Copy — ${escapeHtml(ad.name)}</div>
+    <div class="input-group">
+      <label class="input-label">🔗 Lien source (AfterLib, FB, TikTok...)</label>
+      <input class="input" data-field="url" value="${escapeHtml(copy.url || '')}" placeholder="https://...">
+    </div>
+    <div class="input-group">
+      <label class="input-label">📌 Headline (titre de l'ad)</label>
+      <input class="input" data-field="headline" value="${escapeHtml(copy.headline || '')}">
+    </div>
+    <div class="input-group">
+      <label class="input-label">📝 Primary text (corps du texte)</label>
+      <textarea class="input" data-field="primary" style="min-height:100px">${escapeHtml(copy.primary || '')}</textarea>
+    </div>
+    <div class="input-group">
+      <label class="input-label">📄 Description</label>
+      <input class="input" data-field="description" value="${escapeHtml(copy.description || '')}">
+    </div>
+    <div class="input-group">
+      <label class="input-label">🎯 CTA (call to action)</label>
+      <input class="input" data-field="cta" value="${escapeHtml(copy.cta || '')}" placeholder="Acheter, En savoir plus, ...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-clear-copy>🗑 Tout vider</button>
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `);
+  if (r === 'clear') {
+    await sb.from('ads').update({ ad_copy: { url: '', headline: '', primary: '', description: '', cta: '' } }).eq('id', adId);
+    toast('Copy vidé', 'success');
+    render();
+    return;
+  }
+  if (!r) return;
+  await sb.from('ads').update({
+    ad_copy: {
+      url: (r.url || '').trim(),
+      headline: (r.headline || '').trim(),
+      primary: (r.primary || '').trim(),
+      description: (r.description || '').trim(),
+      cta: (r.cta || '').trim(),
+      updated_at: new Date().toISOString()
+    }
+  }).eq('id', adId);
+  toast('Ad copy sauvegardé', 'success');
+  render();
+}
+
+// Override modal to handle "Tout vider" button
+const originalModal = modal;
+modal = function(contentHtml) {
+  return new Promise(resolve => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `<div class="modal">${contentHtml}</div>`;
+    container.appendChild(bd);
+    const close = (r) => { bd.remove(); resolve(r); };
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelectorAll('[data-modal-close]').forEach(el => el.addEventListener('click', () => close(null)));
+    bd.querySelectorAll('[data-clear-copy]').forEach(el => el.addEventListener('click', () => close('clear')));
+    bd.querySelectorAll('[data-modal-ok]').forEach(el => el.addEventListener('click', () => {
+      const r = {};
+      bd.querySelectorAll('[data-field]').forEach(f => { r[f.dataset.field] = f.value; });
+      close(r);
+    }));
+    setTimeout(() => bd.querySelector('input,select,textarea')?.focus(), 50);
+  });
+};
+
+/* ============================================================
+   FEATURE: BATCH DRAG SELECT ON META CELLS
+   ============================================================ */
+function setupMetaDragSelect(container) {
+  let dragging = false;
+  let startCell = null;
+  let selectedCells = new Set();
+
+  function getMetaCells() {
+    return Array.from(container.querySelectorAll('.check-cell[data-toggle-meta]'));
+  }
+  function clearSelection() {
+    getMetaCells().forEach(c => c.classList.remove('batch-selected'));
+    selectedCells.clear();
+    hideBar();
+  }
+  function getCellBounds(cell) {
+    const rect = cell.getBoundingClientRect();
+    return { el: cell, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+  }
+  function rectsIntersect(a, b) {
+    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+  }
+  function updateSelection(endX, endY) {
+    const startRect = startCell.getBoundingClientRect();
+    const sel = {
+      left: Math.min(startRect.left + startRect.width/2, endX),
+      right: Math.max(startRect.left + startRect.width/2, endX),
+      top: Math.min(startRect.top + startRect.height/2, endY),
+      bottom: Math.max(startRect.top + startRect.height/2, endY)
+    };
+    getMetaCells().forEach(c => {
+      const b = getCellBounds(c);
+      if (rectsIntersect(sel, b)) {
+        c.classList.add('batch-selected');
+        selectedCells.add(c.dataset.toggleMeta);
+      } else if (c !== startCell) {
+        c.classList.remove('batch-selected');
+        selectedCells.delete(c.dataset.toggleMeta);
+      }
+    });
+  }
+
+  container.addEventListener('mousedown', (e) => {
+    const cell = e.target.closest('.check-cell[data-toggle-meta]');
+    if (!cell) return;
+    if (!canEdit()) return;
+    startCell = cell;
+    dragging = false;
+    clearSelection();
+    cell.classList.add('batch-selected');
+    selectedCells.add(cell.dataset.toggleMeta);
+    e.preventDefault();
+  });
+  container.addEventListener('mousemove', (e) => {
+    if (!startCell) return;
+    dragging = true;
+    updateSelection(e.clientX, e.clientY);
+  });
+  document.addEventListener('mouseup', async (e) => {
+    if (!startCell) return;
+    const wasDrag = dragging;
+    const cellsToAct = Array.from(selectedCells);
+    const start = startCell;
+    startCell = null;
+    dragging = false;
+    if (!wasDrag || cellsToAct.length <= 1) {
+      // Simple clic : toggle
+      clearSelection();
+      const [adId, cId] = start.dataset.toggleMeta.split('|');
+      await toggleMetaCell(adId, cId);
+      return;
+    }
+    // Drag multi : afficher la barre
+    showBatchBar(cellsToAct);
+  });
+
+  function hideBar() {
+    document.querySelectorAll('.batch-action-bar').forEach(b => b.remove());
+  }
+  function showBatchBar(cells) {
+    hideBar();
+    const bar = document.createElement('div');
+    bar.className = 'batch-action-bar';
+    bar.innerHTML = `
+      <div class="bab-count"><strong>${cells.length}</strong> case${cells.length > 1 ? 's' : ''} Meta sélectionnée${cells.length > 1 ? 's' : ''}</div>
+      <button class="bab-check">✅ Tout cocher</button>
+      <button class="bab-uncheck">❌ Tout décocher</button>
+      <button>✂️ Inverser</button>
+      <button class="bab-cancel">Annuler</button>
+    `;
+    document.body.appendChild(bar);
+    const [b1, b2, b3, b4] = bar.querySelectorAll('button');
+    b1.addEventListener('click', () => batchApply(cells, 'check'));
+    b2.addEventListener('click', () => batchApply(cells, 'uncheck'));
+    b3.addEventListener('click', () => batchApply(cells, 'toggle'));
+    b4.addEventListener('click', () => { clearSelection(); });
+    document.addEventListener('keydown', function escHandler(e) {
+      if (e.key === 'Escape') { clearSelection(); document.removeEventListener('keydown', escHandler); }
+    });
+  }
+
+  async function batchApply(cells, mode) {
+    const now = new Date().toISOString();
+    // Fetch current states
+    const parsed = cells.map(s => { const [adId, cId] = s.split('|'); return { adId, cId }; });
+    const adIds = [...new Set(parsed.map(p => p.adId))];
+    const { data: current } = await sb.from('ad_countries').select('*').in('ad_id', adIds);
+    const currentMap = {};
+    (current || []).forEach(ac => { currentMap[ac.ad_id + '|' + ac.country_id] = ac; });
+
+    for (const { adId, cId } of parsed) {
+      const existing = currentMap[adId + '|' + cId];
+      let newVal;
+      if (mode === 'check') newVal = true;
+      else if (mode === 'uncheck') newVal = false;
+      else newVal = !(existing?.meta); // toggle
+      if (existing) {
+        await sb.from('ad_countries').update({ meta: newVal, meta_at: newVal ? now : null, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', cId);
+      } else {
+        await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newVal, meta_at: newVal ? now : null, updated_by: currentUser.id });
+      }
+    }
+    toast(`${cells.length} case(s) mises à jour`, 'success');
+    clearSelection();
+    render();
+  }
+}
+
+async function toggleMetaCell(adId, cId) {
+  if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+  const { data: existing } = await sb.from('ad_countries').select('*').eq('ad_id', adId).eq('country_id', cId).maybeSingle();
+  const newMeta = !(existing?.meta);
+  const now = new Date().toISOString();
+  if (existing) {
+    await sb.from('ad_countries').update({ meta: newMeta, meta_at: newMeta ? now : null, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', cId);
+  } else {
+    await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newMeta, meta_at: newMeta ? now : null, updated_by: currentUser.id });
+  }
+  render();
 }
 
 /* ============================================================
