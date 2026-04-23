@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 :root{
   --bg:#08080c;--bg-card:#12121a;--bg-card-hover:#1a1a24;--bg-input:#0c0c12;
@@ -234,6 +235,7 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon">🔍</span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
       <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
       <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
+      <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
       <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon">👥</span>Utilisateurs</a>
       <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon">⚙️</span>Paramètres</a>
@@ -458,6 +460,7 @@ async function render() {
     if (page === 'dashboard') await renderDashboard(el);
     else if (page === 'produits') await renderProduits(el);
     else if (page === 'produit') await renderProduit(el, params[0]);
+    else if (page === 'analytics') await renderAnalytics(el);
     else if (page === 'users') await renderUsers(el);
     else if (page === 'parametres') await renderSettings(el);
     else el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Page introuvable</div></div>';
@@ -637,32 +640,63 @@ async function renderProduits(el) {
 }
 
 async function newProductFlow() {
-  const r = await modal(`
+  const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
+  const selectedCountries = allCountries.map(c => c.id);
+  const countriesHtml = allCountries.map(c => `
+    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
+      <input type="checkbox" data-new-country-check="${c.id}" checked style="margin:0;accent-color:${c.color}">
+      ${c.id}
+    </label>
+  `).join('');
+
+  const r = await modalWithOpen(`
     <div class="modal-title">Nouveau produit</div>
     <div class="input-group">
       <label class="input-label">Code produit</label>
       <input class="input mono" data-field="id" placeholder="F0001" autofocus>
+      <div class="input-hint">Format recommandé : F0001, F0002, etc.</div>
     </div>
     <div class="input-group">
-      <label class="input-label">Nom (optionnel)</label>
+      <label class="input-label">Nom / description (optionnel)</label>
       <input class="input" data-field="name" placeholder="Ex: Chaussettes Bamboo">
     </div>
     <div class="input-group">
-      <label class="input-label">Nombre d'ads à créer</label>
-      <input class="input" type="number" data-field="adCount" value="0" min="0">
+      <label class="input-label">ID du dossier Drive (optionnel)</label>
+      <input class="input mono" data-field="driveFolderId" placeholder="1ABCxyz...">
+      <div class="input-hint">Tu pourras le renseigner plus tard</div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">🌍 Marchés actifs</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border)">
+        ${countriesHtml}
+      </div>
+      <div class="input-hint">Décoche les pays où tu ne lances pas ce produit (modifiable plus tard).</div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Ads à créer (optionnel)</label>
+      <input class="input mono" type="number" data-field="adCount" value="0" min="0">
+      <div class="input-hint">Crée Ad 1, Ad 2... Ad N (laisse 0 pour commencer vide)</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
       <button class="btn" data-modal-ok>Créer</button>
     </div>
-  `);
+  `, (bd) => {
+    bd.querySelectorAll('[data-new-country-check]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const cid = cb.dataset.newCountryCheck;
+        if (cb.checked) { if (!selectedCountries.includes(cid)) selectedCountries.push(cid); }
+        else { const i = selectedCountries.indexOf(cid); if (i >= 0) selectedCountries.splice(i, 1); }
+      });
+    });
+  });
   if (!r || !r.id) return;
   const id = r.id.trim().toUpperCase();
-  const { data: countries } = await sb.from('countries').select('id').order('sort_order');
-  const enabled = countries.map(c => c.id);
+  if (selectedCountries.length === 0) { toast('Au moins 1 marché requis', 'error'); return; }
   const { error: errP } = await sb.from('products').insert({
     id, name: (r.name || '').trim() || id,
-    enabled_countries: enabled,
+    enabled_countries: selectedCountries,
+    drive_folder_id: (r.driveFolderId || '').trim() || null,
     created_by: currentUser.id
   });
   if (errP) { toast('Erreur : ' + errP.message, 'error'); return; }
@@ -674,12 +708,33 @@ async function newProductFlow() {
     if (errA) { toast('Erreur ads : ' + errA.message, 'error'); }
     else {
       const acToInsert = [];
-      insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+      insertedAds.forEach(ad => selectedCountries.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
       await sb.from('ad_countries').insert(acToInsert);
     }
   }
-  toast(`Produit ${id} créé`, 'success');
+  toast(`Produit ${id} créé avec ${selectedCountries.length} marché(s)`, 'success');
   navigate('produit/' + id);
+}
+
+// Modal avec onOpen callback pour attacher des listeners custom
+function modalWithOpen(contentHtml, onOpen) {
+  return new Promise(resolve => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `<div class="modal">${contentHtml}</div>`;
+    container.appendChild(bd);
+    const close = (r) => { if (bd.parentNode) bd.remove(); resolve(r); };
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelectorAll('[data-modal-close]').forEach(el => el.addEventListener('click', () => close(null)));
+    bd.querySelectorAll('[data-modal-ok]').forEach(el => el.addEventListener('click', () => {
+      const r = {};
+      bd.querySelectorAll('[data-field]').forEach(f => { r[f.dataset.field] = f.value; });
+      close(r);
+    }));
+    if (onOpen) onOpen(bd);
+    setTimeout(() => bd.querySelector('input:not([type=checkbox]),select,textarea')?.focus(), 50);
+  });
 }
 
 /* ============================================================
@@ -979,6 +1034,142 @@ async function renderSettings(el) {
 }
 
 /* ============================================================
+   PAGE: ANALYTICS
+   ============================================================ */
+let chartInstances = [];
+function destroyCharts() {
+  chartInstances.forEach(c => { try { c.destroy(); } catch(e){} });
+  chartInstances = [];
+}
+
+async function renderAnalytics(el) {
+  destroyCharts();
+  const { countries, products, ads, adCountries } = await fetchAll();
+  const total = ads.length * countries.length;
+  const doneTrad = adCountries.filter(x => x.trad).length;
+  const doneMeta = adCountries.filter(x => x.meta).length;
+  const byCountry = {};
+  countries.forEach(c => { byCountry[c.id] = { trad: 0, meta: 0, total: ads.length }; });
+  adCountries.forEach(ac => {
+    if (!byCountry[ac.country_id]) return;
+    if (ac.trad) byCountry[ac.country_id].trad++;
+    if (ac.meta) byCountry[ac.country_id].meta++;
+  });
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Analytics</div>
+        <div class="page-subtitle">Statistiques détaillées par pays et par produit</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Ads lancées Meta</div>
+        <div class="kpi-value blue">${fmt(doneMeta)}</div>
+        <div class="kpi-sub">Total cumulé tous pays</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ads traduites</div>
+        <div class="kpi-value green">${fmt(doneTrad)}</div>
+        <div class="kpi-sub">Total cumulé tous pays</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Taux conversion</div>
+        <div class="kpi-value">${doneTrad > 0 ? pct(doneMeta, doneTrad) : 0}%</div>
+        <div class="kpi-sub">Trad → Meta lancée</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ads uniques</div>
+        <div class="kpi-value gold">${fmt(ads.length)}</div>
+        <div class="kpi-sub">Dans tous produits</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><div class="card-title">🚀 Lancements Meta par pays</div></div>
+        <div style="position:relative;height:280px"><canvas id="chart-meta"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">🌐 Traductions par pays</div></div>
+        <div style="position:relative;height:280px"><canvas id="chart-trad"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">📦 Performance par produit</div></div>
+      ${products.length === 0 ? '<div class="empty"><div class="empty-icon">📊</div><div>Aucun produit à analyser</div></div>' : `
+        <div style="position:relative;height:${Math.max(200, products.length * 40)}px"><canvas id="chart-prod"></canvas></div>
+      `}
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head"><div class="card-title">📊 Top pays (lancements Meta)</div></div>
+        ${(() => {
+          const sorted = countries.map(c => ({ c, n: byCountry[c.id].meta })).sort((a,b) => b.n - a.n);
+          return sorted.map((x, i) => `
+            <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;margin-bottom:8px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft)">
+              <div style="width:36px;height:36px;background:${x.c.color}22;color:${x.c.color};border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'JetBrains Mono',monospace">${i+1}</div>
+              <div style="flex:1">
+                <div class="mono" style="font-size:18px;font-weight:700;color:${x.c.color}">${fmt(x.n)}</div>
+                <div class="text-sm text-dim">${escapeHtml(x.c.name)} · ${pct(x.n, byCountry[x.c.id].total)}% du marché</div>
+              </div>
+            </div>
+          `).join('');
+        })()}
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">🌍 Répartition globale</div></div>
+        <div style="position:relative;height:280px"><canvas id="chart-repart"></canvas></div>
+      </div>
+    </div>
+  `;
+
+  const baseOpts = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { labels: { color: '#8a8a9a', font: { family: 'Outfit', size: 11 } } } },
+    scales: {
+      x: { ticks: { color: '#8a8a9a', font: { family: 'Outfit', size: 11 } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+      y: { ticks: { color: '#8a8a9a', font: { family: 'Outfit', size: 11 } }, grid: { color: 'rgba(255,255,255,0.06)' }, beginAtZero: true }
+    }
+  };
+
+  const metaCtx = document.getElementById('chart-meta');
+  if (metaCtx) chartInstances.push(new Chart(metaCtx, {
+    type: 'bar',
+    data: { labels: countries.map(c => c.id), datasets: [{ data: countries.map(c => byCountry[c.id].meta), backgroundColor: countries.map(c => c.color), borderRadius: 6 }] },
+    options: Object.assign({}, baseOpts, { plugins: { legend: { display: false } } })
+  }));
+  const tradCtx = document.getElementById('chart-trad');
+  if (tradCtx) chartInstances.push(new Chart(tradCtx, {
+    type: 'bar',
+    data: { labels: countries.map(c => c.id), datasets: [{ data: countries.map(c => byCountry[c.id].trad), backgroundColor: countries.map(c => c.color + 'aa'), borderColor: countries.map(c => c.color), borderWidth: 1, borderRadius: 6 }] },
+    options: Object.assign({}, baseOpts, { plugins: { legend: { display: false } } })
+  }));
+  const prodCtx = document.getElementById('chart-prod');
+  if (prodCtx && products.length > 0) chartInstances.push(new Chart(prodCtx, {
+    type: 'bar',
+    data: {
+      labels: products.map(p => p.id),
+      datasets: [
+        { label: 'Traductions', data: products.map(p => { let c = 0; const pAds = ads.filter(a => a.product_id === p.id); pAds.forEach(ad => countries.forEach(co => { const ac = adCountries.find(x => x.ad_id === ad.id && x.country_id === co.id); if (ac?.trad) c++; })); return c; }), backgroundColor: '#34d39988', borderColor: '#34d399', borderWidth: 1 },
+        { label: 'Meta lancées', data: products.map(p => { let c = 0; const pAds = ads.filter(a => a.product_id === p.id); pAds.forEach(ad => countries.forEach(co => { const ac = adCountries.find(x => x.ad_id === ad.id && x.country_id === co.id); if (ac?.meta) c++; })); return c; }), backgroundColor: '#60a5fa88', borderColor: '#60a5fa', borderWidth: 1 }
+      ]
+    },
+    options: Object.assign({}, baseOpts, { indexAxis: 'y' })
+  }));
+  const repCtx = document.getElementById('chart-repart');
+  if (repCtx) chartInstances.push(new Chart(repCtx, {
+    type: 'doughnut',
+    data: { labels: countries.map(c => c.id + ' (Meta)'), datasets: [{ data: countries.map(c => byCountry[c.id].meta), backgroundColor: countries.map(c => c.color), borderColor: '#12121a', borderWidth: 2 }] },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#8a8a9a', font: { family: 'Outfit', size: 12 } } } } }
+  }));
+}
+
+/* ============================================================
    FEATURE: CTRL+K COMMAND PALETTE
    ============================================================ */
 let cmdkOpen = false;
@@ -1128,6 +1319,35 @@ async function editAdCopyFlow(adId) {
       <label class="input-label">🎯 CTA (call to action)</label>
       <input class="input" data-field="cta" value="${escapeHtml(copy.cta || '')}" placeholder="Acheter, En savoir plus, ...">
     </div>
+    <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border-soft)">
+      <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">📊 Stats (Denote/AfterLib — optionnel)</div>
+      <div class="grid-2">
+        <div class="input-group">
+          <label class="input-label">💰 Ad spend estimé</label>
+          <input class="input" data-field="spend" value="${escapeHtml(copy.spend || '')}" placeholder="$5K-$10K">
+        </div>
+        <div class="input-group">
+          <label class="input-label">👁️ Vues totales</label>
+          <input class="input" data-field="views" value="${escapeHtml(copy.views || '')}" placeholder="1.2M">
+        </div>
+        <div class="input-group">
+          <label class="input-label">📅 Running depuis</label>
+          <input class="input" data-field="runningSince" value="${escapeHtml(copy.runningSince || '')}" placeholder="45 jours">
+        </div>
+        <div class="input-group">
+          <label class="input-label">⭐ Score perso (1-10)</label>
+          <input class="input" type="number" min="1" max="10" data-field="score" value="${escapeHtml(copy.score || '')}">
+        </div>
+      </div>
+      <div class="input-group">
+        <label class="input-label">🌍 Pays actifs</label>
+        <input class="input" data-field="activeCountries" value="${escapeHtml(copy.activeCountries || '')}" placeholder="US, FR, UK">
+      </div>
+      <div class="input-group">
+        <label class="input-label">💬 Notes perso</label>
+        <textarea class="input" data-field="notes" style="min-height:60px">${escapeHtml(copy.notes || '')}</textarea>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
       <button class="btn btn-danger" data-clear-copy>🗑 Tout vider</button>
@@ -1148,6 +1368,12 @@ async function editAdCopyFlow(adId) {
       primary: (r.primary || '').trim(),
       description: (r.description || '').trim(),
       cta: (r.cta || '').trim(),
+      spend: (r.spend || '').trim(),
+      views: (r.views || '').trim(),
+      runningSince: (r.runningSince || '').trim(),
+      score: (r.score || '').trim(),
+      activeCountries: (r.activeCountries || '').trim(),
+      notes: (r.notes || '').trim(),
       updated_at: new Date().toISOString()
     }
   }).eq('id', adId);
