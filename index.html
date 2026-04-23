@@ -926,8 +926,6 @@ async function renderProduit(el, productId) {
   // === Sections supplémentaires (marchés, config Drive, upload rapide) ===
   const extraSections = document.createElement('div');
   const cutCountries = product.cut_countries || [];
-  const activeCount = countries.filter(c => !cutCountries.includes(c.id)).length;
-  const cutCount = countries.filter(c => cutCountries.includes(c.id)).length;
 
   extraSections.innerHTML = `
     <div class="card">
