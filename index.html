@@ -2194,10 +2194,17 @@ async function editAdCopyFlow(adId) {
 /* ============================================================
    FEATURE: BATCH DRAG SELECT ON META CELLS
    ============================================================ */
+let _metaMouseupHandler = null;
 function setupMetaDragSelect(container) {
   let dragging = false;
   let startCell = null;
   let selectedCells = new Set();
+
+  // Remove previous global listener si existe (évite duplication à chaque render)
+  if (_metaMouseupHandler) {
+    document.removeEventListener('mouseup', _metaMouseupHandler);
+    _metaMouseupHandler = null;
+  }
 
   function getMetaCells() {
     return Array.from(container.querySelectorAll('.check-cell[data-toggle-meta]'));
@@ -2250,7 +2257,7 @@ function setupMetaDragSelect(container) {
     dragging = true;
     updateSelection(e.clientX, e.clientY);
   });
-  document.addEventListener('mouseup', async (e) => {
+  _metaMouseupHandler = async (e) => {
     if (!startCell) return;
     const wasDrag = dragging;
     const cellsToAct = Array.from(selectedCells);
@@ -2266,7 +2273,8 @@ function setupMetaDragSelect(container) {
     }
     // Drag multi : afficher la barre
     showBatchBar(cellsToAct);
-  });
+  };
+  document.addEventListener('mouseup', _metaMouseupHandler);
 
   function hideBar() {
     document.querySelectorAll('.batch-action-bar').forEach(b => b.remove());
