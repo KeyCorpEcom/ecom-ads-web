@@ -9,6 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 <style>
 :root{
   --bg:#08080c;--bg-card:#12121a;--bg-card-hover:#1a1a24;--bg-input:#0c0c12;
@@ -195,6 +197,28 @@ a{color:var(--gold);text-decoration:none}
 .ad-link-icon{display:inline-block;margin-left:6px;cursor:pointer;font-size:13px;text-decoration:none}
 .ad-link-icon:hover{transform:scale(1.15)}
 
+/* Drive sync status */
+.sync-status{display:flex;align-items:center;gap:10px;font-size:13px}
+.sync-dot{width:10px;height:10px;border-radius:50%;background:var(--text-mute)}
+.sync-dot.connected{background:var(--green);box-shadow:0 0 0 3px rgba(52,211,153,0.2)}
+.sync-dot.disconnected{background:var(--red)}
+.sync-dot.syncing{background:var(--orange);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(251,191,36,0.4)}50%{opacity:0.6;box-shadow:0 0 0 8px rgba(251,191,36,0)}}
+.toggle{position:relative;display:inline-block;width:44px;height:24px;cursor:pointer}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:var(--bg-input);border:1px solid var(--border);border-radius:24px;transition:0.2s}
+.toggle-slider::before{content:'';position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:var(--text-dim);border-radius:50%;transition:0.2s}
+.toggle input:checked+.toggle-slider{background:var(--gold);border-color:var(--gold)}
+.toggle input:checked+.toggle-slider::before{transform:translateX(20px);background:#000}
+.log-list{max-height:500px;overflow-y:auto;border:1px solid var(--border-soft);border-radius:8px;background:var(--bg-input)}
+.log-entry{padding:10px 14px;border-bottom:1px solid var(--border-soft);font-size:12px;display:flex;justify-content:space-between;gap:12px}
+.log-entry:last-child{border-bottom:none}
+.log-time{color:var(--text-mute);font-family:'JetBrains Mono',monospace;font-size:11px;white-space:nowrap}
+.log-msg{flex:1}
+.log-entry.success .log-msg{color:var(--green)}
+.log-entry.error .log-msg{color:var(--red)}
+.log-entry.info .log-msg{color:var(--text)}
+
 /* Cut country columns in table */
 .ads-table th.cut, .ads-table td.cut{opacity:0.35;position:relative}
 .ads-table th.cut{text-decoration:line-through;color:var(--red)!important}
@@ -243,6 +267,8 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
       <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
       <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
+      <div class="nav-section-label">Intégrations</div>
+      <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
       <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon">👥</span>Utilisateurs</a>
       <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon">⚙️</span>Paramètres</a>
@@ -437,6 +463,8 @@ async function initApp(user) {
   const roleEl = document.getElementById('user-role');
   roleEl.textContent = profile.role;
   roleEl.className = 'user-role ' + profile.role;
+  // Tentative reconnexion auto Drive (si déjà configuré)
+  tryAutoReconnectDrive();
   // Afficher les menus admin
   if (profile.role === 'admin') {
     document.getElementById('nav-admin-label').style.display = '';
@@ -461,6 +489,13 @@ async function render() {
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.route === page || (page === 'produit' && el.dataset.route === 'produits'));
   });
+  // Drive status badge
+  const driveBadge = document.getElementById('nav-drive-status');
+  if (driveBadge) {
+    driveBadge.textContent = driveState.connected ? '●' : '';
+    driveBadge.style.color = driveState.connected ? 'var(--green)' : '';
+    driveBadge.style.background = driveState.connected ? 'transparent' : '';
+  }
   const el = document.getElementById('page');
   el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   try {
@@ -468,6 +503,7 @@ async function render() {
     else if (page === 'produits') await renderProduits(el);
     else if (page === 'produit') await renderProduit(el, params[0]);
     else if (page === 'analytics') await renderAnalytics(el);
+    else if (page === 'drive') await renderDrive(el);
     else if (page === 'users') await renderUsers(el);
     else if (page === 'parametres') await renderSettings(el);
     else el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Page introuvable</div></div>';
@@ -1505,6 +1541,377 @@ async function renderAnalytics(el) {
     data: { labels: countries.map(c => c.id + ' (Meta)'), datasets: [{ data: countries.map(c => byCountry[c.id].meta), backgroundColor: countries.map(c => c.color), borderColor: '#12121a', borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#8a8a9a', font: { family: 'Outfit', size: 12 } } } } }
   }));
+}
+
+/* ============================================================
+   PAGE: GOOGLE DRIVE
+   ============================================================ */
+let driveState = { gapiReady: false, tokenClient: null, accessToken: null, connected: false };
+let autoSyncTimer = null;
+let isSyncing = false;
+
+function saveTokenToStorage(token, expiresIn) {
+  const expiresAt = Date.now() + ((expiresIn || 3600) * 1000);
+  try {
+    localStorage.setItem('keycorp_drive_token', token);
+    localStorage.setItem('keycorp_drive_token_exp', String(expiresAt));
+  } catch (e) {}
+}
+function getStoredToken() {
+  try {
+    const token = localStorage.getItem('keycorp_drive_token');
+    const exp = parseInt(localStorage.getItem('keycorp_drive_token_exp'), 10);
+    if (!token || !exp || exp < Date.now() + 60000) { clearStoredToken(); return null; }
+    return token;
+  } catch (e) { return null; }
+}
+function clearStoredToken() {
+  try {
+    localStorage.removeItem('keycorp_drive_token');
+    localStorage.removeItem('keycorp_drive_token_exp');
+  } catch (e) {}
+}
+
+function waitForGoogleLibs() {
+  return new Promise(resolve => {
+    const check = () => {
+      if (window.gapi && window.google?.accounts?.oauth2) resolve();
+      else setTimeout(check, 100);
+    };
+    check();
+  });
+}
+
+async function initGapiClient(apiKey) {
+  await waitForGoogleLibs();
+  if (driveState.gapiReady) return;
+  await new Promise((resolve, reject) => {
+    gapi.load('client', {
+      callback: async () => {
+        try {
+          await gapi.client.init({
+            apiKey: apiKey,
+            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+          });
+          driveState.gapiReady = true;
+          resolve();
+        } catch (e) { reject(e); }
+      },
+      onerror: reject
+    });
+  });
+}
+
+async function driveConnect(options = {}) {
+  const silent = options.silent === true;
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+  if (!cfg?.client_id || !cfg?.api_key) {
+    if (!silent) toast('Renseigne Client ID et API Key d\'abord', 'error');
+    return;
+  }
+  try {
+    await initGapiClient(cfg.api_key);
+    if (!driveState.tokenClient) {
+      driveState.tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: cfg.client_id,
+        scope: 'https://www.googleapis.com/auth/drive.readonly',
+        callback: async (resp) => {
+          if (resp.error) {
+            if (!silent) toast('Erreur OAuth : ' + resp.error, 'error');
+            return;
+          }
+          driveState.accessToken = resp.access_token;
+          driveState.connected = true;
+          gapi.client.setToken({ access_token: resp.access_token });
+          saveTokenToStorage(resp.access_token, resp.expires_in);
+          if (!silent) {
+            await logSync('Connecté à Google Drive', 'success');
+            toast('✅ Connecté à Drive', 'success');
+          } else {
+            await logSync('Reconnexion auto à Drive', 'info');
+          }
+          render();
+          setupAutoSync();
+        },
+        error_callback: (err) => {
+          if (!silent) toast('OAuth annulé ou erreur', 'warn');
+        }
+      });
+    }
+    driveState.tokenClient.requestAccessToken({ prompt: silent ? '' : (driveState.accessToken ? '' : 'consent') });
+  } catch (e) {
+    if (!silent) toast('Erreur : ' + e.message, 'error');
+  }
+}
+
+async function tryAutoReconnectDrive() {
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).maybeSingle();
+  if (!cfg?.client_id || !cfg?.api_key) return;
+  const storedToken = getStoredToken();
+  if (storedToken) {
+    try {
+      await initGapiClient(cfg.api_key);
+      driveState.accessToken = storedToken;
+      driveState.connected = true;
+      gapi.client.setToken({ access_token: storedToken });
+      await logSync('Reconnecté via token stocké', 'info');
+      setupAutoSync();
+      return;
+    } catch (e) { clearStoredToken(); }
+  }
+  setTimeout(() => driveConnect({ silent: true }), 1500);
+}
+
+function driveDisconnect() {
+  if (driveState.accessToken) { google.accounts.oauth2.revoke(driveState.accessToken, () => {}); }
+  clearStoredToken();
+  driveState.accessToken = null;
+  driveState.connected = false;
+  if (window.gapi?.client) gapi.client.setToken(null);
+  clearInterval(autoSyncTimer);
+  logSync('Déconnecté de Drive', 'info');
+  toast('Déconnecté', 'info');
+  render();
+}
+
+async function logSync(msg, type = 'info') {
+  await sb.from('sync_log').insert({ msg, type, user_id: currentUser?.id || null });
+}
+
+async function driveListFolderContent(folderId) {
+  const r = await gapi.client.drive.files.list({
+    q: `'${folderId}' in parents and trashed = false`,
+    fields: 'files(id, name, mimeType)',
+    pageSize: 1000
+  });
+  return r.result.files || [];
+}
+
+function extractGapiError(e) {
+  if (!e) return 'Erreur inconnue';
+  if (typeof e === 'string') return e;
+  if (e.message) return e.message;
+  if (e.result?.error?.message) return e.result.error.message;
+  if (e.body) { try { return JSON.parse(e.body).error?.message || e.body; } catch { return e.body; } }
+  return JSON.stringify(e);
+}
+
+async function syncDriveAll() {
+  if (isSyncing) { toast('Sync déjà en cours...', 'warn'); return; }
+  if (!driveState.connected) { toast('Pas connecté à Drive', 'error'); return; }
+  isSyncing = true;
+  const btn = document.getElementById('btn-sync-now');
+  if (btn) { btn.disabled = true; btn.textContent = '🔄 Sync en cours...'; }
+  const watchdog = setTimeout(() => {
+    isSyncing = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync maintenant'; }
+    logSync('Watchdog: sync forcée à se terminer', 'error');
+    toast('⚠ Sync timeout (60s)', 'warn');
+  }, 60000);
+
+  let totalFound = 0, totalNew = 0;
+  try {
+    const { data: products } = await sb.from('products').select('*');
+    const { data: adsAll } = await sb.from('ads').select('*');
+    for (const p of (products || [])) {
+      if (!p.drive_folder_id) continue;
+      try {
+        const res = await syncDriveProduit(p, adsAll);
+        totalFound += res.found;
+        totalNew += res.marked;
+      } catch (e) {
+        await logSync(`Erreur sync ${p.id} : ${extractGapiError(e)}`, 'error');
+      }
+    }
+    await sb.from('drive_config').update({ updated_at: new Date().toISOString() }).eq('id', 1);
+    await logSync(`Sync globale : ${totalFound} fichiers scannés, ${totalNew} traduction(s)`, 'success');
+    toast(`✅ Sync OK — ${totalNew} nouveau(x)`, 'success');
+  } catch (e) {
+    await logSync('Erreur sync : ' + extractGapiError(e), 'error');
+    toast('Erreur : ' + extractGapiError(e), 'error');
+  } finally {
+    clearTimeout(watchdog);
+    isSyncing = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync maintenant'; }
+    render();
+  }
+}
+
+async function syncDriveProduit(p, adsAll) {
+  let found = 0, marked = 0;
+  const { data: countries } = await sb.from('countries').select('*');
+  const countryFolders = await driveListFolderContent(p.drive_folder_id);
+  const pAds = adsAll.filter(a => a.product_id === p.id);
+  const now = new Date().toISOString();
+
+  for (const cf of countryFolders) {
+    if (cf.mimeType !== 'application/vnd.google-apps.folder') continue;
+    const country = countries.find(c => c.id.toUpperCase() === cf.name.toUpperCase());
+    if (!country) continue;
+    const files = await driveListFolderContent(cf.id);
+    for (const file of files) {
+      if (file.mimeType === 'application/vnd.google-apps.folder') continue;
+      const match = file.name.match(/Ad\s*(\d+)/i);
+      if (!match) continue;
+      const adName = 'Ad ' + parseInt(match[1], 10);
+      const ad = pAds.find(a => a.name.toLowerCase() === adName.toLowerCase());
+      if (!ad) continue;
+      found++;
+      // Check if ad_country already marked trad=true
+      const { data: existing } = await sb.from('ad_countries').select('*').eq('ad_id', ad.id).eq('country_id', country.id).maybeSingle();
+      if (!existing?.trad) {
+        if (existing) {
+          await sb.from('ad_countries').update({ trad: true, trad_at: now, drive_file_id: file.id, updated_at: now, updated_by: currentUser.id }).eq('ad_id', ad.id).eq('country_id', country.id);
+        } else {
+          await sb.from('ad_countries').insert({ ad_id: ad.id, country_id: country.id, trad: true, trad_at: now, drive_file_id: file.id, updated_by: currentUser.id });
+        }
+        marked++;
+        await logSync(`✅ ${p.id} / ${country.id} / ${adName} marqué traduit`, 'success');
+      }
+    }
+  }
+  return { found, marked };
+}
+
+function setupAutoSync() {
+  clearInterval(autoSyncTimer);
+  (async () => {
+    const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+    // Auto-sync interval is stored client-side in localStorage for now (per user pref)
+    const interval = parseInt(localStorage.getItem('keycorp_autosync_interval') || '15', 10);
+    const enabled = localStorage.getItem('keycorp_autosync_enabled') === 'true';
+    if (enabled && driveState.connected && interval >= 5) {
+      autoSyncTimer = setInterval(() => { if (driveState.connected) syncDriveAll(); }, interval * 60 * 1000);
+      logSync(`Sync auto activée (${interval} min)`, 'info');
+    }
+  })();
+}
+
+async function renderDrive(el) {
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+  const { data: logs } = await sb.from('sync_log').select('*').order('ts', { ascending: false }).limit(50);
+  const autoEnabled = localStorage.getItem('keycorp_autosync_enabled') === 'true';
+  const autoInterval = parseInt(localStorage.getItem('keycorp_autosync_interval') || '15', 10);
+  const lastSyncStr = cfg?.updated_at ? new Date(cfg.updated_at).toLocaleString('fr-FR') : 'jamais';
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Google Drive</div>
+        <div class="page-subtitle">Synchronisation auto des traductions depuis tes dossiers Drive</div>
+      </div>
+      <div class="sync-status">
+        <span class="sync-dot ${driveState.connected ? 'connected' : 'disconnected'}"></span>
+        <span>${driveState.connected ? 'Connecté' : 'Non connecté'}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">🔐 Authentification Google</div></div>
+      <div class="input-group">
+        <label class="input-label">Client ID OAuth2</label>
+        <input class="input mono" id="drive-client-id" value="${escapeHtml(cfg?.client_id || '')}" ${!isAdmin() ? 'disabled' : ''} placeholder="XXXXX-xxxxx.apps.googleusercontent.com">
+        <div class="input-hint">Créé dans Google Cloud Console → APIs & Services → Credentials</div>
+      </div>
+      <div class="input-group">
+        <label class="input-label">API Key</label>
+        <input class="input mono" id="drive-api-key" value="${escapeHtml(cfg?.api_key || '')}" ${!isAdmin() ? 'disabled' : ''} placeholder="AIzaSy...">
+      </div>
+      <div class="flex gap-sm mt-md">
+        ${isAdmin() ? '<button class="btn btn-secondary" id="btn-save-drive-config">Enregistrer config</button>' : ''}
+        ${driveState.connected ? `
+          <button class="btn" style="background:var(--green)" disabled>✓ Connecté</button>
+          <button class="btn btn-ghost" id="btn-drive-disconnect">Déconnecter</button>
+        ` : `<button class="btn" id="btn-drive-connect">Se connecter à Drive</button>`}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">📁 Dossier racine</div></div>
+      <div class="input-group">
+        <label class="input-label">ID du dossier racine Drive</label>
+        <input class="input mono" id="drive-root-folder" value="${escapeHtml(cfg?.root_folder_id || '')}" ${!isAdmin() ? 'disabled' : ''} placeholder="1ABCxyz...">
+        <div class="input-hint">Dossier contenant tous tes sous-dossiers produits (F0001, F0002...). Récupère-le dans l'URL Drive.</div>
+      </div>
+      ${isAdmin() ? '<button class="btn btn-secondary" id="btn-save-root">Enregistrer</button>' : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">🔄 Synchronisation</div>
+        <div class="flex gap-sm">
+          <span class="text-sm text-dim">Dernière sync : ${lastSyncStr}</span>
+          <button class="btn" id="btn-sync-now" ${!driveState.connected ? 'disabled' : ''}>🔄 Sync maintenant</button>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:12px">
+        <div>
+          <div style="font-weight:600">Sync automatique</div>
+          <div class="text-sm text-dim">Vérifie Drive toutes les ${autoInterval} minutes</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="auto-sync-toggle" ${autoEnabled ? 'checked' : ''}>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="input-group">
+        <label class="input-label">Intervalle (minutes)</label>
+        <input class="input mono" id="auto-sync-interval" type="number" min="5" max="180" value="${autoInterval}">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">📜 Journal de synchronisation</div>
+        ${isAdmin() ? '<button class="btn btn-ghost btn-sm" id="btn-clear-log">Vider</button>' : ''}
+      </div>
+      ${(logs || []).length === 0 ? '<div class="empty"><div class="empty-text">Aucun événement</div></div>' : `
+        <div class="log-list">
+          ${logs.map(l => `
+            <div class="log-entry ${l.type}">
+              <div class="log-msg">${escapeHtml(l.msg)}</div>
+              <div class="log-time">${new Date(l.ts).toLocaleString('fr-FR')}</div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+    </div>
+  `;
+
+  document.getElementById('btn-save-drive-config')?.addEventListener('click', async () => {
+    await sb.from('drive_config').update({
+      client_id: document.getElementById('drive-client-id').value.trim(),
+      api_key: document.getElementById('drive-api-key').value.trim(),
+      updated_by: currentUser.id
+    }).eq('id', 1);
+    toast('Config sauvegardée', 'success');
+  });
+  document.getElementById('btn-save-root')?.addEventListener('click', async () => {
+    await sb.from('drive_config').update({
+      root_folder_id: document.getElementById('drive-root-folder').value.trim(),
+      updated_by: currentUser.id
+    }).eq('id', 1);
+    toast('Dossier racine enregistré', 'success');
+  });
+  document.getElementById('btn-drive-connect')?.addEventListener('click', () => driveConnect());
+  document.getElementById('btn-drive-disconnect')?.addEventListener('click', driveDisconnect);
+  document.getElementById('btn-sync-now')?.addEventListener('click', syncDriveAll);
+  document.getElementById('btn-clear-log')?.addEventListener('click', async () => {
+    if (!await confirmDialog('Vider le journal', 'Tous les logs seront supprimés.')) return;
+    await sb.from('sync_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    toast('Journal vidé', 'success');
+    render();
+  });
+  document.getElementById('auto-sync-toggle')?.addEventListener('change', (e) => {
+    localStorage.setItem('keycorp_autosync_enabled', e.target.checked ? 'true' : 'false');
+    setupAutoSync();
+    toast(e.target.checked ? 'Sync auto activée' : 'Sync auto désactivée', 'success');
+  });
+  document.getElementById('auto-sync-interval')?.addEventListener('change', (e) => {
+    const v = Math.max(5, parseInt(e.target.value, 10) || 15);
+    localStorage.setItem('keycorp_autosync_interval', String(v));
+    setupAutoSync();
+  });
 }
 
 /* ============================================================
