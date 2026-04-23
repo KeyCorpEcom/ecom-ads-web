@@ -764,7 +764,12 @@ async function renderProduit(el, productId) {
         <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}</div>
         <div class="page-subtitle">${escapeHtml(product.name || '')} · ${ads.length} ads · ${countries.length} pays</div>
       </div>
-      ${canEdit() ? '<button class="btn btn-sm" id="btn-add-ad">+ Ad</button>' : ''}
+      ${canEdit() ? `
+        <div class="flex gap-sm">
+          <button class="btn btn-secondary btn-sm" id="btn-edit-product">⚙️ Éditer</button>
+          <button class="btn btn-sm" id="btn-add-ad">+ Ad</button>
+        </div>
+      ` : ''}
     </div>
 
     ${ads.length === 0 ? `
@@ -814,6 +819,107 @@ async function renderProduit(el, productId) {
     `}
   `;
 
+  // === Sections supplémentaires (marchés, config Drive, upload rapide) ===
+  const extraSections = document.createElement('div');
+  const cutCountries = product.cut_countries || [];
+  const activeCount = countries.filter(c => !cutCountries.includes(c.id)).length;
+  const cutCount = countries.filter(c => cutCountries.includes(c.id)).length;
+
+  extraSections.innerHTML = `
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">📊 Statut des marchés</div>
+        <div class="flex gap-sm text-sm">
+          <span style="color:var(--green)">● ${activeCount} actif${activeCount > 1 ? 's' : ''}</span>
+          <span style="color:var(--red)">✂ ${cutCount} coupé${cutCount > 1 ? 's' : ''}</span>
+        </div>
+      </div>
+      <div class="text-sm text-dim mb-md">Clique sur un marché pour le couper/réactiver. Les marchés coupés restent visibles dans le tableau (grisés) pour garder l'historique.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${countries.map(c => {
+          const isCut = cutCountries.includes(c.id);
+          return `
+            <button class="market-chip ${isCut ? 'cut' : 'active'}" data-toggle-cut="${c.id}"
+              style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;cursor:pointer;border:1px solid ${isCut ? 'var(--red)' : 'var(--green)'};background:${isCut ? 'rgba(248,113,113,0.12)' : 'rgba(52,211,153,0.12)'};color:${isCut ? 'var(--red)' : 'var(--green)'};font-family:inherit;font-size:13px;font-weight:600;${!canEdit() ? 'opacity:0.6;cursor:not-allowed' : ''}">
+              <span style="width:8px;height:8px;border-radius:50%;background:${isCut ? 'var(--red)' : 'var(--green)'}"></span>
+              <span style="${isCut ? 'text-decoration:line-through' : ''}">${flagImg(c.id)}${c.id}</span>
+              <span style="font-size:11px;opacity:0.8">${isCut ? '✂ coupé' : 'actif'}</span>
+            </button>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">📤 Upload rapide</div>
+        <span class="text-sm text-dim">Drive sync à venir dans une prochaine mise à jour</span>
+      </div>
+      <div class="grid-2">
+        <div style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;opacity:0.6">
+          <div style="font-size:24px;margin-bottom:8px">🎥</div>
+          <div style="font-weight:600;margin-bottom:4px">Videos concurrent</div>
+          <div class="text-sm text-dim">Raw, avec sous-titres → <span class="mono">00_Ads_Concurrent/</span></div>
+        </div>
+        <div style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;opacity:0.6">
+          <div style="font-size:24px;margin-bottom:8px">🎬</div>
+          <div style="font-weight:600;margin-bottom:4px">Masters (nettoyés)</div>
+          <div class="text-sm text-dim">Sans sous-titres → <span class="mono">00_Master_Ads/</span></div>
+        </div>
+      </div>
+      <div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)">
+        💡 <strong>Pour activer l'upload</strong> : il faut brancher Google Drive à l'app web (OAuth). C'est une session de dev séparée — on le fera quand tu seras prêt. Pour l'instant, tes employés uploadent directement dans Drive via drive.google.com.
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">📁 Config Drive</div>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div class="text-sm text-dim" style="margin-bottom:4px">Dossier Drive du produit</div>
+          <div class="mono text-sm" style="padding:10px;background:var(--bg-input);border-radius:6px;word-break:break-all;border:1px solid var(--border-soft)">
+            ${product.drive_folder_id ? escapeHtml(product.drive_folder_id) : '<span style="color:var(--text-mute)">Non configuré — clique ⚙️ Éditer pour ajouter l\'ID</span>'}
+          </div>
+        </div>
+        <div>
+          <div class="text-sm text-dim" style="margin-bottom:4px">Structure attendue dans ce dossier</div>
+          <div class="mono text-sm" style="padding:10px;background:var(--bg-input);border-radius:6px;line-height:1.7;border:1px solid var(--border-soft)">
+            📁 ${escapeHtml(product.id)}${product.name && product.name !== product.id ? ' — ' + escapeHtml(product.name) : ''}/<br>
+            &nbsp;&nbsp;📁 <span style="color:var(--gold)">00_Ads_Concurrent/</span> <span class="text-mute">(videos brutes)</span><br>
+            &nbsp;&nbsp;📁 <span style="color:var(--gold)">00_Master_Ads/</span> <span class="text-mute">(videos nettoyées)</span><br>
+            ${countries.map(c => {
+              const isCut = cutCountries.includes(c.id);
+              return `&nbsp;&nbsp;📁 <span style="color:${isCut ? 'var(--red)' : 'var(--gold)'};${isCut ? 'text-decoration:line-through' : ''}">${escapeHtml(c.id)}/</span> <span class="text-mute">(Ad 1.mp4, Ad 2.mp4, ...)</span>`;
+            }).join('<br>')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  el.appendChild(extraSections);
+
+  // Event listeners pour cut/activate markets
+  extraSections.querySelectorAll('[data-toggle-cut]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+      const cId = btn.dataset.toggleCut;
+      const currentCut = product.cut_countries || [];
+      let newCut;
+      if (currentCut.includes(cId)) {
+        newCut = currentCut.filter(x => x !== cId);
+        toast(`${cId} réactivé`, 'success');
+      } else {
+        newCut = [...currentCut, cId];
+        toast(`${cId} coupé`, 'info');
+      }
+      const { error } = await sb.from('products').update({ cut_countries: newCut }).eq('id', productId);
+      if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      render();
+    });
+  });
+
   // Ad Copy icons
   el.querySelectorAll('[data-ad-copy]').forEach(icon => {
     icon.addEventListener('click', (e) => {
@@ -827,6 +933,75 @@ async function renderProduit(el, productId) {
   setupMetaDragSelect(el);
 
   document.getElementById('btn-add-ad')?.addEventListener('click', () => addAdFlow(productId));
+  document.getElementById('btn-edit-product')?.addEventListener('click', () => editProductFlow(productId));
+}
+
+async function editProductFlow(productId) {
+  const { data: product } = await sb.from('products').select('*').eq('id', productId).single();
+  const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
+  if (!product) return;
+  const enabled = (product.enabled_countries && product.enabled_countries.length) ? [...product.enabled_countries] : allCountries.map(c => c.id);
+  const countriesHtml = allCountries.map(c => `
+    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
+      <input type="checkbox" data-edit-country-check="${c.id}" ${enabled.includes(c.id) ? 'checked' : ''} style="margin:0;accent-color:${c.color}">
+      ${c.id}
+    </label>
+  `).join('');
+
+  let deleteRequested = false;
+  const r = await modalWithOpen(`
+    <div class="modal-title">Éditer ${escapeHtml(product.id)}</div>
+    <div class="input-group">
+      <label class="input-label">Nom / description</label>
+      <input class="input" data-field="name" value="${escapeHtml(product.name || '')}">
+    </div>
+    <div class="input-group">
+      <label class="input-label">ID du dossier Drive</label>
+      <input class="input mono" data-field="driveFolderId" value="${escapeHtml(product.drive_folder_id || '')}" placeholder="1ABCxyz...">
+      <div class="input-hint">Récupère l'ID depuis l'URL Drive: drive.google.com/drive/folders/<strong>ID_ICI</strong></div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">🌍 Marchés actifs pour ce produit</label>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border)">
+        ${countriesHtml}
+      </div>
+      <div class="input-hint">Décoche les pays où tu ne lances pas ce produit.</div>
+    </div>
+    <div class="modal-actions">
+      ${isAdmin() ? '<button class="btn btn-danger btn-sm" id="btn-delete-product">Supprimer produit</button>' : ''}
+      <div style="flex:1"></div>
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `, (bd) => {
+    bd.querySelectorAll('[data-edit-country-check]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const cid = cb.dataset.editCountryCheck;
+        if (cb.checked) { if (!enabled.includes(cid)) enabled.push(cid); }
+        else { const i = enabled.indexOf(cid); if (i >= 0) enabled.splice(i, 1); }
+      });
+    });
+    bd.querySelector('#btn-delete-product')?.addEventListener('click', async () => {
+      if (await confirmDialog('Supprimer le produit', `${product.id} et toutes ses ads seront supprimés. Irréversible.`)) {
+        await sb.from('products').delete().eq('id', product.id);
+        toast(`${product.id} supprimé`, 'success');
+        deleteRequested = true;
+        bd.remove();
+        navigate('produits');
+      }
+    });
+  });
+  if (deleteRequested) return;
+  if (!r) return;
+  if (enabled.length === 0) { toast('Au moins 1 marché requis', 'error'); return; }
+  const { error } = await sb.from('products').update({
+    name: (r.name || '').trim() || product.id,
+    drive_folder_id: (r.driveFolderId || '').trim() || null,
+    enabled_countries: enabled
+  }).eq('id', product.id);
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast('Produit mis à jour', 'success');
+  render();
 }
 
 async function addAdFlow(productId) {
