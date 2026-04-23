@@ -1667,12 +1667,26 @@ async function initGapiClient(apiKey) {
 
 async function driveConnect(options = {}) {
   const silent = options.silent === true;
-  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+  let cfg = null;
+  try {
+    const { data } = await sb.from('drive_config').select('*').eq('id', 1).maybeSingle();
+    cfg = data;
+  } catch (e) {
+    console.error('[DRIVE] Erreur lecture config', e);
+    if (!silent) toast('Erreur lecture config : ' + (e.message || JSON.stringify(e)), 'error');
+    return;
+  }
   if (!cfg?.client_id || !cfg?.api_key) {
     if (!silent) toast('Renseigne Client ID et API Key d\'abord', 'error');
     return;
   }
   try {
+    // Wait for Google libs to be loaded
+    await waitForGoogleLibs();
+    if (!window.google?.accounts?.oauth2) {
+      if (!silent) toast('Google Identity Services non chargé — recharge la page', 'error');
+      return;
+    }
     await initGapiClient(cfg.api_key);
     if (!driveState.tokenClient) {
       driveState.tokenClient = google.accounts.oauth2.initTokenClient({
@@ -1680,7 +1694,8 @@ async function driveConnect(options = {}) {
         scope: 'https://www.googleapis.com/auth/drive.readonly',
         callback: async (resp) => {
           if (resp.error) {
-            if (!silent) toast('Erreur OAuth : ' + resp.error, 'error');
+            console.error('[DRIVE] OAuth callback error', resp);
+            if (!silent) toast('Erreur OAuth : ' + (resp.error_description || resp.error), 'error');
             return;
           }
           driveState.accessToken = resp.access_token;
@@ -1697,13 +1712,21 @@ async function driveConnect(options = {}) {
           setupAutoSync();
         },
         error_callback: (err) => {
-          if (!silent) toast('OAuth annulé ou erreur', 'warn');
+          console.error('[DRIVE] error_callback', err);
+          if (!silent) {
+            const msg = err?.message || err?.type || JSON.stringify(err || {});
+            toast('OAuth erreur : ' + msg, 'error');
+          }
         }
       });
     }
     driveState.tokenClient.requestAccessToken({ prompt: silent ? '' : (driveState.accessToken ? '' : 'consent') });
   } catch (e) {
-    if (!silent) toast('Erreur : ' + e.message, 'error');
+    console.error('[DRIVE] Connect error', e);
+    if (!silent) {
+      const msg = e?.message || e?.result?.error?.message || e?.error?.message || JSON.stringify(e || {});
+      toast('Erreur connexion Drive : ' + msg, 'error', 6000);
+    }
   }
 }
 
