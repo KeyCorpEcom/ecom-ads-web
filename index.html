@@ -2195,9 +2195,12 @@ async function editAdCopyFlow(adId) {
    FEATURE: BATCH DRAG SELECT ON META CELLS
    ============================================================ */
 let _metaMouseupHandler = null;
+const DRAG_THRESHOLD = 5; // pixels avant de considérer qu'on drag vraiment
+
 function setupMetaDragSelect(container) {
   let dragging = false;
   let startCell = null;
+  let startX = 0, startY = 0;
   let selectedCells = new Set();
 
   // Remove previous global listener si existe (évite duplication à chaque render)
@@ -2216,7 +2219,7 @@ function setupMetaDragSelect(container) {
   }
   function getCellBounds(cell) {
     const rect = cell.getBoundingClientRect();
-    return { el: cell, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
+    return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
   }
   function rectsIntersect(a, b) {
     return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
@@ -2242,19 +2245,26 @@ function setupMetaDragSelect(container) {
   }
 
   container.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return; // seulement clic gauche
     const cell = e.target.closest('.check-cell[data-toggle-meta]');
     if (!cell) return;
     if (!canEdit()) return;
     startCell = cell;
+    startX = e.clientX;
+    startY = e.clientY;
     dragging = false;
-    clearSelection();
-    cell.classList.add('batch-selected');
-    selectedCells.add(cell.dataset.toggleMeta);
-    e.preventDefault();
+    // PAS d'highlight tant qu'on n'a pas bougé au-delà du threshold
   });
   container.addEventListener('mousemove', (e) => {
     if (!startCell) return;
-    dragging = true;
+    const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+    if (!dragging && dist < DRAG_THRESHOLD) return; // pas encore un drag
+    if (!dragging) {
+      // Début réel du drag : highlight la cellule de départ
+      dragging = true;
+      startCell.classList.add('batch-selected');
+      selectedCells.add(startCell.dataset.toggleMeta);
+    }
     updateSelection(e.clientX, e.clientY);
   });
   _metaMouseupHandler = async (e) => {
@@ -2264,11 +2274,14 @@ function setupMetaDragSelect(container) {
     const start = startCell;
     startCell = null;
     dragging = false;
-    if (!wasDrag || cellsToAct.length <= 1) {
-      // Simple clic : toggle
-      clearSelection();
+    if (!wasDrag) {
+      // Simple clic : toggle (aucun highlight bleu n'a été appliqué)
       const [adId, cId] = start.dataset.toggleMeta.split('|');
       await toggleMetaCell(adId, cId);
+      return;
+    }
+    if (cellsToAct.length <= 1) {
+      clearSelection();
       return;
     }
     // Drag multi : afficher la barre
