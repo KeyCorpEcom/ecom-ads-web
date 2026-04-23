@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ECOM Ads Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#08080c;--bg-card:#12121a;--bg-card-hover:#1a1a24;--bg-input:#0c0c12;
+  --border:#2a2a3a;--border-soft:#1e1e28;
+  --text:#e5e5ea;--text-dim:#8a8a9a;--text-mute:#5a5a6a;
+  --gold:#c8a55a;--gold-dim:#8a7340;
+  --green:#34d399;--red:#f87171;--orange:#fbbf24;--blue:#60a5fa;--purple:#c084fc;
+  --shadow:0 4px 12px rgba(0,0,0,0.3);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:'Outfit',system-ui,sans-serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+.mono{font-family:'JetBrains Mono',monospace}
+a{color:var(--gold);text-decoration:none}
+
+/* ============ LOGIN SCREEN ============ */
+.login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(ellipse at center,#1a1a24 0%,#08080c 70%)}
+.login-box{background:var(--bg-card);border:1px solid var(--border);border-radius:16px;padding:40px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.5)}
+.login-logo{text-align:center;margin-bottom:24px}
+.login-logo-main{font-size:22px;font-weight:800;color:var(--gold);letter-spacing:-0.02em;margin-bottom:4px}
+.login-logo-sub{font-size:10px;color:var(--text-mute);text-transform:uppercase;letter-spacing:2px}
+.login-title{font-size:18px;font-weight:700;margin-bottom:6px;text-align:center}
+.login-subtitle{font-size:12px;color:var(--text-dim);text-align:center;margin-bottom:24px}
+
+/* ============ APP LAYOUT ============ */
+.app{display:flex;min-height:100vh}
+.sidebar{width:240px;background:var(--bg-card);border-right:1px solid var(--border);padding:20px 14px;flex-shrink:0;display:flex;flex-direction:column}
+.logo{font-size:18px;font-weight:800;color:var(--gold);padding:8px 12px;letter-spacing:-0.02em}
+.logo-sub{font-size:11px;color:var(--text-mute);padding:0 12px;margin-bottom:24px;text-transform:uppercase;letter-spacing:1px}
+.nav{flex:1}
+.nav-section-label{font-size:11px;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.5px;padding:12px 12px 6px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;color:var(--text-dim);cursor:pointer;font-size:14px;font-weight:500;margin-bottom:2px;transition:all 0.15s;user-select:none;text-decoration:none}
+.nav-item:hover{background:var(--bg-card-hover);color:var(--text)}
+.nav-item.active{background:rgba(200,165,90,0.1);color:var(--gold)}
+.nav-icon{font-size:16px;width:20px;text-align:center}
+.nav-badge{margin-left:auto;font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg-input);color:var(--text-dim);font-weight:600}
+
+.user-box{padding:12px;border-top:1px solid var(--border-soft);margin-top:8px}
+.user-name{font-size:13px;font-weight:600;color:var(--text)}
+.user-role{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px}
+.user-role.admin{color:var(--gold)}
+.user-role.editor{color:var(--green)}
+.user-role.viewer{color:var(--blue)}
+.btn-logout{width:100%;margin-top:10px;background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-logout:hover{background:var(--bg-input);color:var(--red);border-color:var(--red)}
+
+.main{flex:1;padding:32px 40px;max-width:1700px;overflow-x:hidden}
+
+.page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:16px}
+.page-title{font-size:26px;font-weight:700;letter-spacing:-0.02em}
+.page-subtitle{color:var(--text-dim);font-size:14px;margin-top:4px}
+
+/* ============ COMPONENTS ============ */
+.card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+.card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px}
+.card-title{font-size:15px;font-weight:600}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+.kpi-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px}
+.kpi-label{font-size:11px;color:var(--text-mute);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;font-weight:500}
+.kpi-value{font-size:30px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:-0.02em;line-height:1}
+.kpi-value.gold{color:var(--gold)}.kpi-value.green{color:var(--green)}.kpi-value.red{color:var(--red)}.kpi-value.blue{color:var(--blue)}
+.kpi-sub{font-size:11px;color:var(--text-dim);margin-top:6px}
+
+.btn{background:var(--gold);color:#0a0a0a;border:none;padding:10px 20px;border-radius:8px;font-family:inherit;font-weight:600;font-size:13px;cursor:pointer;transition:all 0.15s;display:inline-flex;align-items:center;gap:8px;text-decoration:none}
+.btn:hover{filter:brightness(1.1);transform:translateY(-1px)}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-secondary{background:var(--bg-card);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{background:var(--bg-card-hover);filter:none}
+.btn-ghost{background:transparent;color:var(--text-dim);padding:6px 12px}
+.btn-ghost:hover{background:var(--bg-card);color:var(--text);transform:none}
+.btn-danger{background:var(--red);color:#fff}
+.btn:disabled{opacity:0.5;cursor:not-allowed;transform:none!important}
+.btn-block{width:100%;justify-content:center}
+
+.input,.select,textarea.input{background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-family:inherit;font-size:13px;width:100%;transition:border-color 0.15s}
+.input:focus,.select:focus,textarea.input:focus{border-color:var(--gold);outline:none}
+.input-group{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+.input-label{font-size:12px;color:var(--text-dim);font-weight:500}
+.input-hint{font-size:11px;color:var(--text-mute);margin-top:2px}
+
+/* Table */
+.ads-table{width:100%;border-collapse:collapse;margin-top:16px}
+.ads-table th,.ads-table td{padding:9px 8px;text-align:center;border-bottom:1px solid var(--border-soft);font-size:13px}
+.ads-table th{background:var(--bg);font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;white-space:nowrap}
+.ads-table .ad-col{text-align:left;padding-left:16px;min-width:100px;font-weight:600;font-family:'JetBrains Mono',monospace}
+.check-cell{cursor:pointer;user-select:none;transition:background 0.1s}
+.check-cell:hover{background:rgba(255,255,255,0.05)}
+.check-cell.auto{cursor:not-allowed;opacity:0.85}
+.check-cell.readonly{cursor:not-allowed}
+.check-icon{display:inline-block;width:22px;height:22px;border-radius:6px;background:var(--bg-input);border:1.5px solid var(--border);transition:all 0.15s;position:relative}
+.check-icon.checked{background:var(--green);border-color:var(--green)}
+.check-icon.checked::after{content:'';position:absolute;inset:4px 4px 4px 4px;background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat}
+.check-icon.meta.checked{background:var(--blue);border-color:var(--blue)}
+.check-icon.meta.checked::after{content:'🚀';background:none;inset:auto;font-size:14px;display:flex;align-items:center;justify-content:center;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+
+/* Product grid */
+.product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.product-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px;cursor:pointer;transition:all 0.15s}
+.product-card:hover{background:var(--bg-card-hover);border-color:var(--gold);transform:translateY(-2px)}
+.product-card-title{font-size:18px;font-weight:700;color:var(--gold);margin-bottom:4px;font-family:'JetBrains Mono',monospace}
+.product-card-sub{font-size:12px;color:var(--text-dim);margin-bottom:14px}
+
+/* Users table (admin) */
+.users-table{width:100%;border-collapse:collapse}
+.users-table th,.users-table td{padding:12px 14px;text-align:left;border-bottom:1px solid var(--border-soft);font-size:13px}
+.users-table th{background:var(--bg);font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px}
+
+.badge{display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600}
+.badge.admin{background:rgba(200,165,90,0.15);color:var(--gold)}
+.badge.editor{background:rgba(52,211,153,0.15);color:var(--green)}
+.badge.viewer{background:rgba(96,165,250,0.15);color:var(--blue)}
+
+.empty{text-align:center;padding:60px 20px;color:var(--text-dim)}
+.empty-icon{font-size:48px;margin-bottom:16px;opacity:0.5}
+.empty-title{font-size:18px;font-weight:600;color:var(--text);margin-bottom:6px}
+
+/* Toasts */
+#toast-container{position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:12px 18px;font-size:13px;box-shadow:var(--shadow);animation:slideIn 0.25s;min-width:260px}
+.toast.success{border-left:3px solid var(--green)}
+.toast.error{border-left:3px solid var(--red)}
+.toast.info{border-left:3px solid var(--blue)}
+@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+
+/* Modal */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.modal{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:24px;min-width:400px;max-width:600px;max-height:90vh;overflow-y:auto}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:16px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border-soft)}
+
+.loading{display:flex;align-items:center;justify-content:center;padding:60px;color:var(--text-dim)}
+.spinner{width:24px;height:24px;border:3px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin 0.6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.flex{display:flex}.flex-between{display:flex;justify-content:space-between;align-items:center}
+.gap-sm{gap:8px}.mt-md{margin-top:16px}.mb-md{margin-bottom:16px}
+.text-dim{color:var(--text-dim)}.text-sm{font-size:12px}.text-right{text-align:right}.hidden{display:none!important}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+
+.country-flag{width:22px;height:auto;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle;box-shadow:0 0 0 1px rgba(255,255,255,0.08)}
+
+.role-select{background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:12px;font-family:inherit}
+
+.auth-error{background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:14px}
+</style>
+</head>
+<body>
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div class="login-screen" id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="login-logo-main">ECOM ADS</div>
+      <div class="login-logo-sub">TRACKER</div>
+    </div>
+    <div class="login-title">Connexion</div>
+    <div class="login-subtitle">Connecte-toi avec ton compte</div>
+    <div id="auth-error" class="auth-error hidden"></div>
+    <form id="login-form">
+      <div class="input-group">
+        <label class="input-label">Email</label>
+        <input type="email" class="input" id="login-email" required autofocus>
+      </div>
+      <div class="input-group">
+        <label class="input-label">Mot de passe</label>
+        <input type="password" class="input" id="login-password" required>
+      </div>
+      <button type="submit" class="btn btn-block" id="login-btn">Se connecter</button>
+    </form>
+    <div style="margin-top:16px;text-align:center">
+      <a href="#" id="link-forgot" style="font-size:12px;color:var(--text-dim)">Mot de passe oublié ?</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div class="app hidden" id="app">
+  <aside class="sidebar">
+    <div class="logo">ECOM ADS</div>
+    <div class="logo-sub">TRACKER</div>
+    <nav class="nav">
+      <div class="nav-section-label">Vue d'ensemble</div>
+      <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
+      <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
+      <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
+      <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon">👥</span>Utilisateurs</a>
+      <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon">⚙️</span>Paramètres</a>
+    </nav>
+    <div class="user-box">
+      <div class="user-name" id="user-name">—</div>
+      <div class="user-role" id="user-role">—</div>
+      <button class="btn-logout" id="btn-logout">Déconnexion</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div id="page"></div>
+  </main>
+</div>
+
+<div id="toast-container"></div>
+<div id="modal-container"></div>
+
+<script>
+'use strict';
+
+/* ============================================================
+   SUPABASE CLIENT
+   ============================================================ */
+const SUPABASE_URL = 'https://pxzfjnsngtjzfqmahgaj.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_sBtkPxK7xUvMlneKK9z2nA_MKIJtkJg';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let currentProfile = null;
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function fmt(n) { return Number(n || 0).toLocaleString('fr-FR'); }
+function pct(a, b) { return b === 0 ? 0 : Math.round((a / b) * 100); }
+function flagImg(countryId) {
+  const ISO_BY_ID = { UK: 'gb', EL: 'gr' };
+  const iso = (ISO_BY_ID[countryId] || countryId || '').toLowerCase();
+  return `<img src="https://flagcdn.com/w40/${iso}.png" class="country-flag" alt="${escapeHtml(countryId)}" onerror="this.style.display='none'">`;
+}
+
+function toast(msg, type = 'info', duration = 3000) {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  const icon = { success: '✅', error: '⚠️', info: 'ℹ️' }[type] || '';
+  t.innerHTML = `<span>${icon}</span> <span>${escapeHtml(msg)}</span>`;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }, duration);
+}
+
+function modal(contentHtml) {
+  return new Promise(resolve => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `<div class="modal">${contentHtml}</div>`;
+    container.appendChild(bd);
+    const close = (r) => { bd.remove(); resolve(r); };
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelectorAll('[data-modal-close]').forEach(el => el.addEventListener('click', () => close(null)));
+    bd.querySelectorAll('[data-modal-ok]').forEach(el => el.addEventListener('click', () => {
+      const r = {};
+      bd.querySelectorAll('[data-field]').forEach(f => { r[f.dataset.field] = f.value; });
+      close(r);
+    }));
+    setTimeout(() => bd.querySelector('input,select,textarea')?.focus(), 50);
+  });
+}
+
+function confirmDialog(title, msg) {
+  return modal(`
+    <div class="modal-title">${escapeHtml(title)}</div>
+    <div class="text-dim text-sm">${escapeHtml(msg)}</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Confirmer</button>
+    </div>
+  `).then(r => !!r);
+}
+
+/* ============================================================
+   AUTH
+   ============================================================ */
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value;
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('login-btn');
+  const err = document.getElementById('auth-error');
+  err.className = 'auth-error hidden';
+  btn.disabled = true;
+  btn.textContent = 'Connexion...';
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    await initApp(data.user);
+  } catch (e) {
+    err.className = 'auth-error';
+    err.textContent = e.message || 'Erreur de connexion';
+    btn.disabled = false;
+    btn.textContent = 'Se connecter';
+  }
+});
+
+document.getElementById('link-forgot').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const r = await modal(`
+    <div class="modal-title">Réinitialiser le mot de passe</div>
+    <div class="text-sm text-dim mb-md">Entre ton email, tu recevras un lien de reset.</div>
+    <div class="input-group">
+      <input type="email" class="input" data-field="email" placeholder="email@example.com">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Envoyer</button>
+    </div>
+  `);
+  if (!r || !r.email) return;
+  const { error } = await sb.auth.resetPasswordForEmail(r.email, {
+    redirectTo: window.location.origin + '/#reset-password'
+  });
+  if (error) toast('Erreur : ' + error.message, 'error');
+  else toast('Email de reset envoyé si le compte existe', 'success');
+});
+
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  currentUser = null;
+  currentProfile = null;
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+});
+
+async function initApp(user) {
+  currentUser = user;
+  // Charger le profil (rôle)
+  const { data: profile, error } = await sb.from('profiles').select('*').eq('id', user.id).single();
+  if (error || !profile) {
+    toast('Profil introuvable. Contacte un admin.', 'error');
+    await sb.auth.signOut();
+    return;
+  }
+  currentProfile = profile;
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.getElementById('user-name').textContent = profile.full_name || profile.email;
+  const roleEl = document.getElementById('user-role');
+  roleEl.textContent = profile.role;
+  roleEl.className = 'user-role ' + profile.role;
+  // Afficher les menus admin
+  if (profile.role === 'admin') {
+    document.getElementById('nav-admin-label').style.display = '';
+    document.getElementById('nav-users').classList.remove('hidden');
+    document.getElementById('nav-settings').classList.remove('hidden');
+  }
+  render();
+}
+
+/* ============================================================
+   ROUTING
+   ============================================================ */
+function getRoute() {
+  const h = location.hash.slice(1) || 'dashboard';
+  const [page, ...params] = h.split('/');
+  return { page, params };
+}
+function navigate(route) { location.hash = '#' + route; }
+
+async function render() {
+  const { page, params } = getRoute();
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.route === page || (page === 'produit' && el.dataset.route === 'produits'));
+  });
+  const el = document.getElementById('page');
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  try {
+    if (page === 'dashboard') await renderDashboard(el);
+    else if (page === 'produits') await renderProduits(el);
+    else if (page === 'produit') await renderProduit(el, params[0]);
+    else if (page === 'users') await renderUsers(el);
+    else if (page === 'parametres') await renderSettings(el);
+    else el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Page introuvable</div></div>';
+  } catch (e) {
+    console.error(e);
+    el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Erreur</div><div class="text-dim">${escapeHtml(e.message)}</div></div>`;
+  }
+}
+document.addEventListener('click', (e) => {
+  const it = e.target.closest('.nav-item');
+  if (it && it.dataset.route) { e.preventDefault(); navigate(it.dataset.route); }
+});
+window.addEventListener('hashchange', render);
+
+/* ============================================================
+   DATA HELPERS
+   ============================================================ */
+async function fetchAll() {
+  const [countriesR, productsR, adsR, adCountriesR] = await Promise.all([
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('products').select('*').order('id'),
+    sb.from('ads').select('*').order('position'),
+    sb.from('ad_countries').select('*')
+  ]);
+  return {
+    countries: countriesR.data || [],
+    products: productsR.data || [],
+    ads: adsR.data || [],
+    adCountries: adCountriesR.data || []
+  };
+}
+
+function canEdit() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'editor'); }
+function isAdmin() { return currentProfile && currentProfile.role === 'admin'; }
+
+/* ============================================================
+   PAGE: DASHBOARD
+   ============================================================ */
+async function renderDashboard(el) {
+  const { countries, products, ads, adCountries } = await fetchAll();
+  document.getElementById('nav-products').textContent = products.length || '';
+
+  const total = ads.length * countries.length;
+  const doneTrad = adCountries.filter(x => x.trad).length;
+  const doneMeta = adCountries.filter(x => x.meta).length;
+
+  const byCountry = {};
+  countries.forEach(c => { byCountry[c.id] = { trad: 0, meta: 0, total: ads.length }; });
+  adCountries.forEach(ac => {
+    if (!byCountry[ac.country_id]) return;
+    if (ac.trad) byCountry[ac.country_id].trad++;
+    if (ac.meta) byCountry[ac.country_id].meta++;
+  });
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Dashboard</div>
+        <div class="page-subtitle">Vue d'ensemble multi-utilisateurs</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Produits</div>
+        <div class="kpi-value gold">${fmt(products.length)}</div>
+        <div class="kpi-sub">${fmt(ads.length)} ads au total</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Traductions</div>
+        <div class="kpi-value green">${fmt(doneTrad)}</div>
+        <div class="kpi-sub">${pct(doneTrad, total)}% complété</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Lancements Meta</div>
+        <div class="kpi-value blue">${fmt(doneMeta)}</div>
+        <div class="kpi-sub">${pct(doneMeta, total)}% complété</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Pays</div>
+        <div class="kpi-value">${fmt(countries.length)}</div>
+        <div class="kpi-sub">${countries.map(c => c.id).join(' · ')}</div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">📊 Traductions par pays</div>
+        </div>
+        ${countries.map(c => {
+          const s = byCountry[c.id];
+          const p = pct(s.trad, s.total);
+          return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+            <div style="width:80px;display:flex;align-items:center">${flagImg(c.id)}${c.id}</div>
+            <div style="flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:${p}%;height:100%;background:${c.color};transition:width 0.4s"></div></div>
+            <div class="mono text-sm text-dim" style="min-width:70px;text-align:right">${s.trad}/${s.total}</div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">🚀 Lancements Meta</div>
+        </div>
+        ${countries.map(c => {
+          const s = byCountry[c.id];
+          const p = pct(s.meta, s.total);
+          return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+            <div style="width:80px;display:flex;align-items:center">${flagImg(c.id)}${c.id}</div>
+            <div style="flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:${p}%;height:100%;background:var(--blue);transition:width 0.4s"></div></div>
+            <div class="mono text-sm text-dim" style="min-width:70px;text-align:right">${s.meta}/${s.total}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   PAGE: PRODUITS
+   ============================================================ */
+async function renderProduits(el) {
+  const { countries, products, ads, adCountries } = await fetchAll();
+  const adsByProduct = {};
+  products.forEach(p => adsByProduct[p.id] = ads.filter(a => a.product_id === p.id));
+  const acByAd = {};
+  adCountries.forEach(ac => {
+    if (!acByAd[ac.ad_id]) acByAd[ac.ad_id] = {};
+    acByAd[ac.ad_id][ac.country_id] = ac;
+  });
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Produits</div>
+        <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
+      </div>
+      ${canEdit() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+    </div>
+    ${products.length === 0 ? `
+      <div class="empty">
+        <div class="empty-icon">📦</div>
+        <div class="empty-title">Aucun produit</div>
+      </div>
+    ` : `
+      <div class="product-grid">
+        ${products.map(p => {
+          const pAds = adsByProduct[p.id] || [];
+          const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
+          const total = pAds.length * enabled.length;
+          let trad = 0, meta = 0;
+          pAds.forEach(ad => {
+            enabled.forEach(cId => {
+              const ac = (acByAd[ad.id] || {})[cId];
+              if (ac?.trad) trad++;
+              if (ac?.meta) meta++;
+            });
+          });
+          return `
+            <div class="product-card" data-goto="${p.id}">
+              <div class="product-card-title">${escapeHtml(p.id)}</div>
+              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${enabled.length} pays</div>
+              <div style="display:flex;gap:14px">
+                <div><div style="font-size:18px;font-weight:700;color:var(--green)" class="mono">${pct(trad, total)}%</div><div class="text-sm text-dim">Trad ${trad}/${total}</div></div>
+                <div><div style="font-size:18px;font-weight:700;color:var(--blue)" class="mono">${pct(meta, total)}%</div><div class="text-sm text-dim">Meta ${meta}/${total}</div></div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-goto]').forEach(c => c.addEventListener('click', () => navigate('produit/' + c.dataset.goto)));
+  document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+}
+
+async function newProductFlow() {
+  const r = await modal(`
+    <div class="modal-title">Nouveau produit</div>
+    <div class="input-group">
+      <label class="input-label">Code produit</label>
+      <input class="input mono" data-field="id" placeholder="F0001" autofocus>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Nom (optionnel)</label>
+      <input class="input" data-field="name" placeholder="Ex: Chaussettes Bamboo">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Nombre d'ads à créer</label>
+      <input class="input" type="number" data-field="adCount" value="0" min="0">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Créer</button>
+    </div>
+  `);
+  if (!r || !r.id) return;
+  const id = r.id.trim().toUpperCase();
+  const { data: countries } = await sb.from('countries').select('id').order('sort_order');
+  const enabled = countries.map(c => c.id);
+  const { error: errP } = await sb.from('products').insert({
+    id, name: (r.name || '').trim() || id,
+    enabled_countries: enabled,
+    created_by: currentUser.id
+  });
+  if (errP) { toast('Erreur : ' + errP.message, 'error'); return; }
+  const n = parseInt(r.adCount, 10) || 0;
+  if (n > 0) {
+    const adsToInsert = [];
+    for (let i = 1; i <= n; i++) adsToInsert.push({ product_id: id, name: 'Ad ' + i, position: i });
+    const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
+    if (errA) { toast('Erreur ads : ' + errA.message, 'error'); }
+    else {
+      const acToInsert = [];
+      insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+      await sb.from('ad_countries').insert(acToInsert);
+    }
+  }
+  toast(`Produit ${id} créé`, 'success');
+  navigate('produit/' + id);
+}
+
+/* ============================================================
+   PAGE: PRODUIT DETAIL
+   ============================================================ */
+async function renderProduit(el, productId) {
+  const [{ data: product }, { data: ads }, { data: countriesAll }, { data: adCountries }] = await Promise.all([
+    sb.from('products').select('*').eq('id', productId).single(),
+    sb.from('ads').select('*').eq('product_id', productId).order('position'),
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('ad_countries').select('*')
+  ]);
+  if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Produit introuvable</div></div>'; return; }
+  const countries = (product.enabled_countries && product.enabled_countries.length)
+    ? countriesAll.filter(c => product.enabled_countries.includes(c.id))
+    : countriesAll;
+  const acByAd = {};
+  (adCountries || []).forEach(ac => {
+    if (!acByAd[ac.ad_id]) acByAd[ac.ad_id] = {};
+    acByAd[ac.ad_id][ac.country_id] = ac;
+  });
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <a class="btn btn-ghost" href="#produits" style="margin-bottom:8px">← Produits</a>
+        <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}</div>
+        <div class="page-subtitle">${escapeHtml(product.name || '')} · ${ads.length} ads · ${countries.length} pays</div>
+      </div>
+      ${canEdit() ? '<button class="btn btn-sm" id="btn-add-ad">+ Ad</button>' : ''}
+    </div>
+
+    ${ads.length === 0 ? `
+      <div class="empty"><div class="empty-icon">🎬</div><div class="empty-title">Aucune ad</div></div>
+    ` : `
+      <div class="card" style="overflow-x:auto">
+        <table class="ads-table">
+          <thead>
+            <tr>
+              <th class="ad-col">Ad</th>
+              ${countries.map(c => `<th colspan="2" style="border-left:2px solid var(--border-soft)">${flagImg(c.id)}${c.id}</th>`).join('')}
+            </tr>
+            <tr>
+              <th class="ad-col"></th>
+              ${countries.map(() => `<th style="font-size:10px;color:var(--green)">Trad</th><th style="font-size:10px;color:var(--blue)">Meta</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${ads.map(ad => `
+              <tr>
+                <td class="ad-col">${escapeHtml(ad.name)}</td>
+                ${countries.map(c => {
+                  const ac = (acByAd[ad.id] || {})[c.id] || {};
+                  return `
+                    <td class="check-cell auto" title="Auto via Drive">
+                      <span class="check-icon ${ac.trad ? 'checked' : ''}"></span>
+                    </td>
+                    <td class="check-cell ${canEdit() ? '' : 'readonly'}" data-toggle-meta="${ad.id}|${c.id}" title="${canEdit() ? 'Clique pour toggle' : 'Lecture seule'}">
+                      <span class="check-icon meta ${ac.meta ? 'checked' : ''}"></span>
+                    </td>
+                  `;
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-toggle-meta]').forEach(cell => {
+    cell.addEventListener('click', async () => {
+      if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+      const [adId, cId] = cell.dataset.toggleMeta.split('|');
+      const existing = (acByAd[adId] || {})[cId];
+      const newMeta = !(existing?.meta);
+      const now = new Date().toISOString();
+      if (existing) {
+        await sb.from('ad_countries').update({ meta: newMeta, meta_at: newMeta ? now : null, updated_at: now, updated_by: currentUser.id })
+          .eq('ad_id', adId).eq('country_id', cId);
+      } else {
+        await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newMeta, meta_at: newMeta ? now : null, updated_by: currentUser.id });
+      }
+      render();
+    });
+  });
+
+  document.getElementById('btn-add-ad')?.addEventListener('click', () => addAdFlow(productId));
+}
+
+async function addAdFlow(productId) {
+  const { data: existing } = await sb.from('ads').select('name').eq('product_id', productId);
+  const maxN = (existing || []).reduce((m, a) => { const n = parseInt((a.name.match(/\d+/) || [0])[0], 10); return Math.max(m, n); }, 0);
+  const r = await modal(`
+    <div class="modal-title">Ajouter des ads</div>
+    <div class="input-group">
+      <label class="input-label">De</label>
+      <input class="input" type="number" data-field="from" value="${maxN + 1}" min="1">
+    </div>
+    <div class="input-group">
+      <label class="input-label">À (inclus)</label>
+      <input class="input" type="number" data-field="to" value="${maxN + 1}" min="1">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Ajouter</button>
+    </div>
+  `);
+  if (!r) return;
+  const from = parseInt(r.from), to = parseInt(r.to);
+  if (!from || !to || from > to) { toast('Intervalle invalide', 'error'); return; }
+  const { data: product } = await sb.from('products').select('enabled_countries').eq('id', productId).single();
+  const { data: countriesAll } = await sb.from('countries').select('id');
+  const enabled = (product.enabled_countries && product.enabled_countries.length) ? product.enabled_countries : countriesAll.map(c => c.id);
+  const adsToInsert = [];
+  for (let i = from; i <= to; i++) adsToInsert.push({ product_id: productId, name: 'Ad ' + i, position: i });
+  const { data: inserted, error } = await sb.from('ads').insert(adsToInsert).select();
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  const acToInsert = [];
+  inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+  await sb.from('ad_countries').insert(acToInsert);
+  toast(`${inserted.length} ad(s) ajoutée(s)`, 'success');
+  render();
+}
+
+/* ============================================================
+   PAGE: USERS (admin only)
+   ============================================================ */
+async function renderUsers(el) {
+  if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div><div class="empty-title">Accès réservé aux admins</div></div>'; return; }
+  const { data: profiles, error } = await sb.from('profiles').select('*').order('created_at');
+  if (error) { el.innerHTML = `<div class="empty">Erreur: ${escapeHtml(error.message)}</div>`; return; }
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Utilisateurs</div>
+        <div class="page-subtitle">${fmt(profiles.length)} utilisateur(s)</div>
+      </div>
+      <button class="btn" id="btn-invite-user">+ Inviter un user</button>
+    </div>
+
+    <div class="card">
+      <table class="users-table">
+        <thead>
+          <tr>
+            <th>Email</th>
+            <th>Nom</th>
+            <th>Rôle</th>
+            <th>Créé le</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${profiles.map(p => `
+            <tr>
+              <td>${escapeHtml(p.email)}${p.id === currentUser.id ? ' <span class="text-dim">(moi)</span>' : ''}</td>
+              <td>${escapeHtml(p.full_name || '—')}</td>
+              <td>
+                <select class="role-select" data-user-role="${p.id}" ${p.id === currentUser.id ? 'disabled' : ''}>
+                  <option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Admin</option>
+                  <option value="editor" ${p.role === 'editor' ? 'selected' : ''}>Editor</option>
+                  <option value="viewer" ${p.role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                </select>
+              </td>
+              <td class="text-sm text-dim">${new Date(p.created_at).toLocaleDateString('fr-FR')}</td>
+              <td>
+                ${p.id !== currentUser.id ? `<button class="btn btn-ghost btn-sm" data-del-user="${p.id}" style="color:var(--red)">Supprimer</button>` : ''}
+              </td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">💡 Comment inviter</div></div>
+      <div class="text-sm text-dim" style="line-height:1.7">
+        1. Clique sur <strong>"+ Inviter un user"</strong><br>
+        2. Entre son email + rôle<br>
+        3. Un email d'invitation lui est envoyé par Supabase (via noreply@mail.app.supabase.io)<br>
+        4. Il clique sur le lien, crée son mot de passe, et accède à l'app<br>
+        5. Tu peux changer son rôle à tout moment dans ce tableau
+      </div>
+    </div>
+  `;
+
+  document.getElementById('btn-invite-user')?.addEventListener('click', inviteUserFlow);
+  el.querySelectorAll('[data-user-role]').forEach(s => s.addEventListener('change', async () => {
+    const { error } = await sb.from('profiles').update({ role: s.value }).eq('id', s.dataset.userRole);
+    if (error) toast('Erreur : ' + error.message, 'error');
+    else toast('Rôle mis à jour', 'success');
+  }));
+  el.querySelectorAll('[data-del-user]').forEach(b => b.addEventListener('click', async () => {
+    if (!await confirmDialog('Supprimer', 'Cet utilisateur perdra accès immédiatement.')) return;
+    // Note: deleting from profiles only; actual auth.users deletion requires service_role or admin invite
+    const { error } = await sb.from('profiles').delete().eq('id', b.dataset.delUser);
+    if (error) toast('Erreur : ' + error.message, 'error');
+    else { toast('Profil supprimé', 'success'); render(); }
+  }));
+}
+
+async function inviteUserFlow() {
+  const r = await modal(`
+    <div class="modal-title">Inviter un nouvel utilisateur</div>
+    <div class="text-sm text-dim mb-md">Il recevra un email pour créer son compte.</div>
+    <div class="input-group">
+      <label class="input-label">Email</label>
+      <input type="email" class="input" data-field="email" placeholder="employe@example.com" autofocus>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Nom complet</label>
+      <input class="input" data-field="full_name" placeholder="Prénom Nom">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Rôle initial</label>
+      <select class="select" data-field="role">
+        <option value="editor">Editor (créer/modifier)</option>
+        <option value="viewer">Viewer (lecture seule)</option>
+        <option value="admin">Admin (tout)</option>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Envoyer invitation</button>
+    </div>
+  `);
+  if (!r || !r.email) return;
+  toast('Invitation via Dashboard Supabase pour l\'instant (voir docs)', 'info', 5000);
+  // L'invitation d'user nécessite service_role (admin API). En attendant, l'admin doit créer via Supabase Dashboard.
+  const dashUrl = 'https://supabase.com/dashboard/project/pxzfjnsngtjzfqmahgaj/auth/users';
+  modal(`
+    <div class="modal-title">📧 Inviter via Supabase Dashboard</div>
+    <div class="text-sm" style="line-height:1.7">
+      <p>Pour sécurité, les invitations se font depuis Supabase directement (une fois) :</p>
+      <ol style="margin-left:20px;margin-top:10px">
+        <li>Va sur <a href="${dashUrl}" target="_blank">ton dashboard Supabase Users</a></li>
+        <li>Clique <strong>"Add user"</strong> → <strong>"Send invitation"</strong></li>
+        <li>Entre l'email : <strong>${escapeHtml(r.email)}</strong></li>
+        <li>L'user reçoit l'email et crée son password</li>
+        <li>Après sa 1ère connexion, reviens ici et mets son <strong>rôle = ${escapeHtml(r.role)}</strong></li>
+        <li>Change son nom à <strong>${escapeHtml(r.full_name || r.email)}</strong></li>
+      </ol>
+      <p class="text-dim" style="margin-top:12px">On pourra automatiser ça plus tard via un serverless Vercel.</p>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" data-modal-close>Compris</button>
+    </div>
+  `);
+}
+
+/* ============================================================
+   PAGE: SETTINGS (admin)
+   ============================================================ */
+async function renderSettings(el) {
+  if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div><div class="empty-title">Admin only</div></div>'; return; }
+  const { data: countries } = await sb.from('countries').select('*').order('sort_order');
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Paramètres</div>
+        <div class="page-subtitle">Config globale de l'app</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div class="card-title">🌍 Pays / Marchés</div></div>
+      <table class="users-table">
+        <thead><tr><th>Code</th><th>Nom</th><th>Drapeau</th></tr></thead>
+        <tbody>
+          ${countries.map(c => `
+            <tr>
+              <td class="mono" style="color:var(--gold)">${escapeHtml(c.id)}</td>
+              <td>${escapeHtml(c.name)}</td>
+              <td>${flagImg(c.id)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div class="text-dim text-sm mt-md">Gestion avancée des pays à venir (ajout/édition via dashboard Supabase pour l'instant).</div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">ℹ️ Infos système</div></div>
+      <div class="text-sm" style="line-height:1.8">
+        <div><strong>User connecté :</strong> ${escapeHtml(currentProfile.email)} (${currentProfile.role})</div>
+        <div><strong>Supabase URL :</strong> <span class="mono text-dim">${SUPABASE_URL}</span></div>
+        <div><strong>Total users :</strong> <span id="total-users">...</span></div>
+      </div>
+    </div>
+  `;
+  const { count } = await sb.from('profiles').select('*', { count: 'exact', head: true });
+  document.getElementById('total-users').textContent = count || 0;
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+(async function init() {
+  // Check if already logged in
+  const { data: { session } } = await sb.auth.getSession();
+  if (session?.user) {
+    await initApp(session.user);
+  }
+  // Listen for auth changes
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT' && currentUser) {
+      currentUser = null;
+      currentProfile = null;
+      document.getElementById('app').classList.add('hidden');
+      document.getElementById('login-screen').classList.remove('hidden');
+    }
+  });
+})();
+</script>
+</body>
+</html>
