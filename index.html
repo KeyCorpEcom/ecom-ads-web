@@ -337,15 +337,16 @@ function modal(contentHtml) {
     bd.className = 'modal-backdrop';
     bd.innerHTML = `<div class="modal">${contentHtml}</div>`;
     container.appendChild(bd);
-    const close = (r) => { bd.remove(); resolve(r); };
+    const close = (r) => { if (bd.parentNode) bd.remove(); resolve(r); };
     bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
     bd.querySelectorAll('[data-modal-close]').forEach(el => el.addEventListener('click', () => close(null)));
+    bd.querySelectorAll('[data-clear-copy]').forEach(el => el.addEventListener('click', () => close('clear')));
     bd.querySelectorAll('[data-modal-ok]').forEach(el => el.addEventListener('click', () => {
       const r = {};
       bd.querySelectorAll('[data-field]').forEach(f => { r[f.dataset.field] = f.value; });
       close(r);
     }));
-    setTimeout(() => bd.querySelector('input,select,textarea')?.focus(), 50);
+    setTimeout(() => bd.querySelector('input:not([type=color]):not([type=date]):not([type=checkbox]),textarea,select')?.focus(), 50);
   });
 }
 
@@ -2190,27 +2191,7 @@ async function editAdCopyFlow(adId) {
   render();
 }
 
-// Override modal to handle "Tout vider" button
-const originalModal = modal;
-modal = function(contentHtml) {
-  return new Promise(resolve => {
-    const container = document.getElementById('modal-container');
-    const bd = document.createElement('div');
-    bd.className = 'modal-backdrop';
-    bd.innerHTML = `<div class="modal">${contentHtml}</div>`;
-    container.appendChild(bd);
-    const close = (r) => { bd.remove(); resolve(r); };
-    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
-    bd.querySelectorAll('[data-modal-close]').forEach(el => el.addEventListener('click', () => close(null)));
-    bd.querySelectorAll('[data-clear-copy]').forEach(el => el.addEventListener('click', () => close('clear')));
-    bd.querySelectorAll('[data-modal-ok]').forEach(el => el.addEventListener('click', () => {
-      const r = {};
-      bd.querySelectorAll('[data-field]').forEach(f => { r[f.dataset.field] = f.value; });
-      close(r);
-    }));
-    setTimeout(() => bd.querySelector('input,select,textarea')?.focus(), 50);
-  });
-};
+// (ancien override modal supprimé — causait un bug en strict mode)
 
 /* ============================================================
    FEATURE: BATCH DRAG SELECT ON META CELLS
