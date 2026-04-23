@@ -194,6 +194,13 @@ a{color:var(--gold);text-decoration:none}
 .ad-copy-icon.filled{color:var(--gold)}
 .ad-link-icon{display:inline-block;margin-left:6px;cursor:pointer;font-size:13px;text-decoration:none}
 .ad-link-icon:hover{transform:scale(1.15)}
+
+/* Cut country columns in table */
+.ads-table th.cut, .ads-table td.cut{opacity:0.35;position:relative}
+.ads-table th.cut{text-decoration:line-through;color:var(--red)!important}
+.ads-table td.cut.check-cell{cursor:not-allowed!important;pointer-events:none}
+.ads-table th.cut-badge{position:relative}
+.ads-table th.cut-badge::after{content:'✂ COUPÉ';position:absolute;top:2px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--red);font-weight:700;letter-spacing:1px}
 </style>
 </head>
 <body>
@@ -780,11 +787,11 @@ async function renderProduit(el, productId) {
           <thead>
             <tr>
               <th class="ad-col">Ad</th>
-              ${countries.map(c => `<th colspan="2" style="border-left:2px solid var(--border-soft)">${flagImg(c.id)}${c.id}</th>`).join('')}
+              ${countries.map(c => { const isCut = (product.cut_countries || []).includes(c.id); return `<th colspan="2" class="${isCut ? 'cut cut-badge' : ''}" style="border-left:2px solid var(--border-soft);padding-top:${isCut ? '18px' : '9px'}">${flagImg(c.id)}${c.id}</th>`; }).join('')}
             </tr>
             <tr>
               <th class="ad-col"></th>
-              ${countries.map(() => `<th style="font-size:10px;color:var(--green)">Trad</th><th style="font-size:10px;color:var(--blue)">Meta</th>`).join('')}
+              ${countries.map(c => { const isCut = (product.cut_countries || []).includes(c.id); return `<th class="${isCut ? 'cut' : ''}" style="font-size:10px;color:var(--green)">Trad</th><th class="${isCut ? 'cut' : ''}" style="font-size:10px;color:var(--blue)">Meta</th>`; }).join('')}
             </tr>
           </thead>
           <tbody>
@@ -801,11 +808,12 @@ async function renderProduit(el, productId) {
                 </td>
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
+                  const isCut = (product.cut_countries || []).includes(c.id);
                   return `
-                    <td class="check-cell auto" title="Auto via Drive">
+                    <td class="check-cell auto ${isCut ? 'cut' : ''}" title="${isCut ? '✂ Marché coupé' : 'Auto via Drive'}">
                       <span class="check-icon ${ac.trad ? 'checked' : ''}"></span>
                     </td>
-                    <td class="check-cell ${canEdit() ? '' : 'readonly'}" data-toggle-meta="${ad.id}|${c.id}" title="${canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule'}">
+                    <td class="check-cell ${canEdit() && !isCut ? '' : 'readonly'} ${isCut ? 'cut' : ''}" ${isCut ? '' : `data-toggle-meta="${ad.id}|${c.id}"`} title="${isCut ? '✂ Marché coupé — réactive-le pour éditer' : (canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule')}">
                       <span class="check-icon meta ${ac.meta ? 'checked' : ''}"></span>
                     </td>
                   `;
@@ -1171,28 +1179,64 @@ async function inviteUserFlow() {
 async function renderSettings(el) {
   if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div><div class="empty-title">Admin only</div></div>'; return; }
   const { data: countries } = await sb.from('countries').select('*').order('sort_order');
+  const { data: products } = await sb.from('products').select('*').order('id');
+  const { data: adsCount } = await sb.from('ads').select('product_id');
+  const adsPerProduct = {};
+  (adsCount || []).forEach(a => { adsPerProduct[a.product_id] = (adsPerProduct[a.product_id] || 0) + 1; });
+
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title">Paramètres</div>
-        <div class="page-subtitle">Config globale de l'app</div>
+        <div class="page-subtitle">Configure tes pays, produits et données</div>
       </div>
     </div>
+
     <div class="card">
-      <div class="card-head"><div class="card-title">🌍 Pays / Marchés</div></div>
-      <table class="users-table">
-        <thead><tr><th>Code</th><th>Nom</th><th>Drapeau</th></tr></thead>
-        <tbody>
-          ${countries.map(c => `
-            <tr>
-              <td class="mono" style="color:var(--gold)">${escapeHtml(c.id)}</td>
-              <td>${escapeHtml(c.name)}</td>
-              <td>${flagImg(c.id)}</td>
-            </tr>
+      <div class="card-head">
+        <div class="card-title">🌍 Pays / Marchés</div>
+        <button class="btn btn-sm" id="btn-add-country">+ Ajouter un pays</button>
+      </div>
+      <div>
+        ${countries.map(c => `
+          <div style="display:flex;align-items:center;gap:14px;padding:12px;border-bottom:1px solid var(--border-soft)">
+            ${flagImg(c.id)}
+            <strong class="mono" style="color:var(--gold);min-width:40px">${escapeHtml(c.id)}</strong>
+            <div style="flex:1">${escapeHtml(c.name)}</div>
+            <button class="btn btn-ghost btn-sm" data-edit-country="${c.id}">Éditer</button>
+            <button class="btn btn-ghost btn-sm" data-delete-country="${c.id}" style="color:var(--red)">Supprimer</button>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">📦 Produits</div></div>
+      ${products.length === 0 ? '<div class="empty"><div class="empty-text">Aucun produit créé</div></div>' : `
+        <div>
+          ${products.map(p => `
+            <div style="display:flex;align-items:center;gap:14px;padding:12px;border-bottom:1px solid var(--border-soft)">
+              <strong class="mono" style="color:var(--gold);min-width:70px">${escapeHtml(p.id)}</strong>
+              <div style="flex:1">${escapeHtml(p.name || '')}</div>
+              <span class="badge" style="background:rgba(200,165,90,0.15);color:var(--gold)">${adsPerProduct[p.id] || 0} ads</span>
+              <a class="btn btn-ghost btn-sm" href="#produit/${encodeURIComponent(p.id)}">Ouvrir</a>
+              <button class="btn btn-ghost btn-sm" data-delete-product-setting="${p.id}" style="color:var(--red)">Supprimer</button>
+            </div>
           `).join('')}
-        </tbody>
-      </table>
-      <div class="text-dim text-sm mt-md">Gestion avancée des pays à venir (ajout/édition via dashboard Supabase pour l'instant).</div>
+        </div>
+      `}
+    </div>
+
+    <div class="card">
+      <div class="card-head"><div class="card-title">🛡️ Backups automatiques</div></div>
+      <div class="text-sm text-dim mb-md" style="line-height:1.7">
+        Supabase effectue des backups automatiques quotidiens (${isAdmin() ? '7 jours de rétention sur le plan free, 30 jours sur Pro' : 'voir plan'}).
+        Pour restaurer : <a href="https://supabase.com/dashboard/project/pxzfjnsngtjzfqmahgaj/database/backups" target="_blank">Dashboard Supabase → Database → Backups</a>.
+      </div>
+      <div class="flex gap-sm">
+        <button class="btn btn-secondary" id="btn-export-json">📥 Exporter toutes les données (JSON)</button>
+        <a class="btn btn-secondary" href="https://supabase.com/dashboard/project/pxzfjnsngtjzfqmahgaj/database/backups" target="_blank">🔗 Ouvrir Supabase Backups</a>
+      </div>
     </div>
 
     <div class="card">
@@ -1201,11 +1245,130 @@ async function renderSettings(el) {
         <div><strong>User connecté :</strong> ${escapeHtml(currentProfile.email)} (${currentProfile.role})</div>
         <div><strong>Supabase URL :</strong> <span class="mono text-dim">${SUPABASE_URL}</span></div>
         <div><strong>Total users :</strong> <span id="total-users">...</span></div>
+        <div><strong>Total produits :</strong> ${products.length}</div>
+        <div><strong>Total ads :</strong> ${(adsCount || []).length}</div>
       </div>
     </div>
+
+    <div class="card" style="border-color:rgba(248,113,113,0.3)">
+      <div class="card-head"><div class="card-title" style="color:var(--red)">⚠️ Zone danger</div></div>
+      <div class="text-sm text-dim mb-md">Actions irréversibles. Réfléchis avant.</div>
+      <div class="flex gap-sm">
+        <button class="btn btn-danger" id="btn-reset-all">🗑 Réinitialiser toutes les données</button>
+      </div>
+      <div class="text-sm text-dim" style="margin-top:10px">Supprime tous les produits + ads + logs. Les pays et users restent.</div>
+    </div>
   `;
+
   const { count } = await sb.from('profiles').select('*', { count: 'exact', head: true });
   document.getElementById('total-users').textContent = count || 0;
+
+  document.getElementById('btn-add-country')?.addEventListener('click', addCountryFlow);
+  el.querySelectorAll('[data-edit-country]').forEach(b => b.addEventListener('click', () => editCountryFlow(b.dataset.editCountry)));
+  el.querySelectorAll('[data-delete-country]').forEach(b => b.addEventListener('click', () => deleteCountryFlow(b.dataset.deleteCountry)));
+  el.querySelectorAll('[data-delete-product-setting]').forEach(b => b.addEventListener('click', () => deleteProductFromSettings(b.dataset.deleteProductSetting)));
+  document.getElementById('btn-export-json')?.addEventListener('click', exportAllData);
+  document.getElementById('btn-reset-all')?.addEventListener('click', resetAllData);
+}
+
+async function addCountryFlow() {
+  const palette = ['#60a5fa', '#f87171', '#34d399', '#c084fc', '#fbbf24', '#22d3ee', '#f472b6', '#a78bfa'];
+  const { data: countries } = await sb.from('countries').select('*');
+  const r = await modal(`
+    <div class="modal-title">Ajouter un pays</div>
+    <div class="input-group">
+      <label class="input-label">Code ISO (2 lettres)</label>
+      <input class="input mono" data-field="id" placeholder="PL" maxlength="3" style="text-transform:uppercase">
+      <div class="input-hint">Ex: FR, DE, PL, PT, NL... Le drapeau est auto-détecté depuis ce code.<br>⚠️ Pour le Royaume-Uni, utilise <strong>UK</strong>.</div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Nom complet</label>
+      <input class="input" data-field="name" placeholder="Poland">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Couleur</label>
+      <input class="input" type="color" data-field="color" value="${palette[countries.length % palette.length]}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Ajouter</button>
+    </div>
+  `);
+  if (!r || !r.id) return;
+  const id = r.id.trim().toUpperCase();
+  if (countries.find(c => c.id === id)) { toast('Ce pays existe déjà', 'error'); return; }
+  const { error } = await sb.from('countries').insert({
+    id, name: (r.name || '').trim() || id, color: r.color || '#60a5fa', sort_order: countries.length + 1
+  });
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast(`${id} ajouté`, 'success');
+  render();
+}
+
+async function editCountryFlow(id) {
+  const { data: c } = await sb.from('countries').select('*').eq('id', id).single();
+  if (!c) return;
+  const r = await modal(`
+    <div class="modal-title">Éditer ${escapeHtml(c.id)}</div>
+    <div class="input-group">
+      <label class="input-label">Nom</label>
+      <input class="input" data-field="name" value="${escapeHtml(c.name)}">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Couleur</label>
+      <input class="input" type="color" data-field="color" value="${c.color}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `);
+  if (!r) return;
+  await sb.from('countries').update({ name: (r.name || '').trim() || c.id, color: r.color }).eq('id', c.id);
+  toast('Pays mis à jour', 'success');
+  render();
+}
+
+async function deleteCountryFlow(id) {
+  if (!(await confirmDialog('Supprimer le pays', `Tous les statuts Trad/Meta de ${id} dans tous les produits seront supprimés. Continuer ?`))) return;
+  const { error } = await sb.from('countries').delete().eq('id', id);
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast(`${id} supprimé`, 'success');
+  render();
+}
+
+async function deleteProductFromSettings(productId) {
+  if (!(await confirmDialog('Supprimer le produit', `${productId} et toutes ses ads seront supprimés. Irréversible.`))) return;
+  await sb.from('products').delete().eq('id', productId);
+  toast(`${productId} supprimé`, 'success');
+  render();
+}
+
+async function exportAllData() {
+  const { data: countries } = await sb.from('countries').select('*');
+  const { data: products } = await sb.from('products').select('*');
+  const { data: ads } = await sb.from('ads').select('*');
+  const { data: adCountries } = await sb.from('ad_countries').select('*');
+  const { data: profiles } = await sb.from('profiles').select('*');
+  const exportData = { exported_at: new Date().toISOString(), countries, products, ads, adCountries, profiles };
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `keycorp-ecom-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Export téléchargé', 'success');
+}
+
+async function resetAllData() {
+  if (!(await confirmDialog('Tout réinitialiser', 'Tous les produits, ads et logs seront supprimés. Les pays et users restent. IRRÉVERSIBLE.'))) return;
+  await sb.from('ad_countries').delete().neq('ad_id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('ads').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  await sb.from('products').delete().neq('id', '___NOTHING___');
+  await sb.from('sync_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+  toast('Données réinitialisées', 'success');
+  render();
 }
 
 /* ============================================================
