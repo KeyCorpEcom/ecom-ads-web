@@ -225,7 +225,14 @@ a{color:var(--gold);text-decoration:none}
    ============================================================ */
 const SUPABASE_URL = 'https://pxzfjnsngtjzfqmahgaj.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_sBtkPxK7xUvMlneKK9z2nA_MKIJtkJg';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storage: window.localStorage
+  }
+});
 
 let currentUser = null;
 let currentProfile = null;
@@ -355,6 +362,15 @@ document.getElementById('btn-change-password').addEventListener('click', async (
   if (!r) return;
   if (!r.pwd1 || r.pwd1.length < 6) { toast('Mot de passe trop court (min 6 caractères)', 'error'); return; }
   if (r.pwd1 !== r.pwd2) { toast('Les 2 mots de passe ne correspondent pas', 'error'); return; }
+  // Vérifier que la session est bien active
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) {
+    toast('Session expirée — reconnecte-toi', 'error');
+    await sb.auth.signOut();
+    document.getElementById('app').classList.add('hidden');
+    document.getElementById('login-screen').classList.remove('hidden');
+    return;
+  }
   const { error } = await sb.auth.updateUser({ password: r.pwd1 });
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
   toast('✅ Mot de passe changé avec succès !', 'success');
