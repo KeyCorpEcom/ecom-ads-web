@@ -800,12 +800,27 @@ async function renderProduit(el, productId) {
     acByAd[ac.ad_id][ac.country_id] = ac;
   });
 
+  const cutCount = (product.cut_countries || []).length;
+  const activeCount = countries.length - cutCount;
+  const totalActive = ads.length * activeCount;
+  let totalTrad = 0, totalMeta = 0;
+  const byCountry = {};
+  countries.forEach(c => { byCountry[c.id] = { trad: 0, meta: 0 }; });
+  ads.forEach(ad => countries.forEach(c => {
+    const ac = (acByAd[ad.id] || {})[c.id] || {};
+    const isCut = (product.cut_countries || []).includes(c.id);
+    if (!isCut) {
+      if (ac.trad) { totalTrad++; byCountry[c.id].trad++; }
+      if (ac.meta) { totalMeta++; byCountry[c.id].meta++; }
+    }
+  }));
+
   el.innerHTML = `
     <div class="page-head">
       <div>
         <a class="btn btn-ghost" href="#produits" style="margin-bottom:8px">← Produits</a>
         <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}</div>
-        <div class="page-subtitle">${escapeHtml(product.name || '')} · ${ads.length} ads · ${countries.length} pays</div>
+        <div class="page-subtitle">${escapeHtml(product.name || '')} · ${ads.length} ads · créé ${new Date(product.created_at).toLocaleDateString('fr-FR')}</div>
       </div>
       ${canEdit() ? `
         <div class="flex gap-sm">
@@ -813,6 +828,28 @@ async function renderProduit(el, productId) {
           <button class="btn btn-sm" id="btn-add-ad">+ Ad</button>
         </div>
       ` : ''}
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Total ads</div>
+        <div class="kpi-value gold">${fmt(ads.length)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Trad faites</div>
+        <div class="kpi-value green">${fmt(totalTrad)}/${fmt(totalActive)}</div>
+        <div class="kpi-sub">${pct(totalTrad, totalActive)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Meta lancées</div>
+        <div class="kpi-value blue">${fmt(totalMeta)}/${fmt(totalActive)}</div>
+        <div class="kpi-sub">${pct(totalMeta, totalActive)}%</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Marchés</div>
+        <div class="kpi-value"><span style="color:var(--green)">${activeCount}</span><span style="color:var(--text-mute)">/${countries.length}</span></div>
+        <div class="kpi-sub">${cutCount > 0 ? `<span style="color:var(--red)">✂ ${cutCount} coupé${cutCount > 1 ? 's' : ''}</span> · ` : ''}${pct(totalTrad + totalMeta, totalActive * 2)}% progression</div>
+      </div>
     </div>
 
     ${ads.length === 0 ? `
@@ -824,10 +861,12 @@ async function renderProduit(el, productId) {
             <tr>
               <th class="ad-col">Ad</th>
               ${countries.map(c => { const isCut = (product.cut_countries || []).includes(c.id); return `<th colspan="2" class="${isCut ? 'cut cut-badge' : ''}" style="border-left:2px solid var(--border-soft);padding-top:${isCut ? '18px' : '9px'}">${flagImg(c.id)}${c.id}</th>`; }).join('')}
+              <th style="min-width:60px">%</th>
             </tr>
             <tr>
               <th class="ad-col"></th>
               ${countries.map(c => { const isCut = (product.cut_countries || []).includes(c.id); return `<th class="${isCut ? 'cut' : ''}" style="font-size:10px;color:var(--green)">Trad</th><th class="${isCut ? 'cut' : ''}" style="font-size:10px;color:var(--blue)">Meta</th>`; }).join('')}
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -835,6 +874,7 @@ async function renderProduit(el, productId) {
               const copy = ad.ad_copy || {};
               const hasCopy = copy.url || copy.headline || copy.primary || copy.description || copy.cta;
               const linkSrc = copy.url ? detectLinkSource(copy.url) : null;
+              let rowDone = 0, rowTotal = 0;
               return `
               <tr>
                 <td class="ad-col">
@@ -845,6 +885,7 @@ async function renderProduit(el, productId) {
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
                   const isCut = (product.cut_countries || []).includes(c.id);
+                  if (!isCut) { rowTotal += 2; if (ac.trad) rowDone++; if (ac.meta) rowDone++; }
                   return `
                     <td class="check-cell auto ${isCut ? 'cut' : ''}" title="${isCut ? '✂ Marché coupé' : 'Auto via Drive'}">
                       <span class="check-icon ${ac.trad ? 'checked' : ''}"></span>
@@ -854,10 +895,28 @@ async function renderProduit(el, productId) {
                     </td>
                   `;
                 }).join('')}
+                <td style="text-align:right;padding-right:12px;font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace">${pct(rowDone, rowTotal)}%</td>
               </tr>
             `;
             }).join('')}
           </tbody>
+          <tfoot>
+            <tr style="background:var(--bg);border-top:2px solid var(--border)">
+              <td class="ad-col" style="color:var(--gold);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:12px">TOTAL</td>
+              ${countries.map(c => {
+                const isCut = (product.cut_countries || []).includes(c.id);
+                const s = byCountry[c.id];
+                const tradCount = isCut ? 0 : s.trad;
+                const metaCount = isCut ? 0 : s.meta;
+                const cellStyle = isCut ? 'opacity:0.35' : '';
+                return `
+                  <td style="${cellStyle};padding:10px 8px"><span style="display:inline-block;padding:3px 8px;border-radius:5px;background:${tradCount === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(52,211,153,0.15)'};color:${tradCount === 0 ? 'var(--text-mute)' : 'var(--green)'};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600">${tradCount}/${ads.length}</span></td>
+                  <td style="${cellStyle};padding:10px 8px"><span style="display:inline-block;padding:3px 8px;border-radius:5px;background:${metaCount === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(96,165,250,0.15)'};color:${metaCount === 0 ? 'var(--text-mute)' : 'var(--blue)'};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600">${metaCount}/${ads.length}</span></td>
+                `;
+              }).join('')}
+              <td style="text-align:right;padding-right:12px;font-size:11px;color:var(--gold);font-family:'JetBrains Mono',monospace;font-weight:700">${pct(totalTrad + totalMeta, totalActive * 2)}%</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     `}
@@ -873,9 +932,10 @@ async function renderProduit(el, productId) {
     <div class="card">
       <div class="card-head">
         <div class="card-title">📊 Statut des marchés</div>
-        <div class="flex gap-sm text-sm">
+        <div class="flex gap-sm text-sm" style="align-items:center">
           <span style="color:var(--green)">● ${activeCount} actif${activeCount > 1 ? 's' : ''}</span>
           <span style="color:var(--red)">✂ ${cutCount} coupé${cutCount > 1 ? 's' : ''}</span>
+          ${driveState.connected && isAdmin() ? '<button class="btn btn-ghost btn-sm" id="btn-sync-colors" title="Synchroniser les couleurs des dossiers Drive selon le statut (vert=actif, rouge=coupé)">🎨 Sync couleurs</button>' : ''}
         </div>
       </div>
       <div class="text-sm text-dim mb-md">Clique sur un marché pour le couper/réactiver. Les marchés coupés restent visibles dans le tableau (grisés) pour garder l'historique.</div>
@@ -883,11 +943,10 @@ async function renderProduit(el, productId) {
         ${countries.map(c => {
           const isCut = cutCountries.includes(c.id);
           return `
-            <button class="market-chip ${isCut ? 'cut' : 'active'}" data-toggle-cut="${c.id}"
-              style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;cursor:pointer;border:1px solid ${isCut ? 'var(--red)' : 'var(--green)'};background:${isCut ? 'rgba(248,113,113,0.12)' : 'rgba(52,211,153,0.12)'};color:${isCut ? 'var(--red)' : 'var(--green)'};font-family:inherit;font-size:13px;font-weight:600;${!canEdit() ? 'opacity:0.6;cursor:not-allowed' : ''}">
-              <span style="width:8px;height:8px;border-radius:50%;background:${isCut ? 'var(--red)' : 'var(--green)'}"></span>
-              <span style="${isCut ? 'text-decoration:line-through' : ''}">${flagImg(c.id)}${c.id}</span>
-              <span style="font-size:11px;opacity:0.8">${isCut ? '✂ coupé' : 'actif'}</span>
+            <button data-toggle-cut="${c.id}"
+              style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;cursor:${canEdit() ? 'pointer' : 'not-allowed'};border:1px solid ${isCut ? 'rgba(248,113,113,0.4)' : 'rgba(52,211,153,0.4)'};background:${isCut ? 'rgba(248,113,113,0.08)' : 'rgba(52,211,153,0.08)'};font-family:inherit;font-size:13px;font-weight:500;transition:all 0.15s;${!canEdit() ? 'opacity:0.6' : ''}">
+              <span style="width:8px;height:8px;border-radius:50%;background:${isCut ? 'var(--red)' : 'var(--green)'};flex-shrink:0"></span>
+              <span style="display:inline-flex;align-items:center;${isCut ? 'text-decoration:line-through;opacity:0.7' : ''};color:${isCut ? 'var(--red)' : 'var(--text)'}">${flagImg(c.id)}<strong>${c.id}</strong></span>
             </button>
           `;
         }).join('')}
@@ -943,6 +1002,11 @@ async function renderProduit(el, productId) {
     </div>
   `;
   el.appendChild(extraSections);
+
+  // Bouton Sync couleurs Drive (placeholder)
+  extraSections.querySelector('#btn-sync-colors')?.addEventListener('click', () => {
+    toast('🎨 Sync couleurs Drive : nécessite le scope Drive écriture (à venir dans une prochaine version)', 'info', 5000);
+  });
 
   // Event listeners pour cut/activate markets
   extraSections.querySelectorAll('[data-toggle-cut]').forEach(btn => {
