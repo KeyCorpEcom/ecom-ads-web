@@ -2625,21 +2625,59 @@ async function toggleMetaCell(adId, cId) {
    INIT
    ============================================================ */
 (async function init() {
+  // Détecte si l'user vient d'un lien d'invitation ou de reset password
+  const hash = window.location.hash;
+  const isInviteOrReset = hash.includes('type=invite') || hash.includes('type=recovery');
+
   // Check if already logged in
   const { data: { session } } = await sb.auth.getSession();
   if (session?.user) {
+    if (isInviteOrReset) {
+      // L'user vient d'une invitation → force à créer son mdp
+      await promptSetPasswordAfterInvite(session.user);
+      window.location.hash = '';
+    }
     await initApp(session.user);
   }
-  // Listen for auth changes
-  sb.auth.onAuthStateChange((event, session) => {
+  // Listen for auth changes (important pour l'invitation : onAuthStateChange fire après que Supabase parse le hash)
+  sb.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_OUT' && currentUser) {
       currentUser = null;
       currentProfile = null;
       document.getElementById('app').classList.add('hidden');
       document.getElementById('login-screen').classList.remove('hidden');
+    } else if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user && !currentUser) {
+      if (isInviteOrReset) {
+        await promptSetPasswordAfterInvite(session.user);
+        window.location.hash = '';
+      }
+      await initApp(session.user);
     }
   });
 })();
+
+async function promptSetPasswordAfterInvite(user) {
+  const r = await modal(`
+    <div class="modal-title">🎉 Bienvenue sur Key Corp !</div>
+    <div class="text-sm text-dim mb-md">Pour finaliser ton inscription (${escapeHtml(user.email)}), crée ton mot de passe :</div>
+    <div class="input-group">
+      <label class="input-label">Nouveau mot de passe</label>
+      <input type="password" class="input" data-field="pwd1" placeholder="Min 6 caractères" autofocus>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Confirmer</label>
+      <input type="password" class="input" data-field="pwd2" placeholder="Retape-le">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-block" data-modal-ok>Activer mon compte</button>
+    </div>
+  `);
+  if (!r || !r.pwd1 || r.pwd1.length < 6) { toast('Mot de passe trop court', 'error'); return promptSetPasswordAfterInvite(user); }
+  if (r.pwd1 !== r.pwd2) { toast('Les mots de passe ne correspondent pas', 'error'); return promptSetPasswordAfterInvite(user); }
+  const { error } = await sb.auth.updateUser({ password: r.pwd1 });
+  if (error) { toast('Erreur : ' + error.message, 'error'); return promptSetPasswordAfterInvite(user); }
+  toast('✅ Compte activé, bienvenue !', 'success', 5000);
+}
 </script>
 </body>
 </html>

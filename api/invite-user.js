@@ -46,6 +46,10 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Rôle invalide (admin/editor/viewer)' });
   }
 
+  // Détermine l'URL de redirection selon l'origine de l'appel
+  const origin = req.headers['origin'] || req.headers['referer'] || 'https://keycorp-ecom.com';
+  const redirectTo = origin.replace(/\/$/, '') + '/';
+
   const inviteRes = await fetch(`${SUPABASE_URL}/auth/v1/invite`, {
     method: 'POST',
     headers: {
@@ -55,7 +59,8 @@ export default async function handler(req, res) {
     },
     body: JSON.stringify({
       email,
-      data: { full_name: full_name || '' }
+      data: { full_name: full_name || '' },
+      redirect_to: redirectTo
     })
   });
   const inviteJson = await inviteRes.json();
