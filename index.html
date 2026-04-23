@@ -1269,50 +1269,55 @@ async function renderUsers(el) {
 async function inviteUserFlow() {
   const r = await modal(`
     <div class="modal-title">Inviter un nouvel utilisateur</div>
-    <div class="text-sm text-dim mb-md">Il recevra un email pour créer son compte.</div>
+    <div class="text-sm text-dim mb-md">Il recevra un email d'invitation pour créer son mot de passe et accéder à l'app.</div>
     <div class="input-group">
       <label class="input-label">Email</label>
       <input type="email" class="input" data-field="email" placeholder="employe@example.com" autofocus>
     </div>
     <div class="input-group">
-      <label class="input-label">Nom complet</label>
+      <label class="input-label">Nom complet (optionnel)</label>
       <input class="input" data-field="full_name" placeholder="Prénom Nom">
     </div>
     <div class="input-group">
-      <label class="input-label">Rôle initial</label>
+      <label class="input-label">Rôle</label>
       <select class="select" data-field="role">
-        <option value="editor">Editor (créer/modifier)</option>
+        <option value="editor">Editor (créer/modifier produits et ads)</option>
         <option value="viewer">Viewer (lecture seule)</option>
         <option value="admin">Admin (tout)</option>
       </select>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>Envoyer invitation</button>
+      <button class="btn" data-modal-ok>📧 Envoyer l'invitation</button>
     </div>
   `);
   if (!r || !r.email) return;
-  toast('Invitation via Dashboard Supabase pour l\'instant (voir docs)', 'info', 5000);
-  // L'invitation d'user nécessite service_role (admin API). En attendant, l'admin doit créer via Supabase Dashboard.
-  const dashUrl = 'https://supabase.com/dashboard/project/pxzfjnsngtjzfqmahgaj/auth/users';
-  modal(`
-    <div class="modal-title">📧 Inviter via Supabase Dashboard</div>
-    <div class="text-sm" style="line-height:1.7">
-      <p>Pour sécurité, les invitations se font depuis Supabase directement (une fois) :</p>
-      <ol style="margin-left:20px;margin-top:10px">
-        <li>Va sur <a href="${dashUrl}" target="_blank">ton dashboard Supabase Users</a></li>
-        <li>Clique <strong>"Add user"</strong> → <strong>"Send invitation"</strong></li>
-        <li>Entre l'email : <strong>${escapeHtml(r.email)}</strong></li>
-        <li>L'user reçoit l'email et crée son password</li>
-        <li>Après sa 1ère connexion, reviens ici et mets son <strong>rôle = ${escapeHtml(r.role)}</strong></li>
-        <li>Change son nom à <strong>${escapeHtml(r.full_name || r.email)}</strong></li>
-      </ol>
-      <p class="text-dim" style="margin-top:12px">On pourra automatiser ça plus tard via un serverless Vercel.</p>
-    </div>
-    <div class="modal-actions">
-      <button class="btn" data-modal-close>Compris</button>
-    </div>
-  `);
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { toast('Session expirée', 'error'); return; }
+    const res = await fetch('/api/invite-user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        email: r.email.trim().toLowerCase(),
+        role: r.role,
+        full_name: (r.full_name || '').trim()
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast('Erreur : ' + (data.error || 'invitation échouée'), 'error', 6000);
+      return;
+    }
+    toast(`✅ Invitation envoyée à ${r.email}`, 'success', 5000);
+    render();
+  } catch (e) {
+    console.error(e);
+    toast('Erreur réseau : ' + e.message, 'error');
+  }
 }
 
 /* ============================================================
