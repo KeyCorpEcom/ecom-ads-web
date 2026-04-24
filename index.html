@@ -1787,6 +1787,15 @@ async function renderAnalytics(el) {
    ============================================================ */
 let pagesFilter = { status: 'all', product: 'all', country: 'all' };
 
+// Normalise une URL : ajoute https:// si absent
+function normalizeUrl(url) {
+  if (!url) return null;
+  url = url.trim();
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+  return url;
+}
+
 async function renderPages(el) {
   const [{ data: products }, { data: countries }, { data: pages }, { data: profilesData }] = await Promise.all([
     sb.from('products').select('*').order('id'),
@@ -1909,9 +1918,11 @@ async function renderPages(el) {
     input.addEventListener('blur', async () => {
       if (!isAdmin() && !canEdit()) return;
       const productId = input.dataset.editConcurrent;
-      const value = input.value.trim();
-      await sb.from('products').update({ concurrent_page_url: value || null }).eq('id', productId);
+      const normalized = normalizeUrl(input.value);
+      await sb.from('products').update({ concurrent_page_url: normalized }).eq('id', productId);
+      if (normalized) input.value = normalized;
       toast('URL concurrent sauvegardée', 'success');
+      render();
     });
   });
 
@@ -1919,30 +1930,68 @@ async function renderPages(el) {
     input.addEventListener('blur', async () => {
       if (!canEditPages()) return;
       const [productId, countryId] = input.dataset.editBuilt.split('|');
-      const value = input.value.trim();
+      const normalized = normalizeUrl(input.value);
       // Upsert la ligne
       const { data: existing } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', countryId).maybeSingle();
-      const newStatus = value ? (existing?.status === 'approved' ? 'approved' : 'built') : 'pending';
+      const newStatus = normalized ? (existing?.status === 'approved' ? 'approved' : (existing?.status === 'rejected' ? 'rejected' : 'built')) : 'pending';
       if (existing) {
-        await sb.from('product_pages').update({ built_url: value || null, status: newStatus, updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('product_id', productId).eq('country_id', countryId);
+        await sb.from('product_pages').update({ built_url: normalized, status: newStatus, updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('product_id', productId).eq('country_id', countryId);
       } else {
-        await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, built_url: value || null, status: newStatus, updated_by: currentUser.id });
+        await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, built_url: normalized, status: newStatus, updated_by: currentUser.id });
       }
+      if (normalized) input.value = normalized;
       toast('URL page sauvegardée', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-change-status]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      if (!canEdit() && !isAdmin()) { toast('Permission refusée', 'error'); return; }
+      const [productId, countryId] = sel.dataset.changeStatus.split('|');
+      const newStatus = sel.value;
+      const { data: existing } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', countryId).maybeSingle();
+      const payload = {
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+        updated_by: currentUser.id
+      };
+      if (newStatus === 'approved') {
+        payload.approved_by = currentUser.id;
+        payload.approved_at = new Date().toISOString();
+      } else {
+        payload.approved_by = null;
+        payload.approved_at = null;
+      }
+      if (existing) {
+        await sb.from('product_pages').update(payload).eq('product_id', productId).eq('country_id', countryId);
+      } else {
+        await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, ...payload });
+      }
+      toast('Statut mis à jour', 'success');
       render();
     });
   });
 
   el.querySelectorAll('[data-toggle-ok]').forEach(cb => {
     cb.addEventListener('change', async () => {
-      if (!isAdmin() && !canEdit()) { toast('Admin only', 'error'); cb.checked = !cb.checked; return; }
+      if (!isAdmin() && !canEdit()) { toast('Permission refusée', 'error'); cb.checked = !cb.checked; return; }
       const [productId, countryId] = cb.dataset.toggleOk.split('|');
       const newStatus = cb.checked ? 'approved' : 'built';
       const { data: existing } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', countryId).maybeSingle();
+      const payload = {
+        status: newStatus,
+        approved_by: cb.checked ? currentUser.id : null,
+        approved_at: cb.checked ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString(),
+        updated_by: currentUser.id
+      };
       if (existing) {
-        await sb.from('product_pages').update({ status: newStatus, approved_by: cb.checked ? currentUser.id : null, approved_at: cb.checked ? new Date().toISOString() : null, updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('product_id', productId).eq('country_id', countryId);
+        await sb.from('product_pages').update(payload).eq('product_id', productId).eq('country_id', countryId);
+      } else {
+        await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, ...payload });
       }
-      toast(cb.checked ? '✅ Page validée' : 'Page retirée de validation', 'success');
+      toast(cb.checked ? '✅ Page validée' : 'Validation retirée', 'success');
       render();
     });
   });
@@ -1951,13 +2000,27 @@ async function renderPages(el) {
 function pageRowHtml(r) {
   const { product, country, page } = r;
   const status = page.status || 'pending';
+  const concurrentUrl = product.concurrent_page_url ? normalizeUrl(product.concurrent_page_url) : null;
+  const builtUrl = page.built_url ? normalizeUrl(page.built_url) : null;
+  const canEditConcurrent = isAdmin() || (canEdit() && !isPageBuilder());
+  const canChangeStatus = isAdmin() || canEdit();
+
   const statusBadge = {
     pending: '<span class="badge" style="background:rgba(138,138,154,0.15);color:var(--text-dim)">⏸ À faire</span>',
     built: '<span class="badge" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏳ En review</span>',
     approved: '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">✅ Validée</span>',
     rejected: '<span class="badge" style="background:rgba(248,113,113,0.15);color:var(--red)">❌ Rejetée</span>'
   }[status] || '';
-  const canEditConcurrent = isAdmin() || (canEdit() && !isPageBuilder());
+
+  const statusCell = canChangeStatus ? `
+    <select class="select" data-change-status="${product.id}|${country.id}" style="padding:5px 8px;font-size:11px;min-width:110px;border-color:${status === 'approved' ? 'var(--green)' : status === 'built' ? 'var(--orange)' : status === 'rejected' ? 'var(--red)' : 'var(--border)'}">
+      <option value="pending" ${status === 'pending' ? 'selected' : ''}>⏸ À faire</option>
+      <option value="built" ${status === 'built' ? 'selected' : ''}>⏳ En review</option>
+      <option value="approved" ${status === 'approved' ? 'selected' : ''}>✅ Validée</option>
+      <option value="rejected" ${status === 'rejected' ? 'selected' : ''}>❌ Rejetée</option>
+    </select>
+  ` : statusBadge;
+
   return `
     <tr>
       <td class="mono" style="color:var(--gold);font-weight:600">${escapeHtml(product.id)}</td>
@@ -1966,10 +2029,10 @@ function pageRowHtml(r) {
         ${canEditConcurrent ? `
           <div style="display:flex;gap:6px;align-items:center">
             <input type="url" class="input" data-edit-concurrent="${product.id}" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://..." style="padding:6px 8px;font-size:12px">
-            ${product.concurrent_page_url ? `<a href="${escapeHtml(product.concurrent_page_url)}" target="_blank" style="padding:6px;color:var(--gold)" title="Ouvrir">↗</a>` : ''}
+            ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" style="padding:6px;color:var(--gold);text-decoration:none;font-size:16px" title="Ouvrir dans un nouvel onglet">↗</a>` : ''}
           </div>
         ` : `
-          ${product.concurrent_page_url ? `<a href="${escapeHtml(product.concurrent_page_url)}" target="_blank" class="mono text-sm" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(product.concurrent_page_url)}</a>` : '<span class="text-mute">—</span>'}
+          ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" class="mono text-sm" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(product.concurrent_page_url)}</a>` : '<span class="text-mute">—</span>'}
         `}
       </td>
       <td>${flagImg(country.id)}<strong>${country.id}</strong></td>
@@ -1977,14 +2040,14 @@ function pageRowHtml(r) {
         ${canEditPages() ? `
           <div style="display:flex;gap:6px;align-items:center">
             <input type="url" class="input" data-edit-built="${product.id}|${country.id}" value="${escapeHtml(page.built_url || '')}" placeholder="https://ton-shop.com/..." style="padding:6px 8px;font-size:12px">
-            ${page.built_url ? `<a href="${escapeHtml(page.built_url)}" target="_blank" style="padding:6px;color:var(--gold)" title="Ouvrir">↗</a>` : ''}
+            ${builtUrl ? `<a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" style="padding:6px;color:var(--gold);text-decoration:none;font-size:16px" title="Ouvrir dans un nouvel onglet">↗</a>` : ''}
           </div>
         ` : `
-          ${page.built_url ? `<a href="${escapeHtml(page.built_url)}" target="_blank" class="mono text-sm" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(page.built_url)}</a>` : '<span class="text-mute">—</span>'}
+          ${builtUrl ? `<a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" class="mono text-sm" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(page.built_url)}</a>` : '<span class="text-mute">—</span>'}
         `}
       </td>
-      <td>${statusBadge}</td>
-      ${!isPageBuilder() ? `<td><input type="checkbox" data-toggle-ok="${product.id}|${country.id}" ${status === 'approved' ? 'checked' : ''} ${!page.built_url ? 'disabled' : ''} style="accent-color:var(--green);width:20px;height:20px;cursor:${!page.built_url ? 'not-allowed' : 'pointer'}"></td>` : ''}
+      <td>${statusCell}</td>
+      ${!isPageBuilder() ? `<td><input type="checkbox" data-toggle-ok="${product.id}|${country.id}" ${status === 'approved' ? 'checked' : ''} style="accent-color:var(--green);width:20px;height:20px;cursor:pointer"></td>` : ''}
     </tr>
   `;
 }
