@@ -152,6 +152,8 @@ Return JSON with same structure (title, options array with name and values).`;
       vendor: masterProduct.vendor || '',
       product_type: masterProduct.product_type || '',
       tags: masterProduct.tags || '',
+      template_suffix: masterProduct.template_suffix || null, // ← COPIE le template custom (landing page) du master
+      handle: masterProduct.handle || undefined, // ← copie le handle (URL slug) du master pour cohérence
       status: 'draft', // créer en draft pour review avant publish
       options: (masterProduct.options || []).map((opt, i) => ({
         name: translated.options?.[i]?.name || opt.name,
