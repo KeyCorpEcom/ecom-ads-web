@@ -2105,12 +2105,15 @@ async function renderPagesHome(el) {
 }
 
 async function renderPageProduct(el, productId) {
-  const [{ data: product }, { data: countriesAll }, { data: pages }, { data: allImages }] = await Promise.all([
+  const [{ data: product }, { data: countriesAll }, { data: pages }, { data: allImages }, { data: shopConns }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).single(),
     sb.from('countries').select('*').order('sort_order'),
     sb.from('product_pages').select('*').eq('product_id', productId),
-    sb.from('product_page_images').select('*').eq('product_id', productId).order('position')
+    sb.from('product_page_images').select('*').eq('product_id', productId).order('position'),
+    sb.from('shopify_connections').select('country_id, shop_domain')
   ]);
+  const shopByCountry = {};
+  (shopConns || []).forEach(c => { shopByCountry[c.country_id] = c.shop_domain; });
   const imagesByCountry = {};
   (allImages || []).forEach(img => {
     if (!imagesByCountry[img.country_id]) imagesByCountry[img.country_id] = [];
@@ -2181,6 +2184,25 @@ async function renderPageProduct(el, productId) {
 
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft)">
         <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <div style="font-weight:600;font-size:13px">🛒 Produit Shopify master</div>
+          ${masterPage.shopify_product_id ? '<span class="badge green" style="font-size:10px">🟢 Lié</span>' : '<span class="badge" style="background:rgba(200,165,90,0.15);color:var(--gold);font-size:10px">⚠️ Non lié</span>'}
+        </div>
+        ${masterPage.shopify_product_id ? `
+          <div style="display:flex;gap:8px;align-items:center;padding:8px;background:var(--bg-input);border-radius:6px">
+            <div class="mono" style="font-size:11px;color:var(--text-dim);flex:1">ID: ${masterPage.shopify_product_id}${masterPage.shopify_product_handle ? ' · ' + escapeHtml(masterPage.shopify_product_handle) : ''}</div>
+            ${shopByCountry[master] ? `<a href="https://${shopByCountry[master]}/admin/products/${masterPage.shopify_product_id}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" style="padding:4px 8px">↗ Shopify</a>` : ''}
+            ${canEditPages() ? `<button class="btn btn-ghost btn-sm" data-relink-master style="padding:4px 8px;color:var(--text-dim)" title="Changer l'ID">✏️</button>` : ''}
+          </div>
+        ` : canEditPages() ? `
+          <div style="padding:10px;background:var(--bg-input);border-radius:6px;font-size:12px;line-height:1.5">
+            <div style="margin-bottom:8px;color:var(--text-dim)">Crée le produit master dans Shopify <strong>${master}</strong>, puis lie-le ici pour activer la duplication auto vers les autres pays.</div>
+            <button class="btn btn-sm" data-link-master>🔗 Lier le produit master</button>
+          </div>
+        ` : `<div class="text-sm text-mute">Pas encore lié</div>`}
+      </div>
+
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft)">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
           <div style="font-weight:600;font-size:13px">📸 Images ${master}</div>
           <span class="img-count-badge">${(imagesByCountry[master] || []).length}</span>
         </div>
@@ -2222,6 +2244,26 @@ async function renderPageProduct(el, productId) {
             const st = pg.status || 'pending';
             const stEmoji = { pending: '⏸', built: '⏳', approved: '✅', rejected: '❌' }[st];
             const stColor = { pending: 'var(--text-dim)', built: 'var(--orange)', approved: 'var(--green)', rejected: 'var(--red)' }[st];
+            const imgCount = (imagesByCountry[c.id] || []).length;
+            const hasShop = !!shopByCountry[c.id];
+            const hasMaster = !!masterPage.shopify_product_id;
+            const duplicatedId = pg.shopify_product_id;
+            // Bouton duplicate : state selon masters linked + shop connecté + déjà dupliqué
+            let dupBtn = '';
+            if (canEditPages()) {
+              if (duplicatedId) {
+                dupBtn = `
+                  <a href="https://${shopByCountry[c.id]}/admin/products/${duplicatedId}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" title="Voir dans Shopify" style="padding:4px 8px;color:var(--green)">✅ Créé</a>
+                  <button class="btn btn-ghost btn-sm" data-duplicate-master="${c.id}" title="Re-synchroniser (écrase les champs traduits)" style="padding:4px 8px;color:var(--purple)">🔄 Re-sync</button>
+                `;
+              } else if (!hasMaster) {
+                dupBtn = `<button class="btn btn-ghost btn-sm" disabled title="Lie d'abord le produit Shopify master" style="padding:4px 8px;color:var(--text-dim);opacity:0.5">🚀 Créer</button>`;
+              } else if (!hasShop) {
+                dupBtn = `<button class="btn btn-ghost btn-sm" disabled title="Shop Shopify ${c.id} non connecté" style="padding:4px 8px;color:var(--text-dim);opacity:0.5">🚀 Créer</button>`;
+              } else {
+                dupBtn = `<button class="btn btn-ghost btn-sm" data-duplicate-master="${c.id}" title="Créer le produit dans Shopify ${c.id}" style="padding:4px 8px;color:var(--purple)">🚀 Créer en ${c.id}</button>`;
+              }
+            }
             return `
               <div style="padding:14px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:10px">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -2235,7 +2277,7 @@ async function renderPageProduct(el, productId) {
                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                   ${pageStatusDropdown(productId, c.id, st, !!pg.built_url)}
                   <button class="btn btn-ghost btn-sm" data-country-notes="${c.id}" title="Notes" style="padding:4px 8px">💬${pg.notes ? ' !' : ''}</button>
-                  ${canEditPages() ? `<button class="btn btn-ghost btn-sm" data-duplicate-master="${c.id}" title="Dupliquer depuis master (Phase 3)" style="padding:4px 8px;color:var(--purple)">🤖 Dupliquer</button>` : ''}
+                  ${dupBtn}
                 </div>
                 ${pg.notes && (st === 'rejected' || st === 'built') ? `<div style="margin-top:8px;padding:8px;background:${st === 'rejected' ? 'rgba(248,113,113,0.08)' : 'rgba(251,191,36,0.08)'};border-left:2px solid ${st === 'rejected' ? 'var(--red)' : 'var(--orange)'};border-radius:4px;font-size:11px;white-space:pre-wrap">${escapeHtml(pg.notes.slice(0, 100))}${pg.notes.length > 100 ? '…' : ''}</div>` : ''}
                 <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft)">
@@ -2322,14 +2364,106 @@ async function renderPageProduct(el, productId) {
     });
   });
 
+  // Handler "🔗 Lier le produit master"
+  el.querySelector('[data-link-master]')?.addEventListener('click', async () => {
+    await linkMasterShopifyProduct(productId, master);
+    render();
+  });
+  el.querySelector('[data-relink-master]')?.addEventListener('click', async () => {
+    await linkMasterShopifyProduct(productId, master, masterPage.shopify_product_id);
+    render();
+  });
+
   el.querySelectorAll('[data-duplicate-master]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      toast('🤖 Duplication auto via Shopify+Claude : disponible en Phase 3', 'info', 5000);
+    btn.addEventListener('click', async () => {
+      const targetCountryId = btn.dataset.duplicateMaster;
+      await duplicateProductFlow(productId, targetCountryId);
+      render();
     });
   });
 
   // Image handlers (upload/view/delete)
   attachImageHandlers(el);
+}
+
+async function linkMasterShopifyProduct(productId, masterCountryId, existingId) {
+  const r = await modal(`
+    <div class="modal-title">🔗 Lier le produit Shopify master (${masterCountryId})</div>
+    <div class="text-sm text-dim mb-md" style="line-height:1.6">
+      Colle l'ID numérique du produit dans Shopify admin du shop <strong>${masterCountryId}</strong>.<br>
+      Tu le trouves dans l'URL : <span class="mono">admin.shopify.com/store/.../products/<strong style="color:var(--gold)">8475893214234</strong></span>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Shopify product ID</label>
+      <input type="text" class="input mono" data-field="product_id" value="${existingId || ''}" placeholder="8475893214234" autofocus>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Lier</button>
+    </div>
+  `);
+  if (!r) return;
+  const shopifyId = (r.product_id || '').trim();
+  if (!shopifyId) return;
+  if (!/^\d+$/.test(shopifyId)) { toast('ID invalide : que des chiffres attendus', 'error'); return; }
+
+  // Upsert product_pages with shopify_product_id
+  const { data: existing } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', masterCountryId).maybeSingle();
+  if (existing) {
+    await sb.from('product_pages').update({ shopify_product_id: parseInt(shopifyId), updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('product_id', productId).eq('country_id', masterCountryId);
+  } else {
+    await sb.from('product_pages').insert({ product_id: productId, country_id: masterCountryId, shopify_product_id: parseInt(shopifyId), updated_by: currentUser.id });
+  }
+  toast(`✅ Produit master lié (ID ${shopifyId})`, 'success');
+}
+
+async function duplicateProductFlow(productId, targetCountryId) {
+  const confirmed = await confirmDialog(
+    `🚀 Créer le produit en ${targetCountryId} ?`,
+    `Cela va :\n• Lire le produit master dans Shopify\n• Traduire le titre + variants via Claude AI\n• Uploader les images ${targetCountryId} vers Shopify\n• Créer le produit (en DRAFT) dans le shop ${targetCountryId}\n\nLe produit sera en brouillon → tu valideras et publieras dans Shopify après.`,
+    '🚀 Créer maintenant'
+  );
+  if (!confirmed) return;
+
+  toast(`⏳ Duplication en cours (peut prendre 30s)...`, 'info', 30000);
+
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { toast('Non authentifié', 'error'); return; }
+
+    const res = await fetch('/api/duplicate-product', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({ productId, targetCountryId })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast(`❌ Erreur : ${data.error || 'Unknown'}`, 'error', 10000);
+      return;
+    }
+
+    // Succès
+    await modal(`
+      <div class="modal-title" style="color:var(--green)">✅ Produit créé en ${targetCountryId}</div>
+      <div style="background:var(--bg-input);padding:14px;border-radius:8px;margin-bottom:14px;font-size:13px;line-height:1.7">
+        <div><strong>Titre traduit :</strong> ${escapeHtml(data.translated_title || '(inchangé)')}</div>
+        <div><strong>Shopify ID :</strong> <span class="mono">${data.shopify_product_id}</span></div>
+        <div><strong>Handle :</strong> <span class="mono">${escapeHtml(data.shopify_product_handle || '')}</span></div>
+      </div>
+      <div style="padding:10px;background:rgba(251,191,36,0.1);border-left:3px solid var(--orange);border-radius:6px;font-size:12px;margin-bottom:14px">
+        ⚠️ Le produit est en <strong>brouillon</strong> dans Shopify ${targetCountryId}. Review + publie-le manuellement après vérif.
+      </div>
+      <div class="modal-actions">
+        <a href="${escapeHtml(data.shopify_admin_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">↗ Ouvrir dans Shopify</a>
+        <button class="btn" data-modal-ok>OK</button>
+      </div>
+    `);
+  } catch (e) {
+    toast(`❌ Erreur réseau : ${e.message}`, 'error', 10000);
+  }
 }
 
 function pageStatusDropdown(productId, countryId, status, hasUrl) {
