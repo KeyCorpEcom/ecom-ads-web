@@ -2155,7 +2155,7 @@ async function renderPageProduct(el, productId) {
       </div>
       ${isAdmin() || (canEdit() && !isPageBuilder()) ? `
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="url" class="input" id="concurrent-url-input" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://ridgewallet.eu/..." style="flex:1">
+          <input type="url" class="input" id="concurrent-url-input" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="" style="flex:1">
           <button class="btn btn-secondary" id="btn-save-concurrent">Enregistrer</button>
           ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost" title="Ouvrir">↗ Ouvrir</a>` : ''}
         </div>
@@ -2177,7 +2177,7 @@ async function renderPageProduct(el, productId) {
       <div class="input-group">
         <label class="input-label">Notre URL</label>
         <div style="display:flex;gap:8px;align-items:center">
-          <input type="url" class="input" id="master-url-input" value="${escapeHtml(masterPage.built_url || '')}" placeholder="https://salvyne.fr/${escapeHtml(product.id)}">
+          <input type="url" class="input" id="master-url-input" value="${escapeHtml(masterPage.built_url || '')}" placeholder="">
           <button class="btn btn-secondary" id="btn-save-master-url">Enregistrer</button>
           ${masterBuiltUrl ? `<a href="${escapeHtml(masterBuiltUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost" title="Ouvrir">↗</a>` : ''}
         </div>
@@ -2272,7 +2272,7 @@ async function renderPageProduct(el, productId) {
                   <span style="color:${stColor};font-size:18px" title="${st}">${stEmoji}</span>
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
-                  <input type="url" class="input" data-edit-country-url="${c.id}" value="${escapeHtml(pg.built_url || '')}" placeholder="https://salvyne.${c.id.toLowerCase() === 'uk' ? 'co.uk' : c.id.toLowerCase()}/..." style="padding:6px 8px;font-size:12px">
+                  <input type="url" class="input" data-edit-country-url="${c.id}" value="${escapeHtml(pg.built_url || '')}" placeholder="" style="padding:6px 8px;font-size:12px">
                   ${builtUrl ? `<a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" style="padding:4px 8px;color:var(--gold);text-decoration:none;font-size:16px" title="Ouvrir">↗</a>` : ''}
                 </div>
                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -2396,7 +2396,7 @@ async function linkMasterShopifyProduct(productId, masterCountryId, existingId) 
     </div>
     <div class="input-group">
       <label class="input-label">Shopify product ID</label>
-      <input type="text" class="input mono" data-field="product_id" value="${existingId || ''}" placeholder="8475893214234" autofocus>
+      <input type="text" class="input mono" data-field="product_id" value="${existingId || ''}" placeholder="" autofocus>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
