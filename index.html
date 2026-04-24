@@ -284,7 +284,6 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
       <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
       <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Pages Landing<span class="nav-badge" id="nav-pages"></span></a>
-      <a class="nav-item" href="/sav"><span class="nav-icon">🎧</span>SAV</a>
       <div class="nav-section-label">Intégrations</div>
       <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
@@ -1476,6 +1475,9 @@ async function renderSettings(el) {
   const { data: countries } = await sb.from('countries').select('*').order('sort_order');
   const { data: products } = await sb.from('products').select('*').order('id');
   const { data: adsCount } = await sb.from('ads').select('product_id');
+  const { data: shopifyConns } = await sb.from('shopify_connections').select('*');
+  const connsByCountry = {};
+  (shopifyConns || []).forEach(c => { connsByCountry[c.country_id] = c; });
   const adsPerProduct = {};
   (adsCount || []).forEach(a => { adsPerProduct[a.product_id] = (adsPerProduct[a.product_id] || 0) + 1; });
 
@@ -1523,6 +1525,39 @@ async function renderSettings(el) {
     </div>
 
     <div class="card">
+      <div class="card-head">
+        <div class="card-title">🛍️ Shops Shopify (OAuth)</div>
+      </div>
+      <div class="text-sm text-dim mb-md" style="line-height:1.6">
+        Connecte chaque shop Shopify via OAuth. Les tokens sont stockés de manière sécurisée et utilisés pour la duplication de thèmes (Phase 3).
+      </div>
+      <div>
+        ${countries.map(c => {
+          const conn = connsByCountry[c.id];
+          const isConnected = !!conn;
+          return `
+            <div style="display:flex;align-items:center;gap:14px;padding:12px;border-bottom:1px solid var(--border-soft)">
+              ${flagImg(c.id)}
+              <strong class="mono" style="color:var(--gold);min-width:40px">${escapeHtml(c.id)}</strong>
+              <span class="text-dim" style="min-width:140px">${escapeHtml(c.name)}</span>
+              ${isConnected ? `
+                <div style="flex:1">
+                  <div class="text-sm" style="color:var(--green);font-weight:600">✓ Connecté</div>
+                  <div class="mono text-sm text-dim" style="font-size:11px">${escapeHtml(conn.shop_domain)}</div>
+                </div>
+                <button class="btn btn-ghost btn-sm" data-disconnect-shopify="${c.id}" style="color:var(--red)">Déconnecter</button>
+                <button class="btn btn-secondary btn-sm" data-reconnect-shopify="${c.id}">🔄 Reconnecter</button>
+              ` : `
+                <div style="flex:1;color:var(--text-mute)">Non connecté</div>
+                <button class="btn btn-sm" data-connect-shopify="${c.id}">🔗 Connecter</button>
+              `}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
       <div class="card-head"><div class="card-title">🛡️ Backups automatiques</div></div>
       <div class="text-sm text-dim mb-md" style="line-height:1.7">
         Supabase effectue des backups automatiques quotidiens (${isAdmin() ? '7 jours de rétention sur le plan free, 30 jours sur Pro' : 'voir plan'}).
@@ -1562,8 +1597,61 @@ async function renderSettings(el) {
   el.querySelectorAll('[data-edit-country]').forEach(b => b.addEventListener('click', () => editCountryFlow(b.dataset.editCountry)));
   el.querySelectorAll('[data-delete-country]').forEach(b => b.addEventListener('click', () => deleteCountryFlow(b.dataset.deleteCountry)));
   el.querySelectorAll('[data-delete-product-setting]').forEach(b => b.addEventListener('click', () => deleteProductFromSettings(b.dataset.deleteProductSetting)));
+  el.querySelectorAll('[data-connect-shopify]').forEach(b => b.addEventListener('click', () => connectShopifyFlow(b.dataset.connectShopify)));
+  el.querySelectorAll('[data-reconnect-shopify]').forEach(b => b.addEventListener('click', () => connectShopifyFlow(b.dataset.reconnectShopify)));
+  el.querySelectorAll('[data-disconnect-shopify]').forEach(b => b.addEventListener('click', () => disconnectShopify(b.dataset.disconnectShopify)));
   document.getElementById('btn-export-json')?.addEventListener('click', exportAllData);
   document.getElementById('btn-reset-all')?.addEventListener('click', resetAllData);
+}
+
+async function connectShopifyFlow(countryId) {
+  const { data: country } = await sb.from('countries').select('*').eq('id', countryId).single();
+  if (!country) return;
+  const r = await modal(`
+    <div class="modal-title">🔗 Connecter shop Shopify ${flagImg(countryId)}${countryId}</div>
+    <div class="text-sm text-dim mb-md">Entre le domaine .myshopify.com de ton shop ${country.name}. Tu seras redirigé vers Shopify pour autoriser l'app.</div>
+    <div class="input-group">
+      <label class="input-label">Shop domain</label>
+      <input type="text" class="input mono" data-field="shop" placeholder="salvyne-${countryId.toLowerCase()}.myshopify.com" autofocus>
+      <div class="input-hint">Format obligatoire : <span class="mono">nom-shop.myshopify.com</span> (PAS le domaine custom)</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>🔗 Autoriser sur Shopify</button>
+    </div>
+  `);
+  if (!r || !r.shop) return;
+  let shop = r.shop.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) {
+    // Si user a tapé juste le nom, on ajoute le suffixe
+    if (/^[a-z0-9][a-z0-9-]*$/.test(shop)) shop = shop + '.myshopify.com';
+    else { toast('Format invalide. Attendu : nom-shop.myshopify.com', 'error'); return; }
+  }
+  // Redirect vers le endpoint Vercel qui gère l'OAuth
+  const url = `/api/shopify-install?shop=${encodeURIComponent(shop)}&country=${encodeURIComponent(countryId)}`;
+  window.location.href = url;
+}
+
+async function disconnectShopify(countryId) {
+  if (!(await confirmDialog('Déconnecter le shop', `Le token pour ${countryId} sera supprimé. Tu devras te reconnecter pour utiliser la duplication auto sur ce pays.`))) return;
+  const { error } = await sb.from('shopify_connections').delete().eq('country_id', countryId);
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast(`Shop ${countryId} déconnecté`, 'success');
+  render();
+}
+
+// Check URL hash for shopify_connected flag (redirect from callback)
+function checkShopifyCallbackFlag() {
+  const hash = window.location.hash;
+  if (hash.includes('shopify_connected=')) {
+    const match = hash.match(/shopify_connected=([A-Z]{2,3})/);
+    if (match) {
+      toast(`✅ Shop ${match[1]} connecté avec succès !`, 'success', 5000);
+      // Clean up URL
+      const cleanHash = hash.replace(/[?&]shopify_connected=[A-Z]{2,3}/, '');
+      window.location.hash = cleanHash;
+    }
+  }
 }
 
 async function addCountryFlow() {
@@ -3857,6 +3945,8 @@ async function toggleMetaCell(adId, cId) {
   // Détecte si l'user vient d'un lien d'invitation ou de reset password
   const hash = window.location.hash;
   const isInviteOrReset = hash.includes('type=invite') || hash.includes('type=recovery');
+  // Check Shopify callback flag (si on revient d'une connexion OAuth)
+  checkShopifyCallbackFlag();
 
   // Check if already logged in
   const { data: { session } } = await sb.auth.getSession();
