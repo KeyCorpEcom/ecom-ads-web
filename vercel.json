@@ -10,5 +10,15 @@
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/sav",
+      "destination": "https://sav-web.vercel.app/sav"
+    },
+    {
+      "source": "/sav/:path*",
+      "destination": "https://sav-web.vercel.app/sav/:path*"
+    }
   ]
 }
