@@ -671,9 +671,14 @@ async function renderDashboard(el) {
    PAGE: PRODUITS
    ============================================================ */
 async function renderAds(el) {
-  const { countries, products, ads } = await fetchAll();
+  const { countries, products, ads, adCountries } = await fetchAll();
   const adsByProduct = {};
   products.forEach(p => adsByProduct[p.id] = ads.filter(a => a.product_id === p.id));
+  const acByAd = {};
+  adCountries.forEach(ac => {
+    if (!acByAd[ac.ad_id]) acByAd[ac.ad_id] = {};
+    acByAd[ac.ad_id][ac.country_id] = ac;
+  });
 
   // Tri : priorité DESC puis date DESC
   const sorted = [...products].sort((a, b) => {
@@ -703,6 +708,15 @@ async function renderAds(el) {
           const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
           const cuts = p.cut_countries || [];
           const activeCs = enabled.filter(cId => !cuts.includes(cId));
+          const total = pAds.length * activeCs.length;
+          let trad = 0;
+          pAds.forEach(ad => {
+            activeCs.forEach(cId => {
+              const ac = (acByAd[ad.id] || {})[cId];
+              if (ac?.trad) trad++;
+            });
+          });
+          const tradPct = pct(trad, total);
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
 
@@ -713,6 +727,14 @@ async function renderAds(el) {
                 ${priority !== 'normal' ? priorityBadge(priority) : ''}
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
+
+              <div style="margin-top:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
+                  <span style="color:var(--text-dim)">📺 Trad ads</span>
+                  <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
+                </div>
+                <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
+              </div>
             </div>
           `;
         }).join('')}
