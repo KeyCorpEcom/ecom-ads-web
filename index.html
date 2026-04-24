@@ -671,16 +671,12 @@ async function renderDashboard(el) {
    PAGE: PRODUITS
    ============================================================ */
 async function renderAds(el) {
-  const [{ data: products }, { data: countriesAll }, { data: ads }] = await Promise.all([
-    sb.from('products').select('*').order('created_at', { ascending: false }),
-    sb.from('countries').select('*').order('sort_order'),
-    sb.from('ads').select('product_id')
-  ]);
-  const adsCountByProduct = {};
-  (ads || []).forEach(a => { adsCountByProduct[a.product_id] = (adsCountByProduct[a.product_id] || 0) + 1; });
+  const { countries, products, ads } = await fetchAll();
+  const adsByProduct = {};
+  products.forEach(p => adsByProduct[p.id] = ads.filter(a => a.product_id === p.id));
 
   // Tri : priorité DESC puis date DESC
-  const sorted = [...(products || [])].sort((a, b) => {
+  const sorted = [...products].sort((a, b) => {
     const pa = PRIORITY_META[a.priority]?.weight || 2;
     const pb = PRIORITY_META[b.priority]?.weight || 2;
     if (pa !== pb) return pb - pa;
@@ -691,45 +687,32 @@ async function renderAds(el) {
     <div class="page-head">
       <div>
         <div class="page-title">📺 Ads</div>
-        <div class="page-subtitle">${fmt((products || []).length)} produit(s)</div>
+        <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
       </div>
       ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
     </div>
-    ${(products || []).length === 0 ? `
-      <div class="empty" style="padding:60px 20px">
+    ${products.length === 0 ? `
+      <div class="empty">
         <div class="empty-icon">📺</div>
         <div class="empty-title">Aucun produit</div>
-        <div class="empty-text">Crée ton premier produit pour commencer.</div>
       </div>
     ` : `
-      <div style="display:flex;flex-direction:column;gap:10px">
+      <div class="product-grid">
         ${sorted.map(p => {
-          const enabled = (p.enabled_countries?.length ? p.enabled_countries : countriesAll.map(c => c.id));
-          const active = enabled.filter(cId => !(p.cut_countries || []).includes(cId));
+          const pAds = adsByProduct[p.id] || [];
+          const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
+          const cuts = p.cut_countries || [];
+          const activeCs = enabled.filter(cId => !cuts.includes(cId));
           const priority = p.priority || 'normal';
-          const priorityBar = PRIORITY_META[priority]?.color || '#60a5fa';
-          const flagList = active.slice(0, 10).map(cId => flagImg(cId)).join('');
-          const moreFlags = active.length > 10 ? `<span style="color:var(--text-dim);font-size:11px;margin-left:4px">+${active.length - 10}</span>` : '';
+          const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
+
           return `
-            <div style="background:var(--bg-card);border:1px solid var(--border);border-left:4px solid ${priorityBar};border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-              <div style="flex:1;min-width:240px">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
-                  ${priority !== 'normal' ? priorityBadge(priority) : ''}
-                  <span class="mono" style="color:var(--gold);font-weight:700;font-size:15px">${escapeHtml(p.id)}</span>
-                  <span style="color:var(--text-dim)">·</span>
-                  <span style="color:var(--text);font-weight:500">${escapeHtml(p.name || '')}</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:14px;font-size:12px;color:var(--text-dim);flex-wrap:wrap">
-                  <span>📺 ${adsCountByProduct[p.id] || 0} ads</span>
-                  <span>🌍 ${active.length} pays</span>
-                  <span style="display:inline-flex;align-items:center;gap:2px;flex-wrap:wrap">${flagList}${moreFlags}</span>
-                </div>
+            <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
+                <div class="product-card-title">${escapeHtml(p.id)}</div>
+                ${priority !== 'normal' ? priorityBadge(priority) : ''}
               </div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button class="btn btn-ghost btn-sm" data-open-ads="${escapeHtml(p.id)}" title="Voir les ads">📺 Ads</button>
-                <button class="btn btn-ghost btn-sm" data-open-pages="${escapeHtml(p.id)}" title="Voir product page">🌍 Page</button>
-                ${isAdmin() ? `<button class="btn btn-secondary btn-sm" data-edit-product="${escapeHtml(p.id)}" title="Éditer">⚙️</button>` : ''}
-              </div>
+              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
             </div>
           `;
         }).join('')}
@@ -737,10 +720,8 @@ async function renderAds(el) {
     `}
   `;
 
+  el.querySelectorAll('[data-goto]').forEach(c => c.addEventListener('click', () => navigate('produit/' + c.dataset.goto)));
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
-  el.querySelectorAll('[data-edit-product]').forEach(b => b.addEventListener('click', () => editProductFlow(b.dataset.editProduct)));
-  el.querySelectorAll('[data-open-ads]').forEach(b => b.addEventListener('click', () => navigate('produit/' + b.dataset.openAds)));
-  el.querySelectorAll('[data-open-pages]').forEach(b => b.addEventListener('click', () => navigate('pages/' + b.dataset.openPages)));
 }
 
 async function renderProduits(el) {
