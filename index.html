@@ -281,9 +281,10 @@ a{color:var(--gold);text-decoration:none}
       <div class="nav-section-label">Vue d'ensemble</div>
       <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon">🔍</span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
       <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
+      <a class="nav-item" data-route="ads"><span class="nav-icon">📺</span>Ads</a>
       <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
       <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
-      <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Pages Landing<span class="nav-badge" id="nav-pages"></span></a>
+      <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
       <div class="nav-section-label">Intégrations</div>
       <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
@@ -523,7 +524,7 @@ async function render() {
   }
 
   document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.route === page || (page === 'produit' && el.dataset.route === 'produits'));
+    el.classList.toggle('active', el.dataset.route === page || (page === 'produit' && el.dataset.route === 'ads'));
   });
   // Drive status badge
   const driveBadge = document.getElementById('nav-drive-status');
@@ -537,6 +538,7 @@ async function render() {
   try {
     if (page === 'dashboard') await renderDashboard(el);
     else if (page === 'produits') await renderProduits(el);
+    else if (page === 'ads') await renderAds(el);
     else if (page === 'produit') await renderProduit(el, params[0]);
     else if (page === 'analytics') await renderAnalytics(el);
     else if (page === 'pages') {
@@ -669,6 +671,79 @@ async function renderDashboard(el) {
    PAGE: PRODUITS
    ============================================================ */
 async function renderProduits(el) {
+  const [{ data: products }, { data: countriesAll }, { data: ads }] = await Promise.all([
+    sb.from('products').select('*').order('created_at', { ascending: false }),
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('ads').select('product_id')
+  ]);
+  const adsCountByProduct = {};
+  (ads || []).forEach(a => { adsCountByProduct[a.product_id] = (adsCountByProduct[a.product_id] || 0) + 1; });
+
+  // Tri : priorité DESC puis date DESC
+  const sorted = [...(products || [])].sort((a, b) => {
+    const pa = PRIORITY_META[a.priority]?.weight || 2;
+    const pb = PRIORITY_META[b.priority]?.weight || 2;
+    if (pa !== pb) return pb - pa;
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  });
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">📦 Produits</div>
+        <div class="page-subtitle">${fmt((products || []).length)} produit(s)</div>
+      </div>
+      ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+    </div>
+    ${(products || []).length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-icon">📦</div>
+        <div class="empty-title">Aucun produit</div>
+        <div class="empty-text">Crée ton premier produit pour commencer.</div>
+      </div>
+    ` : `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${sorted.map(p => {
+          const enabled = (p.enabled_countries?.length ? p.enabled_countries : countriesAll.map(c => c.id));
+          const active = enabled.filter(cId => !(p.cut_countries || []).includes(cId));
+          const priority = p.priority || 'normal';
+          const priorityBar = PRIORITY_META[priority]?.color || '#60a5fa';
+          const flagList = active.slice(0, 10).map(cId => flagImg(cId)).join('');
+          const moreFlags = active.length > 10 ? `<span style="color:var(--text-dim);font-size:11px;margin-left:4px">+${active.length - 10}</span>` : '';
+          return `
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-left:4px solid ${priorityBar};border-radius:10px;padding:14px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+              <div style="flex:1;min-width:240px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+                  ${priority !== 'normal' ? priorityBadge(priority) : ''}
+                  <span class="mono" style="color:var(--gold);font-weight:700;font-size:15px">${escapeHtml(p.id)}</span>
+                  <span style="color:var(--text-dim)">·</span>
+                  <span style="color:var(--text);font-weight:500">${escapeHtml(p.name || '')}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:14px;font-size:12px;color:var(--text-dim);flex-wrap:wrap">
+                  <span>📺 ${adsCountByProduct[p.id] || 0} ads</span>
+                  <span>🌍 ${active.length} pays</span>
+                  <span style="display:inline-flex;align-items:center;gap:2px;flex-wrap:wrap">${flagList}${moreFlags}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-ghost btn-sm" data-open-ads="${escapeHtml(p.id)}" title="Voir les ads">📺 Ads</button>
+                <button class="btn btn-ghost btn-sm" data-open-pages="${escapeHtml(p.id)}" title="Voir product page">🌍 Page</button>
+                ${isAdmin() ? `<button class="btn btn-secondary btn-sm" data-edit-product="${escapeHtml(p.id)}" title="Éditer">⚙️</button>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+  el.querySelectorAll('[data-edit-product]').forEach(b => b.addEventListener('click', () => editProductFlow(b.dataset.editProduct)));
+  el.querySelectorAll('[data-open-ads]').forEach(b => b.addEventListener('click', () => navigate('produit/' + b.dataset.openAds)));
+  el.querySelectorAll('[data-open-pages]').forEach(b => b.addEventListener('click', () => navigate('pages/' + b.dataset.openPages)));
+}
+
+async function renderAds(el) {
   const { countries, products, ads, adCountries } = await fetchAll();
   const { data: pagesAll } = await sb.from('product_pages').select('product_id, country_id, status');
   const adsByProduct = {};
@@ -687,7 +762,7 @@ async function renderProduits(el) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">Produits</div>
+        <div class="page-title">📺 Ads</div>
         <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
       </div>
       ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
@@ -825,7 +900,7 @@ async function newProductFlow() {
         <option value="normal" selected>🔵 NORMALE</option>
         <option value="low">⚪ BASSE</option>
       </select>
-      <div class="input-hint">Les produits à priorité haute remontent en haut de Pages Landing.</div>
+      <div class="input-hint">Les produits à priorité haute remontent en haut de Product Page et Ads.</div>
     </div>
     <div class="input-group">
       <label class="input-label">🔗 URL Concurrent (référence pour page builder)</label>
@@ -996,7 +1071,7 @@ async function renderProduit(el, productId) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <a class="btn btn-ghost" href="#produits" style="margin-bottom:8px">← Produits</a>
+        <a class="btn btn-ghost" href="#ads" style="margin-bottom:8px">← Ads</a>
         <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}</div>
         <div class="page-subtitle">${escapeHtml(product.name || '')} · ${ads.length} ads · créé ${new Date(product.created_at).toLocaleDateString('fr-FR')}</div>
       </div>
@@ -1345,7 +1420,7 @@ async function editProductFlow(productId) {
       bd.remove();
       deleteRequested = true;
       await deleteProductWithDriveOption(product.id);
-      navigate('produits');
+      navigate('ads');
     });
   });
   if (deleteRequested) return;
@@ -2164,7 +2239,7 @@ async function renderPagesHome(el) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">🌍 Pages Landing</div>
+        <div class="page-title">🌍 Product Page</div>
         <div class="page-subtitle">${globalStats.pending} à faire · ${globalStats.built} en review · ${globalStats.approved} validées · ${globalStats.rejected} rejetées</div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
@@ -2265,7 +2340,7 @@ async function renderPageProduct(el, productId) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <a class="btn btn-ghost" href="#pages" style="margin-bottom:8px">← Pages Landing</a>
+        <a class="btn btn-ghost" href="#pages" style="margin-bottom:8px">← Product Page</a>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}<span style="color:var(--text);font-family:'Outfit',sans-serif;font-size:18px;font-weight:500"> · ${escapeHtml(product.name || '')}</span></div>
           ${priorityBadge(priority)}
@@ -3288,7 +3363,10 @@ async function openCmdk() {
 
   const pages = [
     { type: 'page', icon: '📊', title: 'Dashboard', route: 'dashboard' },
-    { type: 'page', icon: '📦', title: 'Produits', route: 'produits' }
+    { type: 'page', icon: '📺', title: 'Ads', route: 'ads' },
+    { type: 'page', icon: '📦', title: 'Produits', route: 'produits' },
+    { type: 'page', icon: '📈', title: 'Analytics', route: 'analytics' },
+    { type: 'page', icon: '🌍', title: 'Product Page', route: 'pages' }
   ];
   if (isAdmin()) {
     pages.push({ type: 'page', icon: '👥', title: 'Utilisateurs', route: 'users' });
