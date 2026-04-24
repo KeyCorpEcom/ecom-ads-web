@@ -2148,6 +2148,12 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
 
   console.log('[UPLOAD] items:', items.length, 'errors:', errors.length, 'items detail:', items.map(i => i.displayName));
 
+  // Si aucun item à uploader ET pas d'erreur → c'est qu'on a reçu 0 fichier
+  if (items.length === 0 && errors.length === 0) {
+    toast('Aucun fichier à uploader', 'warn');
+    return [];
+  }
+
   // Bloquer si erreurs
   if (errors.length > 0) {
     const errorsHtml = errors.map(e => `<div style="padding:10px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">❌ ${escapeHtml(e.file)}</strong><br><span class="text-dim">${escapeHtml(e.reason)}</span></div>`).join('');
@@ -2172,7 +2178,50 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     title: `Upload ${items.length} fichier(s) → ${product.id}/${targetFolderName}`
   });
   const okResults = results.filter(r => r.ok);
+  const koResults = results.filter(r => !r.ok);
   const okCount = okResults.length;
+
+  console.log('[UPLOAD] Results:', { ok: okCount, ko: koResults.length });
+  if (koResults.length > 0) {
+    console.error('[UPLOAD] Failed uploads:', koResults.map(r => ({ file: r.item.file.name, error: r.error })));
+  }
+
+  // Si upload dans 00_Ads_Concurrent → créer les ads directement (plus besoin d'attendre Master)
+  if (targetFolderName === CONCURRENT_FOLDER_NAME && okCount > 0) {
+    const existingAdsByName = {};
+    (existingAdsDb || []).forEach(a => { existingAdsByName[a.name.toLowerCase()] = a; });
+    const adsToInsert = [];
+    const adsToUpdate = [];
+    for (const r of okResults) {
+      const adNum = r.item.adNum;
+      const adName = `Ad ${adNum}`;
+      const existing = existingAdsByName[adName.toLowerCase()];
+      if (existing) {
+        adsToUpdate.push({ id: existing.id, concurrent_file_id: r.file?.id || null });
+      } else {
+        adsToInsert.push({
+          product_id: product.id,
+          name: adName,
+          position: adNum,
+          concurrent_file_id: r.file?.id || null
+        });
+      }
+    }
+    let createdCount = 0;
+    if (adsToInsert.length > 0) {
+      const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
+      if (!errA && insertedAds) {
+        const acToInsert = [];
+        insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+        if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
+        createdCount = insertedAds.length;
+      } else if (errA) { console.error('[CREATE ADS]', errA); }
+    }
+    for (const u of adsToUpdate) {
+      await sb.from('ads').update({ concurrent_file_id: u.concurrent_file_id }).eq('id', u.id);
+    }
+    if (createdCount > 0) await logSync(`🎥 ${product.id} : ${createdCount} ad(s) créée(s) depuis Concurrent`, 'success');
+  }
 
   // Si upload dans 00_Master_Ads → créer/lier les ads dans la DB
   if (targetFolderName === MASTER_FOLDER_NAME && okCount > 0) {
@@ -2217,8 +2266,17 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     if (updatedCount > 0) await logSync(`🔄 ${product.id} : ${updatedCount} ad(s) re-liée(s)`, 'info');
   }
 
-  await logSync(`📹 ${product.id} : ${okCount} fichier(s) uploadé(s) dans ${targetFolderName}`, 'success');
-  toast(`✅ ${okCount} fichier(s) uploadé(s)`, 'success');
+  if (okCount === 0 && items.length > 0) {
+    const firstError = koResults[0]?.error || 'inconnue';
+    await logSync(`❌ ${product.id} : TOUS les uploads ont échoué dans ${targetFolderName}. Erreur : ${firstError}`, 'error');
+    toast(`❌ 0/${items.length} uploadé. Erreur : ${firstError}`, 'error', 8000);
+  } else if (okCount < items.length) {
+    await logSync(`⚠ ${product.id} : ${okCount}/${items.length} uploadés dans ${targetFolderName}`, 'warn');
+    toast(`⚠ ${okCount}/${items.length} uploadé(s) — ${koResults.length} ont échoué`, 'warn', 6000);
+  } else {
+    await logSync(`📹 ${product.id} : ${okCount} fichier(s) uploadé(s) dans ${targetFolderName}`, 'success');
+    toast(`✅ ${okCount} fichier(s) uploadé(s)`, 'success');
+  }
   return results;
 }
 
