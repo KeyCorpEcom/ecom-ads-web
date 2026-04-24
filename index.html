@@ -878,7 +878,6 @@ async function renderProduit(el, productId) {
       ${canEdit() ? `
         <div class="flex gap-sm">
           <button class="btn btn-secondary btn-sm" id="btn-edit-product">⚙️ Éditer</button>
-          <button class="btn btn-sm" id="btn-add-ad">+ Ad</button>
         </div>
       ` : ''}
     </div>
@@ -906,7 +905,11 @@ async function renderProduit(el, productId) {
     </div>
 
     ${ads.length === 0 ? `
-      <div class="empty"><div class="empty-icon">🎬</div><div class="empty-title">Aucune ad</div></div>
+      <div class="empty">
+        <div class="empty-icon">🎬</div>
+        <div class="empty-title">Aucune ad pour l'instant</div>
+        <div class="empty-text">Upload des videos dans <strong>"🎬 Masters (nettoyés)"</strong> ci-dessous — les ads seront créées automatiquement.</div>
+      </div>
     ` : `
       <div class="card" style="overflow-x:auto">
         <table class="ads-table">
@@ -2040,21 +2043,117 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
   }
   const targetFolder = await driveEnsureFolder(targetFolderName, productFolderId);
 
-  // Liste les fichiers existants pour la numérotation
-  const existingFiles = await driveListFolderContent(targetFolder.id);
-  const existingAds = existingFiles.map(f => { const m = f.name.match(/Ad\s*(\d+)/i); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0);
-  let maxN = existingAds.length ? Math.max(...existingAds) : 0;
+  // Liste des ads existantes + numéros utilisés (dans DB + Drive target folder)
+  const { data: existingAdsDb } = await sb.from('ads').select('id, name').eq('product_id', product.id);
+  const existingNumsDb = new Set((existingAdsDb || []).map(a => { const m = a.name.match(/Ad\s*(\d+)/i); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0));
 
-  // Prépare les fichiers avec nom Ad N.ext
-  const items = Array.from(files).map(f => {
-    maxN++;
-    return { file: f, displayName: `Ad ${maxN}${detectFileExtension(f.name)}` };
-  });
+  const existingFiles = await driveListFolderContent(targetFolder.id);
+  const existingNumsDrive = new Set(existingFiles.map(f => { const m = f.name.match(/Ad\s*(\d+)/i); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0));
+
+  // Mode : CONCURRENT = auto-number | MASTER + COUNTRY = strict (Ad X requis, pas de doublon)
+  const strictMode = targetFolderName !== CONCURRENT_FOLDER_NAME;
+  let maxN = Math.max(0, ...existingNumsDb, ...existingNumsDrive);
+  const items = [];
+  const errors = [];
+
+  for (const f of Array.from(files)) {
+    const m = f.name.match(/Ad\s*(\d+)/i);
+    let adNum;
+
+    if (strictMode) {
+      // STRICT : Ad X obligatoire dans le nom, pas de doublon autorisé
+      if (!m) {
+        errors.push({ file: f.name, reason: 'Nom invalide — il doit contenir "Ad X" (ex: Ad 3.mp4, Ad 3 clean.mov)' });
+        continue;
+      }
+      adNum = parseInt(m[1], 10);
+      if (existingNumsDrive.has(adNum)) {
+        errors.push({ file: f.name, reason: `Ad ${adNum} existe déjà dans ce dossier. Supprime d'abord l'ancienne sur Drive.` });
+        continue;
+      }
+    } else {
+      // AUTO (concurrent) : garde le n° si détecté ET libre, sinon auto-incrément
+      if (m && !existingNumsDrive.has(parseInt(m[1], 10))) {
+        adNum = parseInt(m[1], 10);
+      } else {
+        maxN++;
+        adNum = maxN;
+      }
+    }
+    // Réserve ce numéro pour éviter collision intra-batch
+    existingNumsDrive.add(adNum);
+    items.push({ file: f, displayName: `Ad ${adNum}${detectFileExtension(f.name)}`, adNum });
+  }
+
+  // Bloquer si erreurs
+  if (errors.length > 0) {
+    const errorsHtml = errors.map(e => `<div style="padding:10px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">❌ ${escapeHtml(e.file)}</strong><br><span class="text-dim">${escapeHtml(e.reason)}</span></div>`).join('');
+    await modal(`
+      <div class="modal-title" style="color:var(--red)">⚠️ ${errors.length} fichier(s) refusé(s)</div>
+      <div class="text-sm text-dim mb-md">Les fichiers suivants ne peuvent pas être uploadés :</div>
+      ${errorsHtml}
+      <div class="text-sm" style="margin-top:14px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue);line-height:1.6">
+        💡 <strong>Règles de nommage pour ${escapeHtml(targetFolderName)} :</strong><br>
+        • Le nom doit contenir <span class="mono">Ad X</span> (ex: <span class="mono">Ad 3.mp4</span>, <span class="mono">Ad 3 clean.mov</span>)<br>
+        • Le numéro doit correspondre à une ad concurrent existante<br>
+        • Si Ad X existe déjà, supprime d'abord l'ancienne version sur Drive
+      </div>
+      <div class="modal-actions">
+        <button class="btn" data-modal-close>Compris</button>
+      </div>
+    `);
+    if (items.length === 0) return [];
+  }
 
   const results = await uploadFilesWithProgressUI(items, targetFolder.id, {
     title: `Upload ${items.length} fichier(s) → ${product.id}/${targetFolderName}`
   });
-  const okCount = results.filter(r => r.ok).length;
+  const okResults = results.filter(r => r.ok);
+  const okCount = okResults.length;
+
+  // Si upload dans 00_Master_Ads → créer/lier les ads dans la DB
+  if (targetFolderName === MASTER_FOLDER_NAME && okCount > 0) {
+    const existingAdsByName = {};
+    (existingAdsDb || []).forEach(a => { existingAdsByName[a.name.toLowerCase()] = a; });
+
+    const adsToInsert = [];
+    const adsToUpdate = [];
+    for (const r of okResults) {
+      const adNum = r.item.adNum;
+      const adName = `Ad ${adNum}`;
+      const existing = existingAdsByName[adName.toLowerCase()];
+      if (existing) {
+        // Ad existe déjà → on met juste à jour master_file_id
+        adsToUpdate.push({ id: existing.id, master_file_id: r.file?.id || null });
+      } else {
+        // Nouvelle ad
+        adsToInsert.push({
+          product_id: product.id,
+          name: adName,
+          position: adNum,
+          master_file_id: r.file?.id || null
+        });
+      }
+    }
+
+    let createdCount = 0, updatedCount = 0;
+    if (adsToInsert.length > 0) {
+      const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
+      if (!errA && insertedAds) {
+        const acToInsert = [];
+        insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+        if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
+        createdCount = insertedAds.length;
+      }
+    }
+    for (const u of adsToUpdate) {
+      await sb.from('ads').update({ master_file_id: u.master_file_id }).eq('id', u.id);
+      updatedCount++;
+    }
+    if (createdCount > 0) await logSync(`🎬 ${product.id} : ${createdCount} ad(s) auto-créée(s)`, 'success');
+    if (updatedCount > 0) await logSync(`🔄 ${product.id} : ${updatedCount} ad(s) re-liée(s)`, 'info');
+  }
+
   await logSync(`📹 ${product.id} : ${okCount} fichier(s) uploadé(s) dans ${targetFolderName}`, 'success');
   toast(`✅ ${okCount} fichier(s) uploadé(s)`, 'success');
   return results;
@@ -2122,11 +2221,43 @@ async function syncDriveAll() {
 async function syncDriveProduit(p, adsAll) {
   let found = 0, marked = 0;
   const { data: countries } = await sb.from('countries').select('*');
-  const countryFolders = await driveListFolderContent(p.drive_folder_id);
-  const pAds = adsAll.filter(a => a.product_id === p.id);
+  const subfolders = await driveListFolderContent(p.drive_folder_id);
+  let pAds = adsAll.filter(a => a.product_id === p.id);
+  const enabled = (p.enabled_countries?.length ? p.enabled_countries : countries.map(c => c.id));
   const now = new Date().toISOString();
 
-  for (const cf of countryFolders) {
+  // 1. Scanner 00_Master_Ads → auto-créer les ads manquantes
+  const masterFolder = subfolders.find(f => f.mimeType === 'application/vnd.google-apps.folder' && f.name === MASTER_FOLDER_NAME);
+  if (masterFolder) {
+    const masterFiles = await driveListFolderContent(masterFolder.id);
+    const adsToCreate = [];
+    for (const file of masterFiles) {
+      if (file.mimeType === 'application/vnd.google-apps.folder') continue;
+      const m = file.name.match(/Ad\s*(\d+)/i);
+      if (!m) continue;
+      const adNum = parseInt(m[1], 10);
+      const adName = 'Ad ' + adNum;
+      if (!pAds.find(a => a.name.toLowerCase() === adName.toLowerCase())) {
+        adsToCreate.push({ product_id: p.id, name: adName, position: adNum, master_file_id: file.id });
+      }
+    }
+    if (adsToCreate.length > 0) {
+      const { data: inserted } = await sb.from('ads').insert(adsToCreate).select();
+      if (inserted && inserted.length > 0) {
+        // Créer les ad_countries pour chaque
+        const acToInsert = [];
+        inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+        await sb.from('ad_countries').insert(acToInsert);
+        await logSync(`🎬 ${p.id} : ${inserted.length} ad(s) auto-créée(s) depuis Masters`, 'success');
+        // Recharge les ads locales
+        pAds = [...pAds, ...inserted];
+        found += inserted.length;
+      }
+    }
+  }
+
+  // 2. Scanner les dossiers pays → auto-check Trad
+  for (const cf of subfolders) {
     if (cf.mimeType !== 'application/vnd.google-apps.folder') continue;
     const country = countries.find(c => c.id.toUpperCase() === cf.name.toUpperCase());
     if (!country) continue;
@@ -2139,7 +2270,6 @@ async function syncDriveProduit(p, adsAll) {
       const ad = pAds.find(a => a.name.toLowerCase() === adName.toLowerCase());
       if (!ad) continue;
       found++;
-      // Check if ad_country already marked trad=true
       const { data: existing } = await sb.from('ad_countries').select('*').eq('ad_id', ad.id).eq('country_id', country.id).maybeSingle();
       if (!existing?.trad) {
         if (existing) {
