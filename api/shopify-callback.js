@@ -1,22 +1,15 @@
 // Vercel Serverless — reçoit le callback OAuth Shopify
 // Échange le code contre un access token et stocke en DB
+// Lit le client_id + client_secret depuis la table shopify_apps (un app Dev Dashboard par pays)
 
 import crypto from 'crypto';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  const CLIENT_ID = process.env.SHOPIFY_CLIENT_ID;
-  const CLIENT_SECRET = process.env.SHOPIFY_CLIENT_SECRET;
   const SUPABASE_URL = 'https://pxzfjnsngtjzfqmahgaj.supabase.co';
   const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!CLIENT_ID || !CLIENT_SECRET) {
-    return res.status(500).send('SHOPIFY_CLIENT_ID / SECRET not configured on Vercel');
-  }
-  if (!SERVICE_KEY) {
-    return res.status(500).send('SUPABASE_SERVICE_ROLE_KEY not configured on Vercel');
-  }
+  if (!SERVICE_KEY) return res.status(500).send('SUPABASE_SERVICE_ROLE_KEY not configured');
 
   const { code, shop, hmac, state } = req.query;
 
@@ -27,18 +20,6 @@ export default async function handler(req, res) {
   // Validation shop domain
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i.test(shop)) {
     return res.status(400).send('Shop domain invalide');
-  }
-
-  // Vérif HMAC pour sécurité
-  if (hmac) {
-    const params = new URLSearchParams(req.url.split('?')[1]);
-    params.delete('hmac');
-    params.delete('signature');
-    const sortedParams = Array.from(params.entries()).sort().map(([k, v]) => `${k}=${v}`).join('&');
-    const computedHmac = crypto.createHmac('sha256', CLIENT_SECRET).update(sortedParams).digest('hex');
-    if (computedHmac !== hmac) {
-      return res.status(403).send('HMAC invalide — requête non authentifiée');
-    }
   }
 
   // Parse state pour récupérer country
@@ -54,6 +35,34 @@ export default async function handler(req, res) {
     return res.status(400).send('Country invalide');
   }
 
+  // Récupère le client_id + client_secret depuis la DB
+  let clientId, clientSecret;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/shopify_apps?country_id=eq.${country}&select=client_id,client_secret`, {
+      headers: { 'apikey': SERVICE_KEY, 'Authorization': `Bearer ${SERVICE_KEY}` }
+    });
+    const data = await r.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      return res.status(400).send(`Aucun app Shopify configuré pour le pays ${country}`);
+    }
+    clientId = data[0].client_id;
+    clientSecret = data[0].client_secret;
+  } catch (e) {
+    return res.status(500).send('Erreur DB (lecture app creds) : ' + e.message);
+  }
+
+  // Vérif HMAC pour sécurité
+  if (hmac) {
+    const params = new URLSearchParams(req.url.split('?')[1]);
+    params.delete('hmac');
+    params.delete('signature');
+    const sortedParams = Array.from(params.entries()).sort().map(([k, v]) => `${k}=${v}`).join('&');
+    const computedHmac = crypto.createHmac('sha256', clientSecret).update(sortedParams).digest('hex');
+    if (computedHmac !== hmac) {
+      return res.status(403).send('HMAC invalide — requête non authentifiée');
+    }
+  }
+
   // Exchange code for access token
   let accessToken, scope;
   try {
@@ -61,8 +70,8 @@ export default async function handler(req, res) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
+        client_id: clientId,
+        client_secret: clientSecret,
         code: code
       })
     });

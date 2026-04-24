@@ -1607,21 +1607,49 @@ async function renderSettings(el) {
 async function connectShopifyFlow(countryId) {
   const { data: country } = await sb.from('countries').select('*').eq('id', countryId).single();
   if (!country) return;
+
+  // Check si les creds d'app Dev Dashboard sont déjà enregistrées pour ce pays
+  const { data: existingApp } = await sb.from('shopify_apps').select('client_id').eq('country_id', countryId).maybeSingle();
+  const hasApp = !!existingApp;
+
+  const credsSection = hasApp ? `
+    <div style="background:var(--bg-input);border-left:3px solid var(--green);padding:10px 12px;border-radius:6px;margin-bottom:16px;font-size:12px">
+      ✅ App Dev Dashboard déjà configurée pour ${countryId}. Tu peux lancer directement l'OAuth.
+    </div>
+  ` : `
+    <div style="background:var(--bg-input);border-left:3px solid var(--orange);padding:12px;border-radius:6px;margin-bottom:16px;font-size:12px;line-height:1.7">
+      <strong>⚠️ Première connexion pour ${countryId}</strong><br>
+      Tu dois d'abord créer une app dans le <strong>Dev Dashboard Shopify</strong> de ce shop, puis coller ses identifiants ici.<br><br>
+      <strong>Étapes</strong> :<br>
+      1. Va dans l'admin du shop → <strong>Paramètres</strong> → <strong>Applications</strong> → <strong>Développer des applications dans le Dev Dashboard</strong><br>
+      2. Crée une app → nom : <span class="mono">KeyCrop Manager ${countryId}</span><br>
+      3. Configure scopes : <span class="mono">read_themes, write_themes, read_files, write_files, read_content, write_content</span><br>
+      4. Configure redirect URL : <span class="mono">https://keycorp-ecom.com/api/shopify-callback</span><br>
+      5. Distribution personnalisée → ciblée sur ton shop ${countryId}<br>
+      6. Récupère <strong>ID client</strong> + <strong>Secret</strong> (onglet Paramètres de l'app)
+    </div>
+    <div class="input-group">
+      <label class="input-label">Client ID (ID client de l'app)</label>
+      <input type="text" class="input mono" data-field="client_id" placeholder="0a13bd9e775a0afcfd02edae5d512893">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Client Secret</label>
+      <input type="password" class="input mono" data-field="client_secret" placeholder="shpss_...">
+      <div class="input-hint">Stocké en DB (admin only, RLS activé)</div>
+    </div>
+  `;
+
   const r = await modal(`
     <div class="modal-title">🔗 Connecter shop Shopify ${flagImg(countryId)}${countryId}</div>
-    <div class="text-sm text-dim mb-md" style="line-height:1.6">
-      Entre le <strong>subdomain myshopify.com</strong> de ton shop ${countryId}. Tu seras redirigé vers Shopify pour installer l'app.
-    </div>
-    <div style="background:var(--bg-input);border-left:3px solid var(--blue);padding:12px;border-radius:6px;margin-bottom:16px;font-size:12px;line-height:1.7">
-      <strong>💡 Comment trouver ton subdomain myshopify.com</strong><br>
-      1. Va dans l'admin du shop → <strong>Paramètres</strong> → <strong>Domaines</strong><br>
-      2. Cherche le domaine en <span class="mono">xxxxx.myshopify.com</span> (toujours présent en plus du domaine custom)<br>
-      3. Copie le nom complet ici
+    ${credsSection}
+    <div style="background:var(--bg-input);border-left:3px solid var(--blue);padding:10px 12px;border-radius:6px;margin-bottom:16px;font-size:12px">
+      <strong>💡 Shop domain</strong> = subdomain <span class="mono">.myshopify.com</span> (pas le domaine custom comme salvyne.de).<br>
+      Trouvé dans admin → Paramètres → Domaines.
     </div>
     <div class="input-group">
       <label class="input-label">Shop domain (myshopify.com)</label>
       <input type="text" class="input mono" data-field="shop" placeholder="salvyne-${countryId.toLowerCase()}.myshopify.com" autofocus>
-      <div class="input-hint">Ex: <span class="mono">salvyne-de.myshopify.com</span> (pas <span class="mono">salvyne.de</span>)</div>
+      <div class="input-hint">Ex: <span class="mono">salvyne-de.myshopify.com</span></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
@@ -1629,6 +1657,7 @@ async function connectShopifyFlow(countryId) {
     </div>
   `);
   if (!r || !r.shop) return;
+
   let shop = r.shop.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) {
     if (/^[a-z0-9][a-z0-9-]*$/.test(shop)) shop = shop + '.myshopify.com';
@@ -1638,7 +1667,34 @@ async function connectShopifyFlow(countryId) {
     }
   }
 
-  // Redirige vers /api/shopify-install qui génère l'URL OAuth Shopify
+  // Si pas de creds en DB → on doit d'abord les enregistrer
+  if (!hasApp) {
+    const clientId = (r.client_id || '').trim();
+    const clientSecret = (r.client_secret || '').trim();
+    if (!clientId || !clientSecret) {
+      toast('Client ID et Client Secret requis pour la première connexion', 'error');
+      return;
+    }
+    if (!/^[a-f0-9]{32}$/i.test(clientId)) {
+      toast('Client ID invalide (32 caractères hex attendus)', 'error');
+      return;
+    }
+    if (!clientSecret.startsWith('shpss_')) {
+      toast('Client Secret invalide (doit commencer par shpss_)', 'error');
+      return;
+    }
+    // Save creds
+    const { error } = await sb.from('shopify_apps').upsert({
+      country_id: countryId,
+      client_id: clientId,
+      client_secret: clientSecret,
+      created_by: currentUser.id
+    }, { onConflict: 'country_id' });
+    if (error) { toast('Erreur save creds : ' + error.message, 'error', 8000); return; }
+    toast('Creds enregistrées, lancement OAuth...', 'info');
+  }
+
+  // Redirige vers /api/shopify-install qui lit client_id depuis DB
   const installUrl = `/api/shopify-install?shop=${encodeURIComponent(shop)}&country=${encodeURIComponent(countryId)}`;
   window.location.href = installUrl;
 }
