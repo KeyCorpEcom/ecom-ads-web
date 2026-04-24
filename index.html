@@ -526,7 +526,10 @@ async function render() {
     else if (page === 'produits') await renderProduits(el);
     else if (page === 'produit') await renderProduit(el, params[0]);
     else if (page === 'analytics') await renderAnalytics(el);
-    else if (page === 'pages') await renderPages(el);
+    else if (page === 'pages') {
+      if (params[0]) await renderPageProduct(el, params[0]);
+      else await renderPagesHome(el);
+    }
     else if (page === 'drive') await renderDrive(el);
     else if (page === 'users') await renderUsers(el);
     else if (page === 'parametres') await renderSettings(el);
@@ -708,17 +711,25 @@ async function renderProduits(el) {
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
 }
 
+function computeDefaultMaster(enabledCountries) {
+  if (enabledCountries.includes('FR')) return 'FR';
+  if (enabledCountries.includes('IT')) return 'IT';
+  return enabledCountries[0] || null;
+}
+
 async function newProductFlow() {
   if (!isAdmin()) { toast('Seul un admin peut créer un produit', 'error'); return; }
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
   const selectedCountries = allCountries.map(c => c.id);
   let concurrentFiles = [];
+  let masterCountry = computeDefaultMaster(selectedCountries);
   const countriesHtml = allCountries.map(c => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
       <input type="checkbox" data-new-country-check="${c.id}" checked style="margin:0;accent-color:${c.color}">
       ${c.id}
     </label>
   `).join('');
+  const masterSelectHtml = allCountries.map(c => `<option value="${c.id}" ${c.id === masterCountry ? 'selected' : ''}>${c.id} — ${escapeHtml(c.name)}</option>`).join('');
 
   const r = await modalWithOpen(`
     <div class="modal-title">Créer un produit</div>
@@ -754,6 +765,13 @@ async function newProductFlow() {
       <div class="input-hint">Décoche les pays où tu ne lances pas ce produit (tu pourras modifier plus tard).</div>
     </div>
     <div class="input-group">
+      <label class="input-label">🏁 Pays Master (page landing de référence)</label>
+      <select class="select" id="master-country-select">
+        ${masterSelectHtml}
+      </select>
+      <div class="input-hint">Le page builder fera d'abord la page pour ce pays. Une fois validée, les autres pays se débloqueront pour duplication.</div>
+    </div>
+    <div class="input-group">
       <label class="input-label">🎬 Upload videos concurrent (optionnel)</label>
       <div id="new-product-dropzone" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected ? 'opacity:0.5;cursor:not-allowed' : ''}">
         <div style="font-size:28px;margin-bottom:8px">📹</div>
@@ -769,13 +787,20 @@ async function newProductFlow() {
       <button class="btn" data-modal-ok>Créer</button>
     </div>
   `, (bd) => {
+    const masterSel = bd.querySelector('#master-country-select');
     bd.querySelectorAll('[data-new-country-check]').forEach(cb => {
       cb.addEventListener('change', () => {
         const cid = cb.dataset.newCountryCheck;
         if (cb.checked) { if (!selectedCountries.includes(cid)) selectedCountries.push(cid); }
         else { const i = selectedCountries.indexOf(cid); if (i >= 0) selectedCountries.splice(i, 1); }
+        // Si le master est décoché, on auto-change
+        if (!selectedCountries.includes(masterCountry)) {
+          masterCountry = computeDefaultMaster(selectedCountries);
+          if (masterSel) masterSel.value = masterCountry || '';
+        }
       });
     });
+    if (masterSel) masterSel.addEventListener('change', () => { masterCountry = masterSel.value; });
     // Dropzone
     const dz = bd.querySelector('#new-product-dropzone');
     const input = bd.querySelector('#new-product-files');
@@ -802,10 +827,16 @@ async function newProductFlow() {
   let driveFolderId = (r.driveFolderId || '').trim() || null;
   const autoCreate = r.autoCreateDrive === 'on' || r.autoCreateDrive === true || document.querySelector('[data-field="autoCreateDrive"]')?.checked;
 
+  // S'assurer que masterCountry est valide
+  if (!masterCountry || !selectedCountries.includes(masterCountry)) {
+    masterCountry = computeDefaultMaster(selectedCountries);
+  }
+
   // 1. Créer le produit en DB
   const { error: errP } = await sb.from('products').insert({
     id, name: (r.name || '').trim() || id,
     enabled_countries: selectedCountries,
+    master_country_id: masterCountry,
     drive_folder_id: driveFolderId,
     created_by: currentUser.id
   });
@@ -1175,12 +1206,14 @@ async function editProductFlow(productId) {
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
   if (!product) return;
   const enabled = (product.enabled_countries && product.enabled_countries.length) ? [...product.enabled_countries] : allCountries.map(c => c.id);
+  let masterCountry = product.master_country_id || computeDefaultMaster(enabled);
   const countriesHtml = allCountries.map(c => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
       <input type="checkbox" data-edit-country-check="${c.id}" ${enabled.includes(c.id) ? 'checked' : ''} style="margin:0;accent-color:${c.color}">
       ${c.id}
     </label>
   `).join('');
+  const masterSelectHtml = allCountries.map(c => `<option value="${c.id}" ${c.id === masterCountry ? 'selected' : ''}>${c.id} — ${escapeHtml(c.name)}</option>`).join('');
 
   let deleteRequested = false;
   const r = await modalWithOpen(`
@@ -1201,6 +1234,13 @@ async function editProductFlow(productId) {
       </div>
       <div class="input-hint">Décoche les pays où tu ne lances pas ce produit.</div>
     </div>
+    <div class="input-group">
+      <label class="input-label">🏁 Pays Master (page landing de référence)</label>
+      <select class="select" id="edit-master-country">
+        ${masterSelectHtml}
+      </select>
+      <div class="input-hint">Le page builder fait d'abord la page pour ce pays. Si tu coupes ce pays, le master bascule automatiquement.</div>
+    </div>
     <div class="modal-actions">
       ${isAdmin() ? '<button class="btn btn-danger btn-sm" id="btn-delete-product">Supprimer produit</button>' : ''}
       <div style="flex:1"></div>
@@ -1208,13 +1248,21 @@ async function editProductFlow(productId) {
       <button class="btn" data-modal-ok>Enregistrer</button>
     </div>
   `, (bd) => {
+    const masterSel = bd.querySelector('#edit-master-country');
     bd.querySelectorAll('[data-edit-country-check]').forEach(cb => {
       cb.addEventListener('change', () => {
         const cid = cb.dataset.editCountryCheck;
         if (cb.checked) { if (!enabled.includes(cid)) enabled.push(cid); }
         else { const i = enabled.indexOf(cid); if (i >= 0) enabled.splice(i, 1); }
+        // Auto-change master si coupé
+        if (!enabled.includes(masterCountry)) {
+          masterCountry = computeDefaultMaster(enabled);
+          if (masterSel) masterSel.value = masterCountry || '';
+          if (masterCountry) toast(`Master changé automatiquement vers ${masterCountry}`, 'info');
+        }
       });
     });
+    if (masterSel) masterSel.addEventListener('change', () => { masterCountry = masterSel.value; });
     bd.querySelector('#btn-delete-product')?.addEventListener('click', async () => {
       bd.remove();
       deleteRequested = true;
@@ -1225,10 +1273,13 @@ async function editProductFlow(productId) {
   if (deleteRequested) return;
   if (!r) return;
   if (enabled.length === 0) { toast('Au moins 1 marché requis', 'error'); return; }
+  if (!masterCountry || !enabled.includes(masterCountry)) masterCountry = computeDefaultMaster(enabled);
+
   const { error } = await sb.from('products').update({
     name: (r.name || '').trim() || product.id,
     drive_folder_id: (r.driveFolderId || '').trim() || null,
-    enabled_countries: enabled
+    enabled_countries: enabled,
+    master_country_id: masterCountry
   }).eq('id', product.id);
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
   toast('Produit mis à jour', 'success');
@@ -1797,6 +1848,353 @@ function normalizeUrl(url) {
   return url;
 }
 
+async function renderPagesHome(el) {
+  const [{ data: products }, { data: countries }, { data: pages }] = await Promise.all([
+    sb.from('products').select('*').order('id'),
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('product_pages').select('*')
+  ]);
+  const pagesByProduct = {};
+  (pages || []).forEach(p => {
+    if (!pagesByProduct[p.product_id]) pagesByProduct[p.product_id] = [];
+    pagesByProduct[p.product_id].push(p);
+  });
+
+  // Global stats
+  const totalRows = (products || []).reduce((sum, p) => {
+    const enabled = (p.enabled_countries?.length ? p.enabled_countries : countries.map(c => c.id));
+    return sum + enabled.filter(cId => !(p.cut_countries || []).includes(cId)).length;
+  }, 0);
+  const stats = (pages || []).reduce((a, p) => { const s = p.status || 'pending'; a[s] = (a[s] || 0) + 1; return a; }, {});
+  const pending = totalRows - ((stats.built || 0) + (stats.approved || 0) + (stats.rejected || 0));
+  const built = stats.built || 0;
+  const approved = stats.approved || 0;
+  const rejected = stats.rejected || 0;
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">🌍 Pages Landing</div>
+        <div class="page-subtitle">${fmt((products || []).length)} produit(s) · ${fmt(totalRows)} page(s) à builder</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">⏸ À faire</div><div class="kpi-value" style="color:var(--text-dim)">${fmt(pending)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">⏳ En review</div><div class="kpi-value orange">${fmt(built)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">✅ Validées</div><div class="kpi-value green">${fmt(approved)}</div></div>
+      <div class="kpi-card"><div class="kpi-label">❌ Rejetées</div><div class="kpi-value red">${fmt(rejected)}</div></div>
+    </div>
+
+    ${(products || []).length === 0 ? `
+      <div class="empty"><div class="empty-icon">🌍</div><div class="empty-title">Aucun produit</div><div class="empty-text">Crée ton premier produit pour voir ses pages landing ici.</div></div>
+    ` : `
+      <div class="product-grid">
+        ${products.map(p => {
+          const enabled = (p.enabled_countries?.length ? p.enabled_countries : countries.map(c => c.id));
+          const cuts = p.cut_countries || [];
+          const activeCountries = enabled.filter(cId => !cuts.includes(cId));
+          const master = p.master_country_id || computeDefaultMaster(activeCountries);
+          const masterCountry = countries.find(c => c.id === master);
+          const pPages = pagesByProduct[p.id] || [];
+          const masterPage = pPages.find(x => x.country_id === master);
+          const masterStatus = masterPage?.status || 'pending';
+          const otherCountries = activeCountries.filter(cId => cId !== master);
+          const approvedCount = pPages.filter(x => x.status === 'approved').length;
+          const total = activeCountries.length;
+          const pct_ = pct(approvedCount, total);
+
+          const statusEmoji = { pending: '⏸', built: '⏳', approved: '✅', rejected: '❌' }[masterStatus];
+          const statusColor = { pending: 'var(--text-dim)', built: 'var(--orange)', approved: 'var(--green)', rejected: 'var(--red)' }[masterStatus];
+
+          return `
+            <div class="product-card" data-goto-page="${p.id}">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+                <div class="product-card-title">${escapeHtml(p.id)}</div>
+                ${masterCountry ? `<div style="display:flex;align-items:center;gap:4px;background:rgba(200,165,90,0.12);padding:3px 8px;border-radius:12px;font-size:11px"><span style="color:var(--gold)">🏁</span>${flagImg(masterCountry.id)}<strong style="font-size:11px">${masterCountry.id}</strong></div>` : ''}
+              </div>
+              <div class="product-card-sub">${escapeHtml(p.name || '')} · ${activeCountries.length} pays</div>
+              <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+                <div style="flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+                  <div style="width:${pct_}%;height:100%;background:linear-gradient(90deg,var(--green),var(--gold));transition:width 0.4s"></div>
+                </div>
+                <span class="mono text-sm" style="color:var(--gold)">${approvedCount}/${total}</span>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg-input);border-radius:6px;font-size:12px">
+                <span style="color:${statusColor}">${statusEmoji}</span>
+                <span class="text-dim">Master ${master} :</span>
+                <strong style="color:${statusColor}">${ {pending:'à faire', built:'en review', approved:'validé', rejected:'rejeté'}[masterStatus] }</strong>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-goto-page]').forEach(c => c.addEventListener('click', () => navigate('pages/' + c.dataset.gotoPage)));
+}
+
+async function renderPageProduct(el, productId) {
+  const [{ data: product }, { data: countriesAll }, { data: pages }] = await Promise.all([
+    sb.from('products').select('*').eq('id', productId).single(),
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('product_pages').select('*').eq('product_id', productId)
+  ]);
+  if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#pages">← Retour</a></div>'; return; }
+
+  const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
+  const cuts = product.cut_countries || [];
+  const activeCountries = enabled.filter(cId => !cuts.includes(cId));
+  const master = product.master_country_id || computeDefaultMaster(activeCountries);
+  const masterCountry = countriesAll.find(c => c.id === master);
+  const otherCountryIds = activeCountries.filter(cId => cId !== master);
+  const otherCountries = otherCountryIds.map(cId => countriesAll.find(c => c.id === cId)).filter(Boolean);
+
+  const pagesByCountry = {};
+  (pages || []).forEach(p => { pagesByCountry[p.country_id] = p; });
+  const masterPage = pagesByCountry[master] || { status: 'pending' };
+  const masterApproved = masterPage.status === 'approved';
+
+  const concurrentUrl = product.concurrent_page_url ? normalizeUrl(product.concurrent_page_url) : null;
+  const masterBuiltUrl = masterPage.built_url ? normalizeUrl(masterPage.built_url) : null;
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <a class="btn btn-ghost" href="#pages" style="margin-bottom:8px">← Pages Landing</a>
+        <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)} <span style="color:var(--text);font-family:'Outfit',sans-serif;font-size:18px;font-weight:500"> · ${escapeHtml(product.name || '')}</span></div>
+        <div class="page-subtitle">${activeCountries.length} pays actifs · Master : ${flagImg(master)}${master}</div>
+      </div>
+      ${canEdit() && !isPageBuilder() ? `<button class="btn btn-secondary btn-sm" id="btn-edit-product-page">⚙️ Éditer produit</button>` : ''}
+    </div>
+
+    <!-- URL CONCURRENT (GLOBALE) -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">🔗 URL Concurrent (référence)</div>
+      </div>
+      ${isAdmin() || (canEdit() && !isPageBuilder()) ? `
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="url" class="input" id="concurrent-url-input" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://ridgewallet.eu/..." style="flex:1">
+          <button class="btn btn-secondary" id="btn-save-concurrent">Enregistrer</button>
+          ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost" title="Ouvrir">↗ Ouvrir</a>` : ''}
+        </div>
+      ` : `
+        ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" class="mono" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(product.concurrent_page_url)}</a>` : '<span class="text-mute">Aucune URL concurrent configurée</span>'}
+      `}
+    </div>
+
+    <!-- MASTER SECTION -->
+    <div class="card" style="border:2px solid ${masterApproved ? 'var(--green)' : 'rgba(200,165,90,0.4)'};background:${masterApproved ? 'rgba(52,211,153,0.04)' : 'var(--bg-card)'}">
+      <div class="card-head">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="background:rgba(200,165,90,0.15);color:var(--gold);padding:4px 10px;border-radius:14px;font-size:11px;font-weight:700;letter-spacing:1px">🏁 MASTER</span>
+          <div class="card-title" style="display:flex;align-items:center;gap:6px">${flagImg(master)}${masterCountry?.name || master}</div>
+        </div>
+        ${pageStatusDropdown(productId, master, masterPage.status || 'pending', !!masterPage.built_url)}
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">Notre URL</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="url" class="input" id="master-url-input" value="${escapeHtml(masterPage.built_url || '')}" placeholder="https://salvyne.fr/${escapeHtml(product.id)}">
+          <button class="btn btn-secondary" id="btn-save-master-url">Enregistrer</button>
+          ${masterBuiltUrl ? `<a href="${escapeHtml(masterBuiltUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost" title="Ouvrir">↗</a>` : ''}
+        </div>
+      </div>
+
+      <div style="background:var(--bg-input);border-radius:8px;padding:14px;border:1px dashed var(--border);margin-top:10px">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">📸 Images master (upload dans l'app — à venir en Phase 2)</div>
+        <div class="text-mute text-sm">Le page builder pourra uploader les images traduites ici (IP1-${master}, IP2-${master}, ...). Section activée à la Phase 2.</div>
+      </div>
+
+      ${masterPage.notes ? `
+        <div style="margin-top:12px;padding:12px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px">
+          <div style="font-weight:700;color:var(--red);margin-bottom:6px;font-size:12px">💬 Notes / Feedback</div>
+          <div style="white-space:pre-wrap;font-size:13px;line-height:1.5">${escapeHtml(masterPage.notes)}</div>
+        </div>
+      ` : ''}
+
+      ${canEdit() && !isPageBuilder() ? `
+        <div class="flex gap-sm" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft)">
+          <button class="btn btn-ghost btn-sm" id="btn-master-notes">💬 ${masterPage.notes ? 'Éditer' : 'Ajouter'} notes</button>
+        </div>
+      ` : ''}
+    </div>
+
+    <!-- OTHER COUNTRIES -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">🌍 Autres pays ${masterApproved ? '(débloqués)' : '(verrouillés)'}</div>
+        ${masterApproved ? '<span class="badge green">✅ Master validé</span>' : '<span class="badge" style="background:rgba(138,138,154,0.15);color:var(--text-dim)">🔒 Valide le master d\'abord</span>'}
+      </div>
+
+      ${!masterApproved ? `
+        <div style="padding:40px 20px;text-align:center;color:var(--text-dim);background:var(--bg-input);border-radius:8px">
+          <div style="font-size:40px;margin-bottom:10px">🔒</div>
+          <div style="font-weight:600;margin-bottom:6px">Verrouillé</div>
+          <div class="text-sm">Valide d'abord la page master ${master} pour débloquer la duplication vers ${otherCountries.map(c => c.id).join(', ')}.</div>
+        </div>
+      ` : otherCountries.length === 0 ? `
+        <div class="empty"><div class="empty-text">Aucun autre pays actif pour ce produit.</div></div>
+      ` : `
+        <div class="grid-2" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+          ${otherCountries.map(c => {
+            const pg = pagesByCountry[c.id] || { status: 'pending' };
+            const builtUrl = pg.built_url ? normalizeUrl(pg.built_url) : null;
+            const st = pg.status || 'pending';
+            const stEmoji = { pending: '⏸', built: '⏳', approved: '✅', rejected: '❌' }[st];
+            const stColor = { pending: 'var(--text-dim)', built: 'var(--orange)', approved: 'var(--green)', rejected: 'var(--red)' }[st];
+            return `
+              <div style="padding:14px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:10px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <div style="display:flex;align-items:center;gap:6px"><span style="font-size:18px">${flagImg(c.id)}</span><strong>${c.id}</strong> <span class="text-dim text-sm">· ${escapeHtml(c.name)}</span></div>
+                  <span style="color:${stColor};font-size:18px" title="${st}">${stEmoji}</span>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+                  <input type="url" class="input" data-edit-country-url="${c.id}" value="${escapeHtml(pg.built_url || '')}" placeholder="https://salvyne.${c.id.toLowerCase() === 'uk' ? 'co.uk' : c.id.toLowerCase()}/..." style="padding:6px 8px;font-size:12px">
+                  ${builtUrl ? `<a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" style="padding:4px 8px;color:var(--gold);text-decoration:none;font-size:16px" title="Ouvrir">↗</a>` : ''}
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                  ${pageStatusDropdown(productId, c.id, st, !!pg.built_url)}
+                  <button class="btn btn-ghost btn-sm" data-country-notes="${c.id}" title="Notes" style="padding:4px 8px">💬${pg.notes ? ' !' : ''}</button>
+                  ${canEditPages() ? `<button class="btn btn-ghost btn-sm" data-duplicate-master="${c.id}" title="Dupliquer depuis master (Phase 3)" style="padding:4px 8px;color:var(--purple)">🤖 Dupliquer</button>` : ''}
+                </div>
+                ${pg.notes ? `<div style="margin-top:8px;padding:8px;background:rgba(248,113,113,0.08);border-left:2px solid var(--red);border-radius:4px;font-size:11px;white-space:pre-wrap">${escapeHtml(pg.notes.slice(0, 100))}${pg.notes.length > 100 ? '…' : ''}</div>` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
+    </div>
+  `;
+
+  // Handlers
+  document.getElementById('btn-edit-product-page')?.addEventListener('click', () => editProductFlow(productId));
+
+  document.getElementById('btn-save-concurrent')?.addEventListener('click', async () => {
+    const v = normalizeUrl(document.getElementById('concurrent-url-input').value);
+    await sb.from('products').update({ concurrent_page_url: v }).eq('id', productId);
+    toast('URL concurrent sauvegardée', 'success');
+    render();
+  });
+
+  document.getElementById('btn-save-master-url')?.addEventListener('click', async () => {
+    const v = normalizeUrl(document.getElementById('master-url-input').value);
+    await upsertPage(productId, master, { built_url: v, status: v ? (masterPage.status === 'approved' ? 'approved' : 'built') : 'pending' });
+    toast('URL master sauvegardée', 'success');
+    render();
+  });
+
+  document.getElementById('btn-master-notes')?.addEventListener('click', async () => {
+    await openNotesModal(productId, master, masterPage.notes);
+    render();
+  });
+
+  el.querySelectorAll('[data-edit-country-url]').forEach(input => {
+    input.addEventListener('blur', async () => {
+      const cId = input.dataset.editCountryUrl;
+      const v = normalizeUrl(input.value);
+      const existing = pagesByCountry[cId];
+      const newStatus = v ? (existing?.status === 'approved' ? 'approved' : (existing?.status === 'rejected' ? 'rejected' : 'built')) : 'pending';
+      await upsertPage(productId, cId, { built_url: v, status: newStatus });
+      toast('URL sauvegardée', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-change-page-status]').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      if (!canEdit() && !isAdmin()) { toast('Permission refusée', 'error'); return; }
+      const [pid, cId] = sel.dataset.changePageStatus.split('|');
+      const newStatus = sel.value;
+      const existing = pagesByCountry[cId];
+      const payload = { status: newStatus };
+      if (newStatus === 'approved') { payload.approved_by = currentUser.id; payload.approved_at = new Date().toISOString(); }
+      else { payload.approved_by = null; payload.approved_at = null; }
+
+      if (newStatus === 'rejected') {
+        const r = await modal(`
+          <div class="modal-title" style="color:var(--red)">❌ Rejeter ${pid} / ${cId}</div>
+          <div class="text-sm text-dim mb-md">Explique ce qui ne va pas :</div>
+          <div class="input-group"><textarea class="input" data-field="notes" style="min-height:120px" placeholder="- Prix faux&#10;- Images trop petites">${escapeHtml(existing?.notes || '')}</textarea></div>
+          <div class="modal-actions"><button class="btn btn-secondary" data-modal-close>Annuler</button><button class="btn btn-danger" data-modal-ok>Rejeter</button></div>
+        `);
+        if (!r) { sel.value = existing?.status || 'pending'; return; }
+        payload.notes = (r.notes || '').trim() || null;
+      }
+
+      await upsertPage(productId, cId, payload);
+      toast(newStatus === 'rejected' ? '❌ Rejetée' : 'Statut mis à jour', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-country-notes]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const cId = btn.dataset.countryNotes;
+      await openNotesModal(productId, cId, pagesByCountry[cId]?.notes);
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-duplicate-master]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toast('🤖 Duplication auto via Shopify+Claude : disponible en Phase 3', 'info', 5000);
+    });
+  });
+}
+
+function pageStatusDropdown(productId, countryId, status, hasUrl) {
+  const canChange = isAdmin() || canEdit();
+  if (!canChange) {
+    const emoji = { pending: '⏸', built: '⏳', approved: '✅', rejected: '❌' }[status];
+    const label = { pending: 'À faire', built: 'En review', approved: 'Validée', rejected: 'Rejetée' }[status];
+    return `<span class="badge" style="font-size:11px">${emoji} ${label}</span>`;
+  }
+  const borderColor = { pending: 'var(--border)', built: 'var(--orange)', approved: 'var(--green)', rejected: 'var(--red)' }[status];
+  return `
+    <select class="select" data-change-page-status="${productId}|${countryId}" style="padding:5px 8px;font-size:11px;min-width:120px;border-color:${borderColor}">
+      <option value="pending" ${status === 'pending' ? 'selected' : ''}>⏸ À faire</option>
+      <option value="built" ${status === 'built' ? 'selected' : ''}>⏳ En review</option>
+      <option value="approved" ${status === 'approved' ? 'selected' : ''}>✅ Validée</option>
+      <option value="rejected" ${status === 'rejected' ? 'selected' : ''}>❌ Rejetée</option>
+    </select>
+  `;
+}
+
+async function upsertPage(productId, countryId, payload) {
+  const { data: existing } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', countryId).maybeSingle();
+  const fullPayload = { ...payload, updated_at: new Date().toISOString(), updated_by: currentUser.id };
+  if (existing) {
+    await sb.from('product_pages').update(fullPayload).eq('product_id', productId).eq('country_id', countryId);
+  } else {
+    await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, ...fullPayload });
+  }
+}
+
+async function openNotesModal(productId, countryId, currentNotes) {
+  const isEditable = isAdmin() || canEdit();
+  const r = await modal(`
+    <div class="modal-title">💬 Notes — ${escapeHtml(productId)} / ${countryId}</div>
+    ${isEditable ? `
+      <div class="input-group"><label class="input-label">Feedback</label><textarea class="input" data-field="notes" style="min-height:120px">${escapeHtml(currentNotes || '')}</textarea></div>
+    ` : `
+      <div style="padding:14px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px;white-space:pre-wrap;font-size:13px;line-height:1.6">${escapeHtml(currentNotes || '') || '<span class="text-mute">Aucune note</span>'}</div>
+    `}
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>${isEditable ? 'Annuler' : 'Fermer'}</button>
+      ${isEditable ? '<button class="btn" data-modal-ok>Enregistrer</button>' : ''}
+    </div>
+  `);
+  if (!r || !isEditable) return;
+  const newNotes = (r.notes || '').trim() || null;
+  await upsertPage(productId, countryId, { notes: newNotes });
+  toast('Notes sauvegardées', 'success');
+}
+
+// OLD renderPages kept for reference, routing uses renderPagesHome
 async function renderPages(el) {
   const [{ data: products }, { data: countries }, { data: pages }, { data: profilesData }] = await Promise.all([
     sb.from('products').select('*').order('id'),
