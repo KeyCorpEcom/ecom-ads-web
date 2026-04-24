@@ -1609,27 +1609,34 @@ async function connectShopifyFlow(countryId) {
   if (!country) return;
   const r = await modal(`
     <div class="modal-title">🔗 Connecter shop Shopify ${flagImg(countryId)}${countryId}</div>
-    <div class="text-sm text-dim mb-md">Entre le domaine .myshopify.com de ton shop ${country.name}. Tu seras redirigé vers Shopify pour autoriser l'app.</div>
+    <div class="text-sm text-dim mb-md" style="line-height:1.6">
+      Entre le domaine du shop pour ${countryId}. Tu seras redirigé vers Shopify pour autoriser l'app <strong>KeyCorp</strong>.
+    </div>
+    <div style="background:var(--bg-input);border-left:3px solid var(--blue);padding:12px;border-radius:6px;margin-bottom:16px;font-size:12px;line-height:1.7">
+      <strong>⚠️ Prérequis</strong><br>
+      Le shop doit être <strong>invité dans ton organisation Shopify Partners</strong>.<br>
+      Depuis Partners → Shops → <strong>Ajouter un shop</strong> → envoie l'invitation au propriétaire du shop <span class="mono">${countryId}</span>. Une fois accepté, l'app pourra s'installer.
+    </div>
     <div class="input-group">
       <label class="input-label">Shop domain</label>
       <input type="text" class="input mono" data-field="shop" placeholder="salvyne-${countryId.toLowerCase()}.myshopify.com" autofocus>
-      <div class="input-hint">Format obligatoire : <span class="mono">nom-shop.myshopify.com</span> (PAS le domaine custom)</div>
+      <div class="input-hint">Format obligatoire : <span class="mono">nom-shop.myshopify.com</span></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>🔗 Autoriser sur Shopify</button>
+      <button class="btn" data-modal-ok>🔗 Lancer l'OAuth</button>
     </div>
   `);
   if (!r || !r.shop) return;
   let shop = r.shop.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) {
-    // Si user a tapé juste le nom, on ajoute le suffixe
     if (/^[a-z0-9][a-z0-9-]*$/.test(shop)) shop = shop + '.myshopify.com';
-    else { toast('Format invalide. Attendu : nom-shop.myshopify.com', 'error'); return; }
+    else { toast('Format shop invalide. Attendu : nom-shop.myshopify.com', 'error'); return; }
   }
-  // Redirect vers le endpoint Vercel qui gère l'OAuth
-  const url = `/api/shopify-install?shop=${encodeURIComponent(shop)}&country=${encodeURIComponent(countryId)}`;
-  window.location.href = url;
+
+  // Redirige vers /api/shopify-install qui génère l'URL OAuth Shopify
+  const installUrl = `/api/shopify-install?shop=${encodeURIComponent(shop)}&country=${encodeURIComponent(countryId)}`;
+  window.location.href = installUrl;
 }
 
 async function disconnectShopify(countryId) {
