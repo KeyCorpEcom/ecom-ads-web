@@ -524,7 +524,7 @@ async function render() {
   }
 
   document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.route === page || (page === 'produit' && el.dataset.route === 'ads'));
+    el.classList.toggle('active', el.dataset.route === page || (page === 'produit' && el.dataset.route === 'produits'));
   });
   // Drive status badge
   const driveBadge = document.getElementById('nav-drive-status');
@@ -670,7 +670,7 @@ async function renderDashboard(el) {
 /* ============================================================
    PAGE: PRODUITS
    ============================================================ */
-async function renderProduits(el) {
+async function renderAds(el) {
   const [{ data: products }, { data: countriesAll }, { data: ads }] = await Promise.all([
     sb.from('products').select('*').order('created_at', { ascending: false }),
     sb.from('countries').select('*').order('sort_order'),
@@ -690,14 +690,14 @@ async function renderProduits(el) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">📦 Produits</div>
+        <div class="page-title">📺 Ads</div>
         <div class="page-subtitle">${fmt((products || []).length)} produit(s)</div>
       </div>
       ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
     </div>
     ${(products || []).length === 0 ? `
       <div class="empty" style="padding:60px 20px">
-        <div class="empty-icon">📦</div>
+        <div class="empty-icon">📺</div>
         <div class="empty-title">Aucun produit</div>
         <div class="empty-text">Crée ton premier produit pour commencer.</div>
       </div>
@@ -743,7 +743,7 @@ async function renderProduits(el) {
   el.querySelectorAll('[data-open-pages]').forEach(b => b.addEventListener('click', () => navigate('pages/' + b.dataset.openPages)));
 }
 
-async function renderAds(el) {
+async function renderProduits(el) {
   const { countries, products, ads, adCountries } = await fetchAll();
   const { data: pagesAll } = await sb.from('product_pages').select('product_id, country_id, status');
   const adsByProduct = {};
@@ -762,7 +762,7 @@ async function renderAds(el) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">📺 Ads</div>
+        <div class="page-title">📦 Produits</div>
         <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
       </div>
       ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
@@ -1071,7 +1071,7 @@ async function renderProduit(el, productId) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <a class="btn btn-ghost" href="#ads" style="margin-bottom:8px">← Ads</a>
+        <a class="btn btn-ghost" href="#produits" style="margin-bottom:8px">← Produits</a>
         <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}</div>
         <div class="page-subtitle">${escapeHtml(product.name || '')} · ${ads.length} ads · créé ${new Date(product.created_at).toLocaleDateString('fr-FR')}</div>
       </div>
@@ -1420,7 +1420,7 @@ async function editProductFlow(productId) {
       bd.remove();
       deleteRequested = true;
       await deleteProductWithDriveOption(product.id);
-      navigate('ads');
+      navigate('produits');
     });
   });
   if (deleteRequested) return;
