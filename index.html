@@ -2476,10 +2476,20 @@ function attachImageHandlers(el) {
       if (e.target.closest('.img-tile-del') || e.target.tagName === 'INPUT') return;
       input?.click();
     });
-    input?.addEventListener('change', (e) => { handle(e.target.files); e.target.value = ''; });
+    // IMPORTANT : snapshot les files AVANT de reset input.value (sinon FileList live devient vide)
+    input?.addEventListener('change', (e) => {
+      const filesCopy = Array.from(e.target.files);
+      e.target.value = '';
+      handle(filesCopy);
+    });
     dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
-    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('dragover'); handle(e.dataTransfer.files); });
+    dz.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dz.classList.remove('dragover');
+      const filesCopy = Array.from(e.dataTransfer.files);
+      handle(filesCopy);
+    });
   });
 }
 
