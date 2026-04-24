@@ -796,7 +796,11 @@ async function newProductFlow() {
       await createProductDriveStructure(product, countries);
       toast(`📁 Structure Drive créée pour ${id}`, 'success');
     } catch (e) {
-      toast('⚠ Produit créé, mais erreur création Drive : ' + (e.message || 'inconnue'), 'warn', 6000);
+      console.error('[CREATE DRIVE STRUCT]', e);
+      const msg = extractGapiError(e);
+      toast('⚠ Produit créé mais Drive a échoué : ' + msg, 'warn', 8000);
+      // Log pour debug
+      await logSync(`Erreur création structure Drive pour ${id} : ${msg}`, 'error');
     }
   }
 
@@ -1187,13 +1191,10 @@ async function editProductFlow(productId) {
       });
     });
     bd.querySelector('#btn-delete-product')?.addEventListener('click', async () => {
-      if (await confirmDialog('Supprimer le produit', `${product.id} et toutes ses ads seront supprimés. Irréversible.`)) {
-        await sb.from('products').delete().eq('id', product.id);
-        toast(`${product.id} supprimé`, 'success');
-        deleteRequested = true;
-        bd.remove();
-        navigate('produits');
-      }
+      bd.remove();
+      deleteRequested = true;
+      await deleteProductWithDriveOption(product.id);
+      navigate('produits');
     });
   });
   if (deleteRequested) return;
@@ -1540,9 +1541,55 @@ async function deleteCountryFlow(id) {
 }
 
 async function deleteProductFromSettings(productId) {
-  if (!(await confirmDialog('Supprimer le produit', `${productId} et toutes ses ads seront supprimés. Irréversible.`))) return;
-  await sb.from('products').delete().eq('id', productId);
+  await deleteProductWithDriveOption(productId);
+}
+
+async function deleteProductWithDriveOption(productId) {
+  const { data: product } = await sb.from('products').select('*').eq('id', productId).single();
+  if (!product) return;
+  const hasDriveFolder = !!product.drive_folder_id;
+
+  const r = await modal(`
+    <div class="modal-title" style="color:var(--red)">Supprimer ${escapeHtml(product.id)}</div>
+    <div class="text-sm text-dim mb-md">Le produit <strong>${escapeHtml(product.id)}</strong> et toutes ses ads seront supprimés. <strong>Irréversible.</strong></div>
+    ${hasDriveFolder ? `
+      <div style="padding:12px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:14px">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none">
+          <input type="checkbox" data-field="deleteDrive" style="margin:4px 0 0 0;accent-color:var(--red);flex-shrink:0" ${driveState.connected ? '' : 'disabled'}>
+          <div>
+            <div style="font-weight:600;color:var(--red)">🗑 Supprimer aussi le dossier Drive</div>
+            <div class="text-sm text-dim" style="margin-top:2px">Le dossier sera mis à la corbeille Drive (récupérable 30 jours)</div>
+            ${!driveState.connected ? '<div class="text-sm" style="color:var(--orange);margin-top:4px">⚠ Connecte-toi à Drive d\'abord</div>' : ''}
+          </div>
+        </label>
+      </div>
+    ` : ''}
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Supprimer</button>
+    </div>
+  `);
+  if (!r) return;
+
+  const deleteDrive = r.deleteDrive === 'on' || r.deleteDrive === true;
+
+  // 1. Supprimer de la DB
+  const { error } = await sb.from('products').delete().eq('id', productId);
+  if (error) { toast('Erreur suppression : ' + error.message, 'error'); return; }
   toast(`${productId} supprimé`, 'success');
+
+  // 2. Supprimer le dossier Drive si demandé
+  if (deleteDrive && hasDriveFolder && driveState.connected) {
+    try {
+      await driveTrashFolder(product.drive_folder_id);
+      toast('🗑 Dossier Drive mis à la corbeille', 'success');
+      await logSync(`🗑 Dossier Drive de ${productId} mis à la corbeille`, 'info');
+    } catch (e) {
+      console.error('[DELETE DRIVE]', e);
+      toast('⚠ DB supprimée mais erreur Drive : ' + extractGapiError(e), 'warn', 6000);
+    }
+  }
+
   render();
 }
 
@@ -1904,6 +1951,14 @@ async function driveRenameFile(fileId, newName) {
   return await gapi.client.drive.files.update({ fileId, resource: { name: newName } });
 }
 
+async function driveTrashFolder(folderId) {
+  // Met le dossier à la corbeille Drive (récupérable 30 jours)
+  return await gapi.client.drive.files.update({
+    fileId: folderId,
+    resource: { trashed: true }
+  });
+}
+
 function fmtBytes(n) {
   if (n < 1024) return n + ' B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
@@ -2031,7 +2086,12 @@ async function uploadFilesWithProgressUI(files, parentId, options = {}) {
 }
 
 async function uploadToProductFolder(productId, files, targetFolderName) {
+  console.log('[UPLOAD] Start', { productId, targetFolderName, fileCount: files.length });
+  const filesArr = Array.from(files);
+  console.log('[UPLOAD] Files:', filesArr.map(f => f.name));
   const { data: product } = await sb.from('products').select('*').eq('id', productId).single();
+  if (!product) { toast('Produit introuvable', 'error'); return []; }
+  console.log('[UPLOAD] Product:', product.id, 'drive_folder_id:', product.drive_folder_id);
   const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
   const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
   const countries = countriesAll.filter(c => enabled.includes(c.id));
@@ -2052,11 +2112,12 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
 
   // Mode : CONCURRENT = auto-number | MASTER + COUNTRY = strict (Ad X requis, pas de doublon)
   const strictMode = targetFolderName !== CONCURRENT_FOLDER_NAME;
+  console.log('[UPLOAD] Mode:', strictMode ? 'STRICT' : 'AUTO', 'existingNumsDb:', [...existingNumsDb], 'existingNumsDrive:', [...existingNumsDrive]);
   let maxN = Math.max(0, ...existingNumsDb, ...existingNumsDrive);
   const items = [];
   const errors = [];
 
-  for (const f of Array.from(files)) {
+  for (const f of filesArr) {
     const m = f.name.match(/Ad\s*(\d+)/i);
     let adNum;
 
@@ -2084,6 +2145,8 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     existingNumsDrive.add(adNum);
     items.push({ file: f, displayName: `Ad ${adNum}${detectFileExtension(f.name)}`, adNum });
   }
+
+  console.log('[UPLOAD] items:', items.length, 'errors:', errors.length, 'items detail:', items.map(i => i.displayName));
 
   // Bloquer si erreurs
   if (errors.length > 0) {
