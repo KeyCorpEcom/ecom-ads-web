@@ -1963,12 +1963,65 @@ async function renderPages(el) {
         payload.approved_by = null;
         payload.approved_at = null;
       }
+
+      // Si on rejette → demander le feedback
+      if (newStatus === 'rejected') {
+        const r = await modal(`
+          <div class="modal-title" style="color:var(--red)">❌ Rejeter la page ${escapeHtml(productId)} / ${countryId}</div>
+          <div class="text-sm text-dim mb-md">Explique ce qui ne va pas pour que le page builder puisse corriger :</div>
+          <div class="input-group">
+            <label class="input-label">Feedback / remarques</label>
+            <textarea class="input" data-field="notes" style="min-height:120px" placeholder="Ex: - Le prix affiché est faux&#10;- Les images produit sont trop petites&#10;- Il manque les avis clients en bas">${escapeHtml(existing?.notes || '')}</textarea>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" data-modal-close>Annuler</button>
+            <button class="btn btn-danger" data-modal-ok>Rejeter avec ces remarques</button>
+          </div>
+        `);
+        if (!r) {
+          // Annulé → revert le select
+          sel.value = existing?.status || 'pending';
+          return;
+        }
+        payload.notes = (r.notes || '').trim() || null;
+      }
+
       if (existing) {
         await sb.from('product_pages').update(payload).eq('product_id', productId).eq('country_id', countryId);
       } else {
         await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, ...payload });
       }
-      toast('Statut mis à jour', 'success');
+      toast(newStatus === 'rejected' ? '❌ Page rejetée avec feedback' : 'Statut mis à jour', 'success');
+      render();
+    });
+  });
+
+  // Ouvrir les notes pour édition ou consultation
+  el.querySelectorAll('[data-view-notes]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const [productId, countryId] = btn.dataset.viewNotes.split('|');
+      const { data: p } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', countryId).maybeSingle();
+      const notes = p?.notes || '';
+      const isEditable = isAdmin() || canEdit();
+      const r = await modal(`
+        <div class="modal-title">💬 Notes — ${escapeHtml(productId)} / ${countryId}</div>
+        ${isEditable ? `
+          <div class="input-group">
+            <label class="input-label">Feedback / remarques</label>
+            <textarea class="input" data-field="notes" style="min-height:120px">${escapeHtml(notes)}</textarea>
+          </div>
+        ` : `
+          <div style="padding:14px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px;white-space:pre-wrap;font-size:13px;line-height:1.6">${escapeHtml(notes) || '<span class="text-mute">Aucune note</span>'}</div>
+        `}
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-modal-close>${isEditable ? 'Annuler' : 'Fermer'}</button>
+          ${isEditable ? '<button class="btn" data-modal-ok>Enregistrer</button>' : ''}
+        </div>
+      `);
+      if (!r || !isEditable) return;
+      const newNotes = (r.notes || '').trim() || null;
+      await sb.from('product_pages').update({ notes: newNotes, updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('product_id', productId).eq('country_id', countryId);
+      toast('Notes sauvegardées', 'success');
       render();
     });
   });
@@ -2004,6 +2057,7 @@ function pageRowHtml(r) {
   const builtUrl = page.built_url ? normalizeUrl(page.built_url) : null;
   const canEditConcurrent = isAdmin() || (canEdit() && !isPageBuilder());
   const canChangeStatus = isAdmin() || canEdit();
+  const hasNotes = !!(page.notes && page.notes.trim());
 
   const statusBadge = {
     pending: '<span class="badge" style="background:rgba(138,138,154,0.15);color:var(--text-dim)">⏸ À faire</span>',
@@ -2013,16 +2067,29 @@ function pageRowHtml(r) {
   }[status] || '';
 
   const statusCell = canChangeStatus ? `
-    <select class="select" data-change-status="${product.id}|${country.id}" style="padding:5px 8px;font-size:11px;min-width:110px;border-color:${status === 'approved' ? 'var(--green)' : status === 'built' ? 'var(--orange)' : status === 'rejected' ? 'var(--red)' : 'var(--border)'}">
-      <option value="pending" ${status === 'pending' ? 'selected' : ''}>⏸ À faire</option>
-      <option value="built" ${status === 'built' ? 'selected' : ''}>⏳ En review</option>
-      <option value="approved" ${status === 'approved' ? 'selected' : ''}>✅ Validée</option>
-      <option value="rejected" ${status === 'rejected' ? 'selected' : ''}>❌ Rejetée</option>
-    </select>
-  ` : statusBadge;
+    <div style="display:flex;gap:6px;align-items:center">
+      <select class="select" data-change-status="${product.id}|${country.id}" style="padding:5px 8px;font-size:11px;min-width:110px;border-color:${status === 'approved' ? 'var(--green)' : status === 'built' ? 'var(--orange)' : status === 'rejected' ? 'var(--red)' : 'var(--border)'}">
+        <option value="pending" ${status === 'pending' ? 'selected' : ''}>⏸ À faire</option>
+        <option value="built" ${status === 'built' ? 'selected' : ''}>⏳ En review</option>
+        <option value="approved" ${status === 'approved' ? 'selected' : ''}>✅ Validée</option>
+        <option value="rejected" ${status === 'rejected' ? 'selected' : ''}>❌ Rejetée</option>
+      </select>
+      <button data-view-notes="${product.id}|${country.id}" title="${hasNotes ? 'Voir/éditer notes' : 'Ajouter notes'}" style="background:${hasNotes ? 'rgba(251,191,36,0.2)' : 'transparent'};border:1px solid ${hasNotes ? 'var(--orange)' : 'var(--border)'};border-radius:6px;padding:4px 8px;cursor:pointer;color:${hasNotes ? 'var(--orange)' : 'var(--text-dim)'};font-size:14px">💬${hasNotes ? ' !' : ''}</button>
+    </div>
+  ` : `
+    <div style="display:flex;gap:6px;align-items:center">
+      ${statusBadge}
+      ${hasNotes ? `<button data-view-notes="${product.id}|${country.id}" title="Voir notes/feedback" style="background:rgba(248,113,113,0.2);border:1px solid var(--red);border-radius:6px;padding:4px 8px;cursor:pointer;color:var(--red);font-size:14px">💬 !</button>` : ''}
+    </div>
+  `;
+
+  // Couleur de fond subtile selon statut
+  let rowBg = '';
+  if (status === 'approved') rowBg = 'background:rgba(52,211,153,0.04)';
+  else if (status === 'rejected') rowBg = 'background:rgba(248,113,113,0.06)';
 
   return `
-    <tr>
+    <tr style="${rowBg}">
       <td class="mono" style="color:var(--gold);font-weight:600">${escapeHtml(product.id)}</td>
       <td>${escapeHtml(product.name || '')}</td>
       <td>
