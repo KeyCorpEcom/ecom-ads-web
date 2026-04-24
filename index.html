@@ -2124,32 +2124,31 @@ async function renderPagesHome(el) {
   const pagesByKey = {};
   (pages || []).forEach(p => { pagesByKey[`${p.product_id}|${p.country_id}`] = p; });
 
-  // Construit la liste flat de toutes les tâches (product × country)
-  const tasks = [];
-  (products || []).forEach(product => {
+  // Aggrège par produit : stats + progress
+  const productRows = (products || []).map(product => {
     const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
     const cuts = product.cut_countries || [];
     const active = enabled.filter(cId => !cuts.includes(cId));
-    active.forEach(countryId => {
-      const country = countriesAll.find(c => c.id === countryId);
-      if (!country) return;
-      const page = pagesByKey[`${product.id}|${countryId}`] || { status: 'pending' };
-      tasks.push({
-        product,
-        country,
-        page,
-        status: page.status || 'pending',
-        priority: product.priority || 'normal'
-      });
+    const stats = { pending: 0, built: 0, approved: 0, rejected: 0 };
+    active.forEach(cId => {
+      const pg = pagesByKey[`${product.id}|${cId}`];
+      const status = pg?.status || 'pending';
+      stats[status] = (stats[status] || 0) + 1;
     });
+    const total = active.length;
+    const progressPct = pct(stats.approved, total);
+    const allDone = total > 0 && stats.approved === total;
+    return { product, stats, total, progressPct, allDone, priority: product.priority || 'normal' };
   });
 
   // Stats globales
-  const stats = { pending: 0, built: 0, approved: 0, rejected: 0 };
-  tasks.forEach(t => { stats[t.status] = (stats[t.status] || 0) + 1; });
+  const globalStats = { pending: 0, built: 0, approved: 0, rejected: 0 };
+  productRows.forEach(r => {
+    Object.keys(globalStats).forEach(k => { globalStats[k] += r.stats[k] || 0; });
+  });
 
   // Tri : priorité DESC puis date DESC
-  tasks.sort((a, b) => {
+  productRows.sort((a, b) => {
     const pa = PRIORITY_META[a.priority]?.weight || 2;
     const pb = PRIORITY_META[b.priority]?.weight || 2;
     if (pa !== pb) return pb - pa;
@@ -2158,58 +2157,64 @@ async function renderPagesHome(el) {
     return db - da;
   });
 
-  // Filtre : par défaut on masque les validées
+  // Filtre : par défaut on masque les produits 100% validés
   const hideValidated = localStorage.getItem('pages_hide_validated') !== 'false';
-  const visibleTasks = hideValidated ? tasks.filter(t => t.status !== 'approved') : tasks;
+  const visibleRows = hideValidated ? productRows.filter(r => !r.allDone) : productRows;
 
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title">🌍 Pages Landing</div>
-        <div class="page-subtitle">${stats.pending} à faire · ${stats.built} en review · ${stats.approved} validées · ${stats.rejected} rejetées</div>
+        <div class="page-subtitle">${globalStats.pending} à faire · ${globalStats.built} en review · ${globalStats.approved} validées · ${globalStats.rejected} rejetées</div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
         <input type="checkbox" id="toggle-hide-validated" ${hideValidated ? 'checked' : ''} style="accent-color:var(--gold)">
-        <span>Masquer les validées</span>
+        <span>Masquer les produits 100% validés</span>
       </label>
     </div>
 
-    ${visibleTasks.length === 0 ? `
+    ${visibleRows.length === 0 ? `
       <div class="empty" style="padding:60px 20px">
-        <div class="empty-icon" style="font-size:48px">${tasks.length === 0 ? '🌍' : '🎉'}</div>
-        <div class="empty-title">${tasks.length === 0 ? 'Aucun produit' : 'Tout est validé !'}</div>
-        <div class="empty-text">${tasks.length === 0 ? 'Crée un produit pour voir ses pages landing ici.' : 'Décoche "Masquer les validées" pour les voir.'}</div>
+        <div class="empty-icon" style="font-size:48px">${productRows.length === 0 ? '🌍' : '🎉'}</div>
+        <div class="empty-title">${productRows.length === 0 ? 'Aucun produit' : 'Tout est validé !'}</div>
+        <div class="empty-text">${productRows.length === 0 ? 'Crée un produit pour voir ses pages landing ici.' : 'Décoche le filtre pour voir les produits déjà finis.'}</div>
       </div>
     ` : `
       <div style="display:flex;flex-direction:column;gap:10px">
-        ${visibleTasks.map(t => {
-          const priorityBar = PRIORITY_META[t.priority]?.color || '#60a5fa';
-          const builtUrl = t.page.built_url ? normalizeUrl(t.page.built_url) : null;
-          const concurrentUrl = t.product.concurrent_page_url ? normalizeUrl(t.product.concurrent_page_url) : null;
+        ${visibleRows.map(r => {
+          const p = r.product;
+          const priorityBar = PRIORITY_META[r.priority]?.color || '#60a5fa';
+          const concurrentUrl = p.concurrent_page_url ? normalizeUrl(p.concurrent_page_url) : null;
+          // Mini-badges par statut (seulement si count > 0)
+          const statusBadges = [
+            r.stats.pending  > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(138,138,154,0.12);color:var(--text-dim);font-weight:600">⏸ ${r.stats.pending}</span>` : '',
+            r.stats.built    > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(251,146,60,0.15);color:var(--orange);font-weight:600">⏳ ${r.stats.built}</span>` : '',
+            r.stats.approved > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(52,211,153,0.15);color:var(--green);font-weight:600">✅ ${r.stats.approved}</span>` : '',
+            r.stats.rejected > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(248,113,113,0.15);color:var(--red);font-weight:600">❌ ${r.stats.rejected}</span>` : ''
+          ].filter(Boolean).join(' ');
+
           return `
-            <div style="display:flex;background:var(--bg-card);border:1px solid var(--border);border-left:4px solid ${priorityBar};border-radius:10px;padding:14px 16px;gap:14px;align-items:center;flex-wrap:wrap">
-              <div style="flex:1;min-width:220px">
-                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-                  ${priorityBadge(t.priority)}
-                  <span class="mono" style="color:var(--gold);font-weight:700">${escapeHtml(t.product.id)}</span>
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-left:4px solid ${priorityBar};border-radius:10px;padding:14px 16px;cursor:pointer;transition:all 0.15s" data-open-product="${escapeHtml(p.id)}" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background='var(--bg-card)'">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  ${r.priority !== 'normal' ? priorityBadge(r.priority) : ''}
+                  <span class="mono" style="color:var(--gold);font-weight:700;font-size:15px">${escapeHtml(p.id)}</span>
                   <span style="color:var(--text-dim)">·</span>
-                  <span style="color:var(--text)">${escapeHtml(t.product.name || '')}</span>
-                  <span style="color:var(--text-dim)">→</span>
-                  <span style="display:inline-flex;align-items:center;gap:4px">${flagImg(t.country.id)}<strong>${t.country.id}</strong></span>
+                  <span style="color:var(--text);font-weight:500">${escapeHtml(p.name || '')}</span>
                 </div>
-                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-dim)">
-                  ${concurrentUrl ? `<span>🔗 <a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline">Concurrent ↗</a></span>` : '<span style="color:var(--red)">⚠️ Pas d\'URL concurrent</span>'}
-                  ${builtUrl ? `<span>📄 <a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--green);text-decoration:underline">Page built ↗</a></span>` : ''}
-                </div>
-                ${t.status === 'rejected' && t.page.notes ? `
-                  <div style="margin-top:8px;padding:8px 10px;background:rgba(248,113,113,0.08);border-left:2px solid var(--red);border-radius:4px;font-size:12px;line-height:1.4;max-width:600px">
-                    <strong style="color:var(--red)">Feedback :</strong> ${escapeHtml(t.page.notes)}
-                  </div>
-                ` : ''}
+                <span class="mono" style="color:var(--gold);font-weight:700;font-size:13px">${r.stats.approved}/${r.total} · ${r.progressPct}%</span>
               </div>
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                ${pageStatusBadge(t.status)}
-                <button class="btn btn-ghost btn-sm" data-open-task="${escapeHtml(t.product.id)}" title="Ouvrir le produit">→</button>
+
+              <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden;margin-bottom:10px">
+                <div style="width:${r.progressPct}%;height:100%;background:linear-gradient(90deg,var(--gold),var(--green));transition:width 0.4s"></div>
+              </div>
+
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${statusBadges}</div>
+                <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-dim)">
+                  ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:underline">🔗 Concurrent ↗</a>` : '<span style="color:var(--red)">⚠️ Pas d\'URL concurrent</span>'}
+                  <span>${r.total} pays</span>
+                </div>
               </div>
             </div>
           `;
@@ -2224,8 +2229,8 @@ async function renderPagesHome(el) {
     render();
   });
 
-  el.querySelectorAll('[data-open-task]').forEach(btn => {
-    btn.addEventListener('click', () => navigate('pages/' + btn.dataset.openTask));
+  el.querySelectorAll('[data-open-product]').forEach(card => {
+    card.addEventListener('click', () => navigate('pages/' + card.dataset.openProduct));
   });
 }
 
