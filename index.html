@@ -162,6 +162,20 @@ a{color:var(--gold);text-decoration:none}
 
 .role-select{background:var(--bg-input);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:12px;font-family:inherit}
 
+/* Image gallery */
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:10px}
+.img-tile{position:relative;aspect-ratio:1;background:var(--bg);border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;cursor:pointer;transition:all 0.15s}
+.img-tile:hover{border-color:var(--gold);transform:scale(1.02)}
+.img-tile img{width:100%;height:100%;object-fit:cover;display:block}
+.img-tile-name{position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,0.85));color:#fff;padding:12px 6px 5px;font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px}
+.img-tile-del{position:absolute;top:4px;right:4px;background:rgba(248,113,113,0.9);color:#fff;border:none;width:22px;height:22px;border-radius:50%;cursor:pointer;font-size:14px;opacity:0;transition:opacity 0.15s;display:flex;align-items:center;justify-content:center}
+.img-tile:hover .img-tile-del{opacity:1}
+.img-tile-del:hover{background:var(--red)}
+.img-dropzone{padding:20px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;margin-top:10px}
+.img-dropzone:hover{border-color:var(--gold);background:rgba(200,165,90,0.05)}
+.img-dropzone.dragover{border-color:var(--gold);background:rgba(200,165,90,0.15)}
+.img-count-badge{display:inline-block;background:var(--bg-input);color:var(--text-dim);padding:3px 8px;border-radius:10px;font-size:11px;font-family:'JetBrains Mono',monospace;margin-left:6px}
+
 .auth-error{background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);color:var(--red);padding:10px 14px;border-radius:8px;font-size:12px;margin-bottom:14px}
 
 /* Command palette (Ctrl+K) */
@@ -264,19 +278,18 @@ a{color:var(--gold);text-decoration:none}
     <div class="logo">KEY CORP</div>
     <div class="logo-sub">ECOMMERCE</div>
     <nav class="nav">
-  <div class="nav-section-label">Vue d'ensemble</div>
-  <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon">🔍</span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
-  <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
-  <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
-  <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
-  <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Pages Landing<span class="nav-badge" id="nav-pages"></span></a>
-  <a class="nav-item" href="/sav"><span class="nav-icon">🎧</span>SAV</a>
-  <div class="nav-section-label">Intégrations</div>
-  <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
-  <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
-  <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon">👥</span>Utilisateurs</a>
-  <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon">⚙️</span>Paramètres</a>
-</nav>
+      <div class="nav-section-label">Vue d'ensemble</div>
+      <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon">🔍</span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
+      <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
+      <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
+      <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
+      <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Pages Landing<span class="nav-badge" id="nav-pages"></span></a>
+      <div class="nav-section-label">Intégrations</div>
+      <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
+      <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
+      <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon">👥</span>Utilisateurs</a>
+      <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon">⚙️</span>Paramètres</a>
+    </nav>
     <div class="user-box">
       <div class="user-name" id="user-name">—</div>
       <div class="user-role" id="user-role">—</div>
@@ -1936,11 +1949,17 @@ async function renderPagesHome(el) {
 }
 
 async function renderPageProduct(el, productId) {
-  const [{ data: product }, { data: countriesAll }, { data: pages }] = await Promise.all([
+  const [{ data: product }, { data: countriesAll }, { data: pages }, { data: allImages }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).single(),
     sb.from('countries').select('*').order('sort_order'),
-    sb.from('product_pages').select('*').eq('product_id', productId)
+    sb.from('product_pages').select('*').eq('product_id', productId),
+    sb.from('product_page_images').select('*').eq('product_id', productId).order('position')
   ]);
+  const imagesByCountry = {};
+  (allImages || []).forEach(img => {
+    if (!imagesByCountry[img.country_id]) imagesByCountry[img.country_id] = [];
+    imagesByCountry[img.country_id].push(img);
+  });
   if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#pages">← Retour</a></div>'; return; }
 
   const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
@@ -2004,9 +2023,12 @@ async function renderPageProduct(el, productId) {
         </div>
       </div>
 
-      <div style="background:var(--bg-input);border-radius:8px;padding:14px;border:1px dashed var(--border);margin-top:10px">
-        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px">📸 Images master (upload dans l'app — à venir en Phase 2)</div>
-        <div class="text-mute text-sm">Le page builder pourra uploader les images traduites ici (IP1-${master}, IP2-${master}, ...). Section activée à la Phase 2.</div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft)">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <div style="font-weight:600;font-size:13px">📸 Images ${master}</div>
+          <span class="img-count-badge">${(imagesByCountry[master] || []).length}</span>
+        </div>
+        ${renderImageGallery(productId, master, imagesByCountry[master] || [])}
       </div>
 
       ${masterPage.notes ? `
@@ -2062,6 +2084,13 @@ async function renderPageProduct(el, productId) {
                   ${canEditPages() ? `<button class="btn btn-ghost btn-sm" data-duplicate-master="${c.id}" title="Dupliquer depuis master (Phase 3)" style="padding:4px 8px;color:var(--purple)">🤖 Dupliquer</button>` : ''}
                 </div>
                 ${pg.notes ? `<div style="margin-top:8px;padding:8px;background:rgba(248,113,113,0.08);border-left:2px solid var(--red);border-radius:4px;font-size:11px;white-space:pre-wrap">${escapeHtml(pg.notes.slice(0, 100))}${pg.notes.length > 100 ? '…' : ''}</div>` : ''}
+                <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft)">
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                    <div style="font-size:12px;color:var(--text-dim);font-weight:600">📸 Images ${c.id}</div>
+                    <span class="img-count-badge">${(imagesByCountry[c.id] || []).length}</span>
+                  </div>
+                  ${renderImageGallery(productId, c.id, imagesByCountry[c.id] || [])}
+                </div>
               </div>
             `;
           }).join('')}
@@ -2144,6 +2173,9 @@ async function renderPageProduct(el, productId) {
       toast('🤖 Duplication auto via Shopify+Claude : disponible en Phase 3', 'info', 5000);
     });
   });
+
+  // Image handlers (upload/view/delete)
+  attachImageHandlers(el);
 }
 
 function pageStatusDropdown(productId, countryId, status, hasUrl) {
@@ -2162,6 +2194,139 @@ function pageStatusDropdown(productId, countryId, status, hasUrl) {
       <option value="rejected" ${status === 'rejected' ? 'selected' : ''}>❌ Rejetée</option>
     </select>
   `;
+}
+
+/* ===== PAGE IMAGES HELPERS (Supabase Storage) ===== */
+async function listPageImages(productId, countryId) {
+  const { data } = await sb.from('product_page_images').select('*').eq('product_id', productId).eq('country_id', countryId).order('position');
+  return data || [];
+}
+
+async function uploadPageImages(productId, countryId, files) {
+  if (!canEditPages()) { toast('Permission refusée', 'error'); return { ok: 0, errors: [] }; }
+  // Calcule le prochain IP number
+  const { data: existing } = await sb.from('product_page_images').select('position').eq('product_id', productId).eq('country_id', countryId).order('position', { ascending: false }).limit(1);
+  let nextPos = (existing && existing[0]?.position ? existing[0].position : 0) + 1;
+
+  let ok = 0;
+  const errors = [];
+  for (const file of Array.from(files)) {
+    try {
+      // Validation format
+      if (!file.type.startsWith('image/')) { errors.push({ file: file.name, reason: 'Pas une image' }); continue; }
+      if (file.size > 10 * 1024 * 1024) { errors.push({ file: file.name, reason: 'Trop gros (max 10 MB)' }); continue; }
+      const ext = (file.name.split('.').pop() || 'webp').toLowerCase();
+      const cleanName = `IP${nextPos}-${countryId}`;
+      const storagePath = `${productId}/${countryId}/${cleanName}.${ext}`;
+
+      // Upload vers Storage
+      const { error: upErr } = await sb.storage.from('product-images').upload(storagePath, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+
+      // Get public URL
+      const { data: urlData } = sb.storage.from('product-images').getPublicUrl(storagePath);
+
+      // Insert en DB
+      const { error: dbErr } = await sb.from('product_page_images').insert({
+        product_id: productId,
+        country_id: countryId,
+        name: cleanName,
+        position: nextPos,
+        storage_path: storagePath,
+        public_url: urlData.publicUrl,
+        file_size: file.size,
+        mime_type: file.type,
+        uploaded_by: currentUser.id
+      });
+      if (dbErr) throw dbErr;
+      ok++;
+      nextPos++;
+    } catch (e) {
+      console.error('[IMG UPLOAD]', e);
+      errors.push({ file: file.name, reason: e.message || JSON.stringify(e) });
+    }
+  }
+  return { ok, errors };
+}
+
+async function deletePageImage(imageId) {
+  if (!canEditPages()) { toast('Permission refusée', 'error'); return; }
+  const { data: img } = await sb.from('product_page_images').select('*').eq('id', imageId).single();
+  if (!img) return;
+  try {
+    await sb.storage.from('product-images').remove([img.storage_path]);
+  } catch (e) { console.warn('[IMG DELETE Storage]', e); }
+  await sb.from('product_page_images').delete().eq('id', imageId);
+}
+
+function renderImageGallery(productId, countryId, images) {
+  const canEdit = canEditPages();
+  if (images.length === 0 && !canEdit) return '<div class="text-sm text-mute" style="padding:10px">Aucune image</div>';
+  const grid = images.length > 0 ? `
+    <div class="img-grid">
+      ${images.map(img => `
+        <div class="img-tile" data-view-img="${escapeHtml(img.public_url)}" title="${escapeHtml(img.name)}">
+          <img src="${escapeHtml(img.public_url)}" alt="${escapeHtml(img.name)}" loading="lazy">
+          <div class="img-tile-name">${escapeHtml(img.name)}</div>
+          ${canEdit ? `<button class="img-tile-del" data-del-img="${img.id}" title="Supprimer">✕</button>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+  const dz = canEdit ? `
+    <div class="img-dropzone" data-upload-img="${productId}|${countryId}">
+      <div style="font-size:28px;margin-bottom:4px">📸</div>
+      <div style="font-weight:600;font-size:13px">Glisser des images WEBP ici ou cliquer</div>
+      <div class="text-sm text-dim" style="margin-top:2px">Auto-nommées IP${images.length + 1}-${countryId}, IP${images.length + 2}-${countryId}...</div>
+      <input type="file" multiple accept="image/*,.webp" style="display:none" data-file-input-img="${productId}|${countryId}">
+    </div>
+  ` : '';
+  return grid + dz;
+}
+
+function attachImageHandlers(el) {
+  // Click sur une image → ouvre en full size
+  el.querySelectorAll('[data-view-img]').forEach(tile => {
+    tile.addEventListener('click', (e) => {
+      if (e.target.closest('.img-tile-del')) return;
+      const url = tile.dataset.viewImg;
+      window.open(url, '_blank', 'noopener');
+    });
+  });
+  // Delete
+  el.querySelectorAll('[data-del-img]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!await confirmDialog('Supprimer l\'image', 'Cette action est irréversible.')) return;
+      await deletePageImage(btn.dataset.delImg);
+      toast('Image supprimée', 'success');
+      render();
+    });
+  });
+  // Dropzone
+  el.querySelectorAll('.img-dropzone').forEach(dz => {
+    const [productId, countryId] = dz.dataset.uploadImg.split('|');
+    const input = el.querySelector(`[data-file-input-img="${productId}|${countryId}"]`);
+    const handle = async (files) => {
+      if (!files || files.length === 0) return;
+      toast(`Upload de ${files.length} image(s)...`, 'info');
+      const res = await uploadPageImages(productId, countryId, files);
+      if (res.errors.length > 0) {
+        toast(`${res.ok} uploadé(s), ${res.errors.length} échec(s) : ${res.errors[0].reason}`, 'warn', 6000);
+      } else {
+        toast(`✅ ${res.ok} image(s) uploadée(s)`, 'success');
+      }
+      render();
+    };
+    dz.addEventListener('click', (e) => {
+      if (e.target.closest('.img-tile-del') || e.target.tagName === 'INPUT') return;
+      input?.click();
+    });
+    input?.addEventListener('change', (e) => { handle(e.target.files); e.target.value = ''; });
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('dragover'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+    dz.addEventListener('drop', (e) => { e.preventDefault(); dz.classList.remove('dragover'); handle(e.dataTransfer.files); });
+  });
 }
 
 async function upsertPage(productId, countryId, payload) {
