@@ -670,12 +670,18 @@ async function renderDashboard(el) {
    ============================================================ */
 async function renderProduits(el) {
   const { countries, products, ads, adCountries } = await fetchAll();
+  const { data: pagesAll } = await sb.from('product_pages').select('product_id, country_id, status');
   const adsByProduct = {};
   products.forEach(p => adsByProduct[p.id] = ads.filter(a => a.product_id === p.id));
   const acByAd = {};
   adCountries.forEach(ac => {
     if (!acByAd[ac.ad_id]) acByAd[ac.ad_id] = {};
     acByAd[ac.ad_id][ac.country_id] = ac;
+  });
+  const pagesByProduct = {};
+  (pagesAll || []).forEach(p => {
+    if (!pagesByProduct[p.product_id]) pagesByProduct[p.product_id] = {};
+    pagesByProduct[p.product_id][p.country_id] = p.status;
   });
 
   el.innerHTML = `
@@ -696,22 +702,49 @@ async function renderProduits(el) {
         ${products.map(p => {
           const pAds = adsByProduct[p.id] || [];
           const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
-          const total = pAds.length * enabled.length;
+          const cuts = p.cut_countries || [];
+          const activeCs = enabled.filter(cId => !cuts.includes(cId));
+          const total = pAds.length * activeCs.length;
           let trad = 0, meta = 0;
           pAds.forEach(ad => {
-            enabled.forEach(cId => {
+            activeCs.forEach(cId => {
               const ac = (acByAd[ad.id] || {})[cId];
               if (ac?.trad) trad++;
               if (ac?.meta) meta++;
             });
           });
+          // Progression Pages Landing
+          const pgs = pagesByProduct[p.id] || {};
+          const pagesApproved = activeCs.filter(cId => pgs[cId] === 'approved').length;
+          const pagesPct = pct(pagesApproved, activeCs.length);
+          const tradPct = pct(trad, total);
+          const metaPct = pct(meta, total);
+          const priority = p.priority || 'normal';
+          const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
+
           return `
-            <div class="product-card" data-goto="${p.id}">
-              <div class="product-card-title">${escapeHtml(p.id)}</div>
-              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${enabled.length} pays</div>
-              <div style="display:flex;gap:14px">
-                <div><div style="font-size:18px;font-weight:700;color:var(--green)" class="mono">${pct(trad, total)}%</div><div class="text-sm text-dim">Trad ${trad}/${total}</div></div>
-                <div><div style="font-size:18px;font-weight:700;color:var(--blue)" class="mono">${pct(meta, total)}%</div><div class="text-sm text-dim">Meta ${meta}/${total}</div></div>
+            <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
+                <div class="product-card-title">${escapeHtml(p.id)}</div>
+                ${priority !== 'normal' ? priorityBadge(priority) : ''}
+              </div>
+              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
+
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
+                    <span style="color:var(--text-dim)">📺 Trad ads</span>
+                    <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
+                  </div>
+                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
+                    <span style="color:var(--text-dim)">🌍 Pages landing</span>
+                    <span class="mono" style="color:var(--gold);font-weight:600">${pagesApproved}/${activeCs.length} · ${pagesPct}%</span>
+                  </div>
+                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${pagesPct}%;height:100%;background:linear-gradient(90deg,var(--gold),var(--green));transition:width 0.4s"></div></div>
+                </div>
               </div>
             </div>
           `;
@@ -778,11 +811,26 @@ async function newProductFlow() {
       <div class="input-hint">Décoche les pays où tu ne lances pas ce produit (tu pourras modifier plus tard).</div>
     </div>
     <div class="input-group">
-      <label class="input-label">🏁 Pays Master (page landing de référence)</label>
+      <label class="input-label">🏁 Pays Master (optionnel — référence interne)</label>
       <select class="select" id="master-country-select">
         ${masterSelectHtml}
       </select>
-      <div class="input-hint">Le page builder fera d'abord la page pour ce pays. Une fois validée, les autres pays se débloqueront pour duplication.</div>
+      <div class="input-hint">Indique juste quel pays sert de référence. Pas d'impact sur le workflow actuel.</div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">⚡ Priorité</label>
+      <select class="select" data-field="priority">
+        <option value="urgent">🔴 URGENT</option>
+        <option value="high">🟠 HAUTE</option>
+        <option value="normal" selected>🔵 NORMALE</option>
+        <option value="low">⚪ BASSE</option>
+      </select>
+      <div class="input-hint">Les produits à priorité haute remontent en haut de Pages Landing.</div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">🔗 URL Concurrent (référence pour page builder)</label>
+      <input class="input" data-field="concurrentPageUrl" placeholder="https://concurrent.com/products/...">
+      <div class="input-hint">La landing à copier. Le page builder s'en servira pour construire la page dans Shopify.</div>
     </div>
     <div class="input-group">
       <label class="input-label">🎬 Upload videos concurrent (optionnel)</label>
@@ -846,11 +894,15 @@ async function newProductFlow() {
   }
 
   // 1. Créer le produit en DB
+  const priority = (r.priority || 'normal');
+  const concurrentPageUrl = (r.concurrentPageUrl || '').trim() ? normalizeUrl(r.concurrentPageUrl.trim()) : null;
   const { error: errP } = await sb.from('products').insert({
     id, name: (r.name || '').trim() || id,
     enabled_countries: selectedCountries,
     master_country_id: masterCountry,
     drive_folder_id: driveFolderId,
+    priority,
+    concurrent_page_url: concurrentPageUrl,
     created_by: currentUser.id
   });
   if (errP) { toast('Erreur : ' + errP.message, 'error'); return; }
@@ -1248,11 +1300,24 @@ async function editProductFlow(productId) {
       <div class="input-hint">Décoche les pays où tu ne lances pas ce produit.</div>
     </div>
     <div class="input-group">
-      <label class="input-label">🏁 Pays Master (page landing de référence)</label>
+      <label class="input-label">🏁 Pays Master (optionnel — référence interne)</label>
       <select class="select" id="edit-master-country">
         ${masterSelectHtml}
       </select>
-      <div class="input-hint">Le page builder fait d'abord la page pour ce pays. Si tu coupes ce pays, le master bascule automatiquement.</div>
+      <div class="input-hint">Indique juste quel pays sert de référence. Si tu coupes ce pays, il bascule automatiquement.</div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">⚡ Priorité</label>
+      <select class="select" data-field="priority">
+        <option value="urgent" ${product.priority === 'urgent' ? 'selected' : ''}>🔴 URGENT</option>
+        <option value="high" ${product.priority === 'high' ? 'selected' : ''}>🟠 HAUTE</option>
+        <option value="normal" ${(!product.priority || product.priority === 'normal') ? 'selected' : ''}>🔵 NORMALE</option>
+        <option value="low" ${product.priority === 'low' ? 'selected' : ''}>⚪ BASSE</option>
+      </select>
+    </div>
+    <div class="input-group">
+      <label class="input-label">🔗 URL Concurrent (référence pour page builder)</label>
+      <input class="input" data-field="concurrentPageUrl" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://concurrent.com/products/...">
     </div>
     <div class="modal-actions">
       ${isAdmin() ? '<button class="btn btn-danger btn-sm" id="btn-delete-product">Supprimer produit</button>' : ''}
@@ -1288,11 +1353,15 @@ async function editProductFlow(productId) {
   if (enabled.length === 0) { toast('Au moins 1 marché requis', 'error'); return; }
   if (!masterCountry || !enabled.includes(masterCountry)) masterCountry = computeDefaultMaster(enabled);
 
+  const priority = (r.priority || 'normal');
+  const concurrentPageUrl = (r.concurrentPageUrl || '').trim() ? normalizeUrl(r.concurrentPageUrl.trim()) : null;
   const { error } = await sb.from('products').update({
     name: (r.name || '').trim() || product.id,
     drive_folder_id: (r.driveFolderId || '').trim() || null,
     enabled_countries: enabled,
-    master_country_id: masterCountry
+    master_country_id: masterCountry,
+    priority,
+    concurrent_page_url: concurrentPageUrl
   }).eq('id', product.id);
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
   toast('Produit mis à jour', 'success');
@@ -2017,40 +2086,380 @@ function normalizeUrl(url) {
   return url;
 }
 
+/* ============================================================
+   PAGES LANDING — Workflow manuel (copie concurrent → Shopify)
+   ============================================================ */
+
+const PRIORITY_META = {
+  urgent: { label: 'URGENT',   emoji: '🔴', color: '#f87171', weight: 4 },
+  high:   { label: 'HAUTE',    emoji: '🟠', color: '#fb923c', weight: 3 },
+  normal: { label: 'NORMALE',  emoji: '🔵', color: '#60a5fa', weight: 2 },
+  low:    { label: 'BASSE',    emoji: '⚪', color: '#94a3b8', weight: 1 }
+};
+
+const STATUS_META = {
+  pending:  { label: 'À faire',   emoji: '⏸', color: 'var(--text-dim)' },
+  built:    { label: 'En review', emoji: '⏳', color: 'var(--orange)' },
+  approved: { label: 'Validée',   emoji: '✅', color: 'var(--green)' },
+  rejected: { label: 'Rejetée',   emoji: '❌', color: 'var(--red)' }
+};
+
+function priorityBadge(priority) {
+  const p = PRIORITY_META[priority] || PRIORITY_META.normal;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:${p.color}22;color:${p.color};border:1px solid ${p.color}44">${p.emoji} ${p.label}</span>`;
+}
+
+function pageStatusBadge(status) {
+  const s = STATUS_META[status] || STATUS_META.pending;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(138,138,154,0.1);color:${s.color}">${s.emoji} ${s.label}</span>`;
+}
+
 async function renderPagesHome(el) {
-  // 🚧 Pages Landing — section en reconstruction
+  const [{ data: products }, { data: countriesAll }, { data: pages }] = await Promise.all([
+    sb.from('products').select('*').order('created_at', { ascending: false }),
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('product_pages').select('*')
+  ]);
+
+  const pagesByKey = {};
+  (pages || []).forEach(p => { pagesByKey[`${p.product_id}|${p.country_id}`] = p; });
+
+  // Construit la liste flat de toutes les tâches (product × country)
+  const tasks = [];
+  (products || []).forEach(product => {
+    const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
+    const cuts = product.cut_countries || [];
+    const active = enabled.filter(cId => !cuts.includes(cId));
+    active.forEach(countryId => {
+      const country = countriesAll.find(c => c.id === countryId);
+      if (!country) return;
+      const page = pagesByKey[`${product.id}|${countryId}`] || { status: 'pending' };
+      tasks.push({
+        product,
+        country,
+        page,
+        status: page.status || 'pending',
+        priority: product.priority || 'normal'
+      });
+    });
+  });
+
+  // Stats globales
+  const stats = { pending: 0, built: 0, approved: 0, rejected: 0 };
+  tasks.forEach(t => { stats[t.status] = (stats[t.status] || 0) + 1; });
+
+  // Tri : priorité DESC puis date DESC
+  tasks.sort((a, b) => {
+    const pa = PRIORITY_META[a.priority]?.weight || 2;
+    const pb = PRIORITY_META[b.priority]?.weight || 2;
+    if (pa !== pb) return pb - pa;
+    const da = new Date(a.product.created_at || 0).getTime();
+    const db = new Date(b.product.created_at || 0).getTime();
+    return db - da;
+  });
+
+  // Filtre : par défaut on masque les validées
+  const hideValidated = localStorage.getItem('pages_hide_validated') !== 'false';
+  const visibleTasks = hideValidated ? tasks.filter(t => t.status !== 'approved') : tasks;
+
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title">🌍 Pages Landing</div>
-        <div class="page-subtitle">Section en reconstruction</div>
+        <div class="page-subtitle">${stats.pending} à faire · ${stats.built} en review · ${stats.approved} validées · ${stats.rejected} rejetées</div>
       </div>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
+        <input type="checkbox" id="toggle-hide-validated" ${hideValidated ? 'checked' : ''} style="accent-color:var(--gold)">
+        <span>Masquer les validées</span>
+      </label>
     </div>
-    <div class="empty" style="padding:60px 20px">
-      <div class="empty-icon" style="font-size:48px">🚧</div>
-      <div class="empty-title">Bientôt disponible</div>
-      <div class="empty-text">Le workflow Pages Landing est en cours de refonte. Il reviendra avec un nouveau design.</div>
-    </div>
+
+    ${visibleTasks.length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-icon" style="font-size:48px">${tasks.length === 0 ? '🌍' : '🎉'}</div>
+        <div class="empty-title">${tasks.length === 0 ? 'Aucun produit' : 'Tout est validé !'}</div>
+        <div class="empty-text">${tasks.length === 0 ? 'Crée un produit pour voir ses pages landing ici.' : 'Décoche "Masquer les validées" pour les voir.'}</div>
+      </div>
+    ` : `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${visibleTasks.map(t => {
+          const priorityBar = PRIORITY_META[t.priority]?.color || '#60a5fa';
+          const builtUrl = t.page.built_url ? normalizeUrl(t.page.built_url) : null;
+          const concurrentUrl = t.product.concurrent_page_url ? normalizeUrl(t.product.concurrent_page_url) : null;
+          return `
+            <div style="display:flex;background:var(--bg-card);border:1px solid var(--border);border-left:4px solid ${priorityBar};border-radius:10px;padding:14px 16px;gap:14px;align-items:center;flex-wrap:wrap">
+              <div style="flex:1;min-width:220px">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+                  ${priorityBadge(t.priority)}
+                  <span class="mono" style="color:var(--gold);font-weight:700">${escapeHtml(t.product.id)}</span>
+                  <span style="color:var(--text-dim)">·</span>
+                  <span style="color:var(--text)">${escapeHtml(t.product.name || '')}</span>
+                  <span style="color:var(--text-dim)">→</span>
+                  <span style="display:inline-flex;align-items:center;gap:4px">${flagImg(t.country.id)}<strong>${t.country.id}</strong></span>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text-dim)">
+                  ${concurrentUrl ? `<span>🔗 <a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline">Concurrent ↗</a></span>` : '<span style="color:var(--red)">⚠️ Pas d\'URL concurrent</span>'}
+                  ${builtUrl ? `<span>📄 <a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--green);text-decoration:underline">Page built ↗</a></span>` : ''}
+                </div>
+                ${t.status === 'rejected' && t.page.notes ? `
+                  <div style="margin-top:8px;padding:8px 10px;background:rgba(248,113,113,0.08);border-left:2px solid var(--red);border-radius:4px;font-size:12px;line-height:1.4;max-width:600px">
+                    <strong style="color:var(--red)">Feedback :</strong> ${escapeHtml(t.page.notes)}
+                  </div>
+                ` : ''}
+              </div>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                ${pageStatusBadge(t.status)}
+                <button class="btn btn-ghost btn-sm" data-open-task="${escapeHtml(t.product.id)}" title="Ouvrir le produit">→</button>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
   `;
+
+  // Handlers
+  document.getElementById('toggle-hide-validated')?.addEventListener('change', (e) => {
+    localStorage.setItem('pages_hide_validated', e.target.checked ? 'true' : 'false');
+    render();
+  });
+
+  el.querySelectorAll('[data-open-task]').forEach(btn => {
+    btn.addEventListener('click', () => navigate('pages/' + btn.dataset.openTask));
+  });
 }
 
 async function renderPageProduct(el, productId) {
-  // 🚧 Page produit — en reconstruction
-  const { data: product } = await sb.from('products').select('id, name').eq('id', productId).maybeSingle();
+  const [{ data: product }, { data: countriesAll }, { data: pages }] = await Promise.all([
+    sb.from('products').select('*').eq('id', productId).maybeSingle(),
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('product_pages').select('*').eq('product_id', productId)
+  ]);
+
+  if (!product) {
+    el.innerHTML = `
+      <div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#pages">← Retour</a></div>
+    `;
+    return;
+  }
+
+  const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
+  const cuts = product.cut_countries || [];
+  const active = enabled.filter(cId => !cuts.includes(cId));
+  const activeCountries = active.map(cId => countriesAll.find(c => c.id === cId)).filter(Boolean);
+  const pagesByCountry = {};
+  (pages || []).forEach(p => { pagesByCountry[p.country_id] = p; });
+
+  const concurrentUrl = product.concurrent_page_url ? normalizeUrl(product.concurrent_page_url) : null;
+  const priority = product.priority || 'normal';
+
+  // Progression pages
+  const approvedCount = active.filter(cId => pagesByCountry[cId]?.status === 'approved').length;
+  const pagePct = pct(approvedCount, active.length);
+
   el.innerHTML = `
     <div class="page-head">
       <div>
         <a class="btn btn-ghost" href="#pages" style="margin-bottom:8px">← Pages Landing</a>
-        <div class="page-title mono" style="color:var(--gold)">${escapeHtml(productId)}${product?.name ? ` <span style="color:var(--text);font-family:'Outfit',sans-serif;font-size:18px;font-weight:500"> · ${escapeHtml(product.name)}</span>` : ''}</div>
-        <div class="page-subtitle">Section en reconstruction</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}<span style="color:var(--text);font-family:'Outfit',sans-serif;font-size:18px;font-weight:500"> · ${escapeHtml(product.name || '')}</span></div>
+          ${priorityBadge(priority)}
+        </div>
+        <div class="page-subtitle">${active.length} pays · ${approvedCount}/${active.length} validées (${pagePct}%)</div>
+      </div>
+      ${isAdmin() ? `<button class="btn btn-secondary btn-sm" id="btn-edit-product-page">⚙️ Éditer produit</button>` : ''}
+    </div>
+
+    <!-- URL CONCURRENT (référence globale) -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head">
+        <div class="card-title">🔗 URL Concurrent (référence pour copier)</div>
+      </div>
+      ${isAdmin() ? `
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="url" class="input" id="concurrent-url-input" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="" style="flex:1">
+          <button class="btn btn-secondary" id="btn-save-concurrent">Enregistrer</button>
+          ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost" title="Ouvrir">↗ Ouvrir</a>` : ''}
+        </div>
+      ` : `
+        ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" class="mono" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(product.concurrent_page_url)}</a>` : '<span class="text-mute">Aucune URL concurrent configurée</span>'}
+      `}
+    </div>
+
+    <!-- PROGRESSION -->
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden">
+          <div style="width:${pagePct}%;height:100%;background:linear-gradient(90deg,var(--green),var(--gold));transition:width 0.4s"></div>
+        </div>
+        <span class="mono" style="color:var(--gold);font-weight:700;min-width:50px;text-align:right">${pagePct}%</span>
       </div>
     </div>
-    <div class="empty" style="padding:60px 20px">
-      <div class="empty-icon" style="font-size:48px">🚧</div>
-      <div class="empty-title">Page vide</div>
-      <div class="empty-text">Le workflow Pages Landing est en cours de refonte. À recoder depuis zéro.</div>
+
+    <!-- PAGES PAR PAYS -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">🌍 Pages par pays</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${activeCountries.map(c => {
+          const pg = pagesByCountry[c.id] || { status: 'pending' };
+          const status = pg.status || 'pending';
+          const builtUrl = pg.built_url ? normalizeUrl(pg.built_url) : null;
+          const sColor = STATUS_META[status]?.color || 'var(--text-dim)';
+
+          return `
+            <div style="padding:14px;background:var(--bg-input);border-radius:10px;border-left:3px solid ${sColor}">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <span style="font-size:22px">${flagImg(c.id)}</span>
+                  <strong style="font-size:15px">${c.id}</strong>
+                  <span class="text-dim text-sm">${escapeHtml(c.name)}</span>
+                </div>
+                ${pageStatusBadge(status)}
+              </div>
+
+              ${canEditPages() ? `
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+                  <input type="url" class="input" data-country-url="${c.id}" value="${escapeHtml(pg.built_url || '')}" placeholder="URL de la page Shopify construite" style="flex:1;padding:7px 10px;font-size:12px">
+                  <button class="btn btn-secondary btn-sm" data-save-country-url="${c.id}">Enregistrer URL</button>
+                  ${builtUrl ? `<a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" title="Ouvrir">↗</a>` : ''}
+                </div>
+              ` : builtUrl ? `
+                <div style="margin-bottom:10px"><a href="${escapeHtml(builtUrl)}" target="_blank" rel="noopener noreferrer" class="mono text-sm" style="color:var(--blue);text-decoration:underline">${escapeHtml(pg.built_url)}</a></div>
+              ` : ''}
+
+              ${status === 'rejected' && pg.notes ? `
+                <div style="padding:10px;background:rgba(248,113,113,0.08);border-left:3px solid var(--red);border-radius:6px;margin-bottom:10px">
+                  <div style="font-weight:700;color:var(--red);font-size:11px;margin-bottom:4px">💬 FEEDBACK ADMIN</div>
+                  <div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${escapeHtml(pg.notes)}</div>
+                </div>
+              ` : ''}
+
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                ${canEditPages() && status !== 'approved' ? `
+                  <button class="btn btn-sm" data-mark-built="${c.id}" style="background:var(--orange);color:#000">📤 Marquer "En review"</button>
+                ` : ''}
+                ${isAdmin() && status === 'built' ? `
+                  <button class="btn btn-sm" data-validate="${c.id}" style="background:var(--green);color:#000">✅ Valider</button>
+                  <button class="btn btn-sm btn-danger" data-reject="${c.id}">❌ Rejeter</button>
+                ` : ''}
+                ${isAdmin() && status === 'approved' ? `
+                  <button class="btn btn-sm btn-secondary" data-unvalidate="${c.id}">Retirer validation</button>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
     </div>
   `;
+
+  // Handlers
+  document.getElementById('btn-edit-product-page')?.addEventListener('click', () => editProductFlow(productId));
+
+  document.getElementById('btn-save-concurrent')?.addEventListener('click', async () => {
+    const v = normalizeUrl(document.getElementById('concurrent-url-input').value);
+    await sb.from('products').update({ concurrent_page_url: v }).eq('id', productId);
+    toast('URL concurrent enregistrée', 'success');
+    render();
+  });
+
+  el.querySelectorAll('[data-save-country-url]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const cId = btn.dataset.saveCountryUrl;
+      const input = el.querySelector(`[data-country-url="${cId}"]`);
+      const url = normalizeUrl(input.value);
+      await upsertPagePartial(productId, cId, { built_url: url });
+      toast('URL enregistrée', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-mark-built]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const cId = btn.dataset.markBuilt;
+      const input = el.querySelector(`[data-country-url="${cId}"]`);
+      const url = input ? normalizeUrl(input.value) : null;
+      if (!url) { toast('Entre d\'abord l\'URL de la page construite', 'error'); return; }
+      await upsertPagePartial(productId, cId, { built_url: url, status: 'built' });
+      toast('📤 Page marquée en review', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-validate]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!isAdmin()) { toast('Seul un admin peut valider', 'error'); return; }
+      const cId = btn.dataset.validate;
+      await upsertPagePartial(productId, cId, {
+        status: 'approved',
+        approved_by: currentUser.id,
+        approved_at: new Date().toISOString(),
+        notes: null
+      });
+      toast('✅ Page validée', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-reject]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!isAdmin()) { toast('Seul un admin peut rejeter', 'error'); return; }
+      const cId = btn.dataset.reject;
+      const country = countriesAll.find(c => c.id === cId);
+      const r = await modal(`
+        <div class="modal-title" style="color:var(--red)">❌ Rejeter ${escapeHtml(product.id)} / ${cId}</div>
+        <div class="text-sm text-dim mb-md">Explique ce qui ne va pas (obligatoire, le page builder va le lire) :</div>
+        <div class="input-group">
+          <textarea class="input" data-field="feedback" style="min-height:140px" autofocus placeholder="Ex: Le hero n'est pas aligné, la 2ème image est floue, le CTA est sous le fold..."></textarea>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-modal-close>Annuler</button>
+          <button class="btn btn-danger" data-modal-ok>Rejeter avec feedback</button>
+        </div>
+      `);
+      if (!r) return;
+      const feedback = (r.feedback || '').trim();
+      if (!feedback) { toast('Le feedback est obligatoire pour rejeter', 'error'); return; }
+      await upsertPagePartial(productId, cId, {
+        status: 'rejected',
+        notes: feedback,
+        approved_by: null,
+        approved_at: null
+      });
+      toast('❌ Page rejetée avec feedback', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-unvalidate]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!isAdmin()) { toast('Seul un admin peut retirer une validation', 'error'); return; }
+      const cId = btn.dataset.unvalidate;
+      if (!await confirmDialog('Retirer la validation', `La page ${cId} repassera à "En review".`)) return;
+      await upsertPagePartial(productId, cId, {
+        status: 'built',
+        approved_by: null,
+        approved_at: null
+      });
+      toast('Validation retirée', 'success');
+      render();
+    });
+  });
+}
+
+// Helper : upsert partiel dans product_pages (pour les modifs à la volée)
+async function upsertPagePartial(productId, countryId, patch) {
+  const { data: existing } = await sb.from('product_pages')
+    .select('product_id')
+    .eq('product_id', productId).eq('country_id', countryId).maybeSingle();
+  const payload = { ...patch, updated_at: new Date().toISOString(), updated_by: currentUser.id };
+  if (existing) {
+    await sb.from('product_pages').update(payload).eq('product_id', productId).eq('country_id', countryId);
+  } else {
+    await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, ...payload });
+  }
 }
 
 /* ============================================================
