@@ -54,6 +54,7 @@ a{color:var(--gold);text-decoration:none}
 .user-role.admin{color:var(--gold)}
 .user-role.editor{color:var(--green)}
 .user-role.viewer{color:var(--blue)}
+.user-role.page_builder{color:var(--purple)}
 .btn-logout{width:100%;margin-top:10px;background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
 .btn-logout:hover{background:var(--bg-input);color:var(--red);border-color:var(--red)}
 
@@ -124,6 +125,7 @@ a{color:var(--gold);text-decoration:none}
 .badge.admin{background:rgba(200,165,90,0.15);color:var(--gold)}
 .badge.editor{background:rgba(52,211,153,0.15);color:var(--green)}
 .badge.viewer{background:rgba(96,165,250,0.15);color:var(--blue)}
+.badge.page_builder{background:rgba(192,132,252,0.15);color:var(--purple)}
 
 .empty{text-align:center;padding:60px 20px;color:var(--text-dim)}
 .empty-icon{font-size:48px;margin-bottom:16px;opacity:0.5}
@@ -267,6 +269,7 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
       <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
       <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
+      <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Pages Landing<span class="nav-badge" id="nav-pages"></span></a>
       <div class="nav-section-label">Intégrations</div>
       <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
@@ -464,6 +467,17 @@ async function initApp(user) {
   const roleEl = document.getElementById('user-role');
   roleEl.textContent = profile.role;
   roleEl.className = 'user-role ' + profile.role;
+
+  // Page builder : cache tout sauf la page Pages
+  if (profile.role === 'page_builder') {
+    document.querySelectorAll('.nav-item').forEach(el => {
+      if (el.dataset.route !== 'pages' && el.id !== 'btn-open-cmdk') el.style.display = 'none';
+    });
+    document.querySelectorAll('.nav-section-label').forEach(el => el.style.display = 'none');
+    // Force navigation to pages
+    if (location.hash.slice(1) !== 'pages') location.hash = '#pages';
+  }
+
   // Tentative reconnexion auto Drive (si déjà configuré)
   tryAutoReconnectDrive();
   // Afficher les menus admin
@@ -487,6 +501,13 @@ function navigate(route) { location.hash = '#' + route; }
 
 async function render() {
   const { page, params } = getRoute();
+
+  // Si page_builder : restriction à la page Pages uniquement
+  if (currentProfile?.role === 'page_builder' && page !== 'pages') {
+    navigate('pages');
+    return;
+  }
+
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.dataset.route === page || (page === 'produit' && el.dataset.route === 'produits'));
   });
@@ -504,6 +525,7 @@ async function render() {
     else if (page === 'produits') await renderProduits(el);
     else if (page === 'produit') await renderProduit(el, params[0]);
     else if (page === 'analytics') await renderAnalytics(el);
+    else if (page === 'pages') await renderPages(el);
     else if (page === 'drive') await renderDrive(el);
     else if (page === 'users') await renderUsers(el);
     else if (page === 'parametres') await renderSettings(el);
@@ -540,6 +562,8 @@ async function fetchAll() {
 
 function canEdit() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'editor'); }
 function isAdmin() { return currentProfile && currentProfile.role === 'admin'; }
+function canEditPages() { return currentProfile && ['admin', 'editor', 'page_builder'].includes(currentProfile.role); }
+function isPageBuilder() { return currentProfile && currentProfile.role === 'page_builder'; }
 
 /* ============================================================
    PAGE: DASHBOARD
@@ -1282,6 +1306,7 @@ async function renderUsers(el) {
                 <select class="role-select" data-user-role="${p.id}" ${p.id === currentUser.id ? 'disabled' : ''}>
                   <option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Admin</option>
                   <option value="editor" ${p.role === 'editor' ? 'selected' : ''}>Editor</option>
+                  <option value="page_builder" ${p.role === 'page_builder' ? 'selected' : ''}>Page Builder</option>
                   <option value="viewer" ${p.role === 'viewer' ? 'selected' : ''}>Viewer</option>
                 </select>
               </td>
@@ -1338,6 +1363,7 @@ async function inviteUserFlow() {
       <label class="input-label">Rôle</label>
       <select class="select" data-field="role">
         <option value="editor">Editor (créer/modifier produits et ads)</option>
+        <option value="page_builder">Page Builder (uniquement pages landing)</option>
         <option value="viewer">Viewer (lecture seule)</option>
         <option value="admin">Admin (tout)</option>
       </select>
@@ -1754,6 +1780,213 @@ async function renderAnalytics(el) {
     data: { labels: countries.map(c => c.id + ' (Meta)'), datasets: [{ data: countries.map(c => byCountry[c.id].meta), backgroundColor: countries.map(c => c.color), borderColor: '#12121a', borderWidth: 2 }] },
     options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#8a8a9a', font: { family: 'Outfit', size: 12 } } } } }
   }));
+}
+
+/* ============================================================
+   PAGE: PAGES LANDING (builder workflow)
+   ============================================================ */
+let pagesFilter = { status: 'all', product: 'all', country: 'all' };
+
+async function renderPages(el) {
+  const [{ data: products }, { data: countries }, { data: pages }, { data: profilesData }] = await Promise.all([
+    sb.from('products').select('*').order('id'),
+    sb.from('countries').select('*').order('sort_order'),
+    sb.from('product_pages').select('*'),
+    sb.from('profiles').select('id, email, full_name')
+  ]);
+  const profileById = {}; (profilesData || []).forEach(p => { profileById[p.id] = p; });
+  const pagesByKey = {};
+  (pages || []).forEach(p => { pagesByKey[`${p.product_id}|${p.country_id}`] = p; });
+
+  // Construit la liste complète : 1 ligne par produit × pays actif
+  const rows = [];
+  for (const p of (products || [])) {
+    const enabled = (p.enabled_countries?.length ? p.enabled_countries : countries.map(c => c.id));
+    const pCuts = p.cut_countries || [];
+    for (const cId of enabled) {
+      if (pCuts.includes(cId)) continue; // skip les pays coupés
+      const country = countries.find(c => c.id === cId);
+      if (!country) continue;
+      const pg = pagesByKey[`${p.id}|${cId}`] || { product_id: p.id, country_id: cId, status: 'pending' };
+      rows.push({ product: p, country, page: pg });
+    }
+  }
+
+  // Apply filters
+  let filtered = rows;
+  if (pagesFilter.status !== 'all') filtered = filtered.filter(r => (r.page.status || 'pending') === pagesFilter.status);
+  if (pagesFilter.product !== 'all') filtered = filtered.filter(r => r.product.id === pagesFilter.product);
+  if (pagesFilter.country !== 'all') filtered = filtered.filter(r => r.country.id === pagesFilter.country);
+
+  // Stats
+  const stats = rows.reduce((a, r) => { const s = r.page.status || 'pending'; a[s] = (a[s] || 0) + 1; return a; }, {});
+  const pending = stats.pending || 0;
+  const built = stats.built || 0;
+  const approved = stats.approved || 0;
+  const rejected = stats.rejected || 0;
+  const total = rows.length;
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">🌍 Pages Landing</div>
+        <div class="page-subtitle">${fmt(total)} page${total > 1 ? 's' : ''} à builder · ${fmt(approved)} validée(s) · ${fmt(pending)} à faire</div>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">⏸ À faire</div>
+        <div class="kpi-value" style="color:var(--text-dim)">${fmt(pending)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">⏳ En review</div>
+        <div class="kpi-value orange">${fmt(built)}</div>
+        <div class="kpi-sub">Attendent ta validation</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">✅ Validées</div>
+        <div class="kpi-value green">${fmt(approved)}</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">❌ Rejetées</div>
+        <div class="kpi-value red">${fmt(rejected)}</div>
+      </div>
+    </div>
+
+    <div class="filter-bar card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 14px">
+      <span class="text-sm text-dim" style="text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Filtres :</span>
+      <select class="select" id="flt-status" style="width:auto">
+        <option value="all">Tous statuts</option>
+        <option value="pending" ${pagesFilter.status === 'pending' ? 'selected' : ''}>⏸ À faire</option>
+        <option value="built" ${pagesFilter.status === 'built' ? 'selected' : ''}>⏳ En review</option>
+        <option value="approved" ${pagesFilter.status === 'approved' ? 'selected' : ''}>✅ Validées</option>
+        <option value="rejected" ${pagesFilter.status === 'rejected' ? 'selected' : ''}>❌ Rejetées</option>
+      </select>
+      <select class="select" id="flt-product" style="width:auto">
+        <option value="all">Tous produits</option>
+        ${(products || []).map(p => `<option value="${p.id}" ${pagesFilter.product === p.id ? 'selected' : ''}>${escapeHtml(p.id)} — ${escapeHtml(p.name || '')}</option>`).join('')}
+      </select>
+      <select class="select" id="flt-country" style="width:auto">
+        <option value="all">Tous pays</option>
+        ${(countries || []).map(c => `<option value="${c.id}" ${pagesFilter.country === c.id ? 'selected' : ''}>${c.id} — ${escapeHtml(c.name)}</option>`).join('')}
+      </select>
+      <div style="flex:1"></div>
+      <span class="text-sm text-dim">${fmt(filtered.length)} résultat(s)</span>
+    </div>
+
+    ${filtered.length === 0 ? `
+      <div class="empty"><div class="empty-icon">🌍</div><div class="empty-title">Aucune page</div><div class="empty-text">Crée un produit avec des marchés actifs → les pages apparaîtront ici.</div></div>
+    ` : `
+      <div class="card" style="overflow-x:auto;padding:0">
+        <table class="users-table" style="min-width:1100px">
+          <thead>
+            <tr>
+              <th style="width:80px">Code</th>
+              <th style="width:180px">Produit</th>
+              <th>URL Concurrent</th>
+              <th style="width:60px">Pays</th>
+              <th>Notre URL</th>
+              <th style="width:120px">Statut</th>
+              ${!isPageBuilder() ? '<th style="width:80px">OK ?</th>' : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map(r => pageRowHtml(r)).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+
+  // Filter handlers
+  el.querySelector('#flt-status')?.addEventListener('change', (e) => { pagesFilter.status = e.target.value; render(); });
+  el.querySelector('#flt-product')?.addEventListener('change', (e) => { pagesFilter.product = e.target.value; render(); });
+  el.querySelector('#flt-country')?.addEventListener('change', (e) => { pagesFilter.country = e.target.value; render(); });
+
+  // Row handlers
+  el.querySelectorAll('[data-edit-concurrent]').forEach(input => {
+    input.addEventListener('blur', async () => {
+      if (!isAdmin() && !canEdit()) return;
+      const productId = input.dataset.editConcurrent;
+      const value = input.value.trim();
+      await sb.from('products').update({ concurrent_page_url: value || null }).eq('id', productId);
+      toast('URL concurrent sauvegardée', 'success');
+    });
+  });
+
+  el.querySelectorAll('[data-edit-built]').forEach(input => {
+    input.addEventListener('blur', async () => {
+      if (!canEditPages()) return;
+      const [productId, countryId] = input.dataset.editBuilt.split('|');
+      const value = input.value.trim();
+      // Upsert la ligne
+      const { data: existing } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', countryId).maybeSingle();
+      const newStatus = value ? (existing?.status === 'approved' ? 'approved' : 'built') : 'pending';
+      if (existing) {
+        await sb.from('product_pages').update({ built_url: value || null, status: newStatus, updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('product_id', productId).eq('country_id', countryId);
+      } else {
+        await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, built_url: value || null, status: newStatus, updated_by: currentUser.id });
+      }
+      toast('URL page sauvegardée', 'success');
+      render();
+    });
+  });
+
+  el.querySelectorAll('[data-toggle-ok]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      if (!isAdmin() && !canEdit()) { toast('Admin only', 'error'); cb.checked = !cb.checked; return; }
+      const [productId, countryId] = cb.dataset.toggleOk.split('|');
+      const newStatus = cb.checked ? 'approved' : 'built';
+      const { data: existing } = await sb.from('product_pages').select('*').eq('product_id', productId).eq('country_id', countryId).maybeSingle();
+      if (existing) {
+        await sb.from('product_pages').update({ status: newStatus, approved_by: cb.checked ? currentUser.id : null, approved_at: cb.checked ? new Date().toISOString() : null, updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('product_id', productId).eq('country_id', countryId);
+      }
+      toast(cb.checked ? '✅ Page validée' : 'Page retirée de validation', 'success');
+      render();
+    });
+  });
+}
+
+function pageRowHtml(r) {
+  const { product, country, page } = r;
+  const status = page.status || 'pending';
+  const statusBadge = {
+    pending: '<span class="badge" style="background:rgba(138,138,154,0.15);color:var(--text-dim)">⏸ À faire</span>',
+    built: '<span class="badge" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏳ En review</span>',
+    approved: '<span class="badge" style="background:rgba(52,211,153,0.15);color:var(--green)">✅ Validée</span>',
+    rejected: '<span class="badge" style="background:rgba(248,113,113,0.15);color:var(--red)">❌ Rejetée</span>'
+  }[status] || '';
+  const canEditConcurrent = isAdmin() || (canEdit() && !isPageBuilder());
+  return `
+    <tr>
+      <td class="mono" style="color:var(--gold);font-weight:600">${escapeHtml(product.id)}</td>
+      <td>${escapeHtml(product.name || '')}</td>
+      <td>
+        ${canEditConcurrent ? `
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="url" class="input" data-edit-concurrent="${product.id}" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://..." style="padding:6px 8px;font-size:12px">
+            ${product.concurrent_page_url ? `<a href="${escapeHtml(product.concurrent_page_url)}" target="_blank" style="padding:6px;color:var(--gold)" title="Ouvrir">↗</a>` : ''}
+          </div>
+        ` : `
+          ${product.concurrent_page_url ? `<a href="${escapeHtml(product.concurrent_page_url)}" target="_blank" class="mono text-sm" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(product.concurrent_page_url)}</a>` : '<span class="text-mute">—</span>'}
+        `}
+      </td>
+      <td>${flagImg(country.id)}<strong>${country.id}</strong></td>
+      <td>
+        ${canEditPages() ? `
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="url" class="input" data-edit-built="${product.id}|${country.id}" value="${escapeHtml(page.built_url || '')}" placeholder="https://ton-shop.com/..." style="padding:6px 8px;font-size:12px">
+            ${page.built_url ? `<a href="${escapeHtml(page.built_url)}" target="_blank" style="padding:6px;color:var(--gold)" title="Ouvrir">↗</a>` : ''}
+          </div>
+        ` : `
+          ${page.built_url ? `<a href="${escapeHtml(page.built_url)}" target="_blank" class="mono text-sm" style="color:var(--blue);text-decoration:underline;word-break:break-all">${escapeHtml(page.built_url)}</a>` : '<span class="text-mute">—</span>'}
+        `}
+      </td>
+      <td>${statusBadge}</td>
+      ${!isPageBuilder() ? `<td><input type="checkbox" data-toggle-ok="${product.id}|${country.id}" ${status === 'approved' ? 'checked' : ''} ${!page.built_url ? 'disabled' : ''} style="accent-color:var(--green);width:20px;height:20px;cursor:${!page.built_url ? 'not-allowed' : 'pointer'}"></td>` : ''}
+    </tr>
+  `;
 }
 
 /* ============================================================

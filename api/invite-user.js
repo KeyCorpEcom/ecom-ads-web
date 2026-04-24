@@ -42,8 +42,8 @@ export default async function handler(req, res) {
   // Invite l'user via Admin API
   const { email, role, full_name } = req.body || {};
   if (!email) return res.status(400).json({ error: 'Email requis' });
-  if (!['admin', 'editor', 'viewer'].includes(role)) {
-    return res.status(400).json({ error: 'Rôle invalide (admin/editor/viewer)' });
+  if (!['admin', 'editor', 'viewer', 'page_builder'].includes(role)) {
+    return res.status(400).json({ error: 'Rôle invalide (admin/editor/viewer/page_builder)' });
   }
 
   // Détermine l'URL de redirection selon l'origine de l'appel
