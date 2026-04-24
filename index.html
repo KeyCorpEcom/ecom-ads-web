@@ -643,7 +643,7 @@ async function renderProduits(el) {
         <div class="page-title">Produits</div>
         <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
       </div>
-      ${canEdit() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+      ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
     </div>
     ${products.length === 0 ? `
       <div class="empty">
@@ -684,8 +684,10 @@ async function renderProduits(el) {
 }
 
 async function newProductFlow() {
+  if (!isAdmin()) { toast('Seul un admin peut créer un produit', 'error'); return; }
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
   const selectedCountries = allCountries.map(c => c.id);
+  let concurrentFiles = [];
   const countriesHtml = allCountries.map(c => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
       <input type="checkbox" data-new-country-check="${c.id}" checked style="margin:0;accent-color:${c.color}">
@@ -694,7 +696,7 @@ async function newProductFlow() {
   `).join('');
 
   const r = await modalWithOpen(`
-    <div class="modal-title">Nouveau produit</div>
+    <div class="modal-title">Créer un produit</div>
     <div class="input-group">
       <label class="input-label">Code produit</label>
       <input class="input mono" data-field="id" placeholder="F0001" autofocus>
@@ -707,19 +709,35 @@ async function newProductFlow() {
     <div class="input-group">
       <label class="input-label">ID du dossier Drive (optionnel)</label>
       <input class="input mono" data-field="driveFolderId" placeholder="1ABCxyz...">
-      <div class="input-hint">Tu pourras le renseigner plus tard</div>
+      <div class="input-hint">Laisse vide pour créer automatiquement le dossier sur Drive (voir ci-dessous)</div>
+    </div>
+    <div style="padding:14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft);margin-bottom:14px">
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none">
+        <input type="checkbox" data-field="autoCreateDrive" checked style="margin:4px 0 0 0;accent-color:var(--gold);flex-shrink:0" ${!driveState.connected ? 'disabled' : ''}>
+        <div>
+          <div style="font-weight:600;display:flex;align-items:center;gap:6px">☁️ Créer automatiquement la structure Drive</div>
+          <div class="text-sm text-dim" style="margin-top:2px">Crée <span class="mono">F00XX/</span> avec <span class="mono">00_Ads_Concurrent/</span> + <span class="mono">00_Master_Ads/</span> + sous-dossiers par marché (FR, DE, ...) dans ton dossier racine</div>
+          ${!driveState.connected ? '<div class="text-sm" style="color:var(--red);margin-top:4px">⚠ Connecte-toi à Drive d\'abord pour utiliser cette option</div>' : ''}
+        </div>
+      </label>
     </div>
     <div class="input-group">
       <label class="input-label">🌍 Marchés actifs</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border)">
         ${countriesHtml}
       </div>
-      <div class="input-hint">Décoche les pays où tu ne lances pas ce produit (modifiable plus tard).</div>
+      <div class="input-hint">Décoche les pays où tu ne lances pas ce produit (tu pourras modifier plus tard).</div>
     </div>
     <div class="input-group">
-      <label class="input-label">Ads à créer (optionnel)</label>
-      <input class="input mono" type="number" data-field="adCount" value="0" min="0">
-      <div class="input-hint">Crée Ad 1, Ad 2... Ad N (laisse 0 pour commencer vide)</div>
+      <label class="input-label">🎬 Upload videos concurrent (optionnel)</label>
+      <div id="new-product-dropzone" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected ? 'opacity:0.5;cursor:not-allowed' : ''}">
+        <div style="font-size:28px;margin-bottom:8px">📹</div>
+        <div style="font-weight:600;margin-bottom:4px">Glisse les videos du concurrent ici ou clique</div>
+        <div class="text-sm text-dim">Videos brutes (avec sous-titres) · MP4, MOV, AVI, images</div>
+        <input type="file" id="new-product-files" multiple style="display:none" accept="video/*,image/*">
+        <div id="new-product-files-list" style="margin-top:10px"></div>
+      </div>
+      <div class="input-hint">Les videos seront uploadées dans <span class="mono">00_Ads_Concurrent/</span>. Ton video editor les récupèrera, supprimera les sous-titres, puis déposera les versions propres dans <span class="mono">00_Master_Ads/</span> (qui créera auto les ads dans l'app).</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
@@ -733,30 +751,64 @@ async function newProductFlow() {
         else { const i = selectedCountries.indexOf(cid); if (i >= 0) selectedCountries.splice(i, 1); }
       });
     });
+    // Dropzone
+    const dz = bd.querySelector('#new-product-dropzone');
+    const input = bd.querySelector('#new-product-files');
+    const list = bd.querySelector('#new-product-files-list');
+    const refreshList = () => {
+      if (concurrentFiles.length === 0) { list.innerHTML = ''; return; }
+      list.innerHTML = '<div style="text-align:left;padding:10px 0 0 0;border-top:1px solid var(--border-soft);margin-top:10px">' +
+        concurrentFiles.map((f, i) => `<div style="padding:6px 10px;background:var(--bg-card);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-size:12px"><span>🎥 <strong>Ad ${i+1}</strong> · ${escapeHtml(f.name)} <span class="text-dim">(${fmtBytes(f.size)})</span></span><button class="btn-ghost" data-remove-file="${i}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0 6px">✕</button></div>`).join('') +
+        '</div>';
+      list.querySelectorAll('[data-remove-file]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); concurrentFiles.splice(parseInt(b.dataset.removeFile, 10), 1); refreshList(); }));
+    };
+    if (driveState.connected) {
+      dz.addEventListener('click', (e) => { if (e.target.tagName !== 'INPUT' && !e.target.closest('[data-remove-file]')) input.click(); });
+      input.addEventListener('change', (e) => { concurrentFiles = concurrentFiles.concat(Array.from(e.target.files)); refreshList(); e.target.value = ''; });
+      dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.style.borderColor = 'var(--gold)'; dz.style.background = 'rgba(200,165,90,0.1)'; });
+      dz.addEventListener('dragleave', () => { dz.style.borderColor = ''; dz.style.background = ''; });
+      dz.addEventListener('drop', (e) => { e.preventDefault(); dz.style.borderColor = ''; dz.style.background = ''; concurrentFiles = concurrentFiles.concat(Array.from(e.dataTransfer.files)); refreshList(); });
+    }
   });
   if (!r || !r.id) return;
   const id = r.id.trim().toUpperCase();
   if (selectedCountries.length === 0) { toast('Au moins 1 marché requis', 'error'); return; }
+
+  let driveFolderId = (r.driveFolderId || '').trim() || null;
+  const autoCreate = r.autoCreateDrive === 'on' || r.autoCreateDrive === true || document.querySelector('[data-field="autoCreateDrive"]')?.checked;
+
+  // 1. Créer le produit en DB
   const { error: errP } = await sb.from('products').insert({
     id, name: (r.name || '').trim() || id,
     enabled_countries: selectedCountries,
-    drive_folder_id: (r.driveFolderId || '').trim() || null,
+    drive_folder_id: driveFolderId,
     created_by: currentUser.id
   });
   if (errP) { toast('Erreur : ' + errP.message, 'error'); return; }
-  const n = parseInt(r.adCount, 10) || 0;
-  if (n > 0) {
-    const adsToInsert = [];
-    for (let i = 1; i <= n; i++) adsToInsert.push({ product_id: id, name: 'Ad ' + i, position: i });
-    const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
-    if (errA) { toast('Erreur ads : ' + errA.message, 'error'); }
-    else {
-      const acToInsert = [];
-      insertedAds.forEach(ad => selectedCountries.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
-      await sb.from('ad_countries').insert(acToInsert);
+
+  toast(`Produit ${id} créé`, 'success');
+
+  // 2. Créer la structure Drive si demandé
+  if (autoCreate && driveState.connected && !driveFolderId) {
+    try {
+      const { data: product } = await sb.from('products').select('*').eq('id', id).single();
+      const countries = allCountries.filter(c => selectedCountries.includes(c.id));
+      await createProductDriveStructure(product, countries);
+      toast(`📁 Structure Drive créée pour ${id}`, 'success');
+    } catch (e) {
+      toast('⚠ Produit créé, mais erreur création Drive : ' + (e.message || 'inconnue'), 'warn', 6000);
     }
   }
-  toast(`Produit ${id} créé avec ${selectedCountries.length} marché(s)`, 'success');
+
+  // 3. Upload des videos concurrent si présentes
+  if (concurrentFiles.length > 0 && driveState.connected) {
+    try {
+      await uploadToProductFolder(id, concurrentFiles, CONCURRENT_FOLDER_NAME);
+    } catch (e) {
+      toast('⚠ Erreur upload videos : ' + (e.message || 'inconnue'), 'warn', 6000);
+    }
+  }
+
   navigate('produit/' + id);
 }
 
