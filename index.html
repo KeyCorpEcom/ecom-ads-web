@@ -1610,33 +1610,61 @@ async function connectShopifyFlow(countryId) {
   const r = await modal(`
     <div class="modal-title">🔗 Connecter shop Shopify ${flagImg(countryId)}${countryId}</div>
     <div class="text-sm text-dim mb-md" style="line-height:1.6">
-      Entre le domaine du shop pour ${countryId}. Tu seras redirigé vers Shopify pour autoriser l'app <strong>KeyCorp</strong>.
+      Crée une <strong>Custom App</strong> DIRECTEMENT dans ton shop ${countryId} et colle le token ici. Pas de Shopify Partners, pas d'OAuth — 2 min par shop.
     </div>
     <div style="background:var(--bg-input);border-left:3px solid var(--blue);padding:12px;border-radius:6px;margin-bottom:16px;font-size:12px;line-height:1.7">
-      <strong>⚠️ Prérequis</strong><br>
-      Le shop doit être <strong>invité dans ton organisation Shopify Partners</strong>.<br>
-      Depuis Partners → Shops → <strong>Ajouter un shop</strong> → envoie l'invitation au propriétaire du shop <span class="mono">${countryId}</span>. Une fois accepté, l'app pourra s'installer.
+      <strong>📋 Étapes (dans l'admin du shop)</strong><br>
+      1. <span class="mono">admin.shopify.com/store/TON-SHOP/settings/apps</span><br>
+      2. Clique <strong>"Développer des applications"</strong> (autorise si 1ère fois)<br>
+      3. <strong>"Créer une application"</strong> → nom : <span class="mono">KeyCrop Translator</span> → Créer<br>
+      4. Onglet <strong>Configuration</strong> → <strong>"Configurer l'API Admin"</strong><br>
+      5. Coche les scopes : <span class="mono">read_themes, write_themes, read_files, write_files, read_content, write_content</span> → Save<br>
+      6. Onglet <strong>Identifiants API</strong> → bouton <strong>"Installer l'app"</strong> → confirme<br>
+      7. <strong>Révéler le jeton d'accès Admin API</strong> → copie le <span class="mono">shpat_...</span>
     </div>
     <div class="input-group">
       <label class="input-label">Shop domain</label>
       <input type="text" class="input mono" data-field="shop" placeholder="salvyne-${countryId.toLowerCase()}.myshopify.com" autofocus>
       <div class="input-hint">Format obligatoire : <span class="mono">nom-shop.myshopify.com</span></div>
     </div>
+    <div class="input-group">
+      <label class="input-label">Admin API access token</label>
+      <input type="password" class="input mono" data-field="token" placeholder="shpat_...">
+      <div class="input-hint">⚠️ Le token n'est révélé qu'une seule fois dans Shopify. Garde-le safe.</div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>🔗 Lancer l'OAuth</button>
+      <button class="btn" data-modal-ok>🔗 Connecter</button>
     </div>
   `);
-  if (!r || !r.shop) return;
+  if (!r || !r.shop || !r.token) return;
   let shop = r.shop.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
   if (!/^[a-z0-9][a-z0-9-]*\.myshopify\.com$/.test(shop)) {
     if (/^[a-z0-9][a-z0-9-]*$/.test(shop)) shop = shop + '.myshopify.com';
     else { toast('Format shop invalide. Attendu : nom-shop.myshopify.com', 'error'); return; }
   }
+  const token = r.token.trim();
+  if (!token.startsWith('shpat_')) {
+    toast('Token invalide. Doit commencer par "shpat_"', 'error');
+    return;
+  }
 
-  // Redirige vers /api/shopify-install qui génère l'URL OAuth Shopify
-  const installUrl = `/api/shopify-install?shop=${encodeURIComponent(shop)}&country=${encodeURIComponent(countryId)}`;
-  window.location.href = installUrl;
+  toast('Enregistrement...', 'info');
+
+  // Upsert en DB (skip test CORS — Shopify ne le permet pas depuis le browser)
+  const { error } = await sb.from('shopify_connections').upsert({
+    country_id: countryId,
+    shop_domain: shop,
+    access_token: token,
+    scope: 'read_themes,write_themes,read_files,write_files,read_content,write_content',
+    connected_at: new Date().toISOString(),
+    connected_by: currentUser.id,
+    last_used_at: new Date().toISOString()
+  }, { onConflict: 'country_id' });
+
+  if (error) { toast('Erreur sauvegarde : ' + error.message, 'error', 7000); return; }
+  toast(`✅ Shop ${countryId} connecté !`, 'success', 5000);
+  render();
 }
 
 async function disconnectShopify(countryId) {
