@@ -1260,9 +1260,11 @@ async function renderProduit(el, productId) {
   `;
   el.appendChild(extraSections);
 
-  // Bouton Sync couleurs Drive (placeholder)
-  extraSections.querySelector('#btn-sync-colors')?.addEventListener('click', () => {
-    toast('🎨 Sync couleurs Drive : nécessite le scope Drive écriture (à venir dans une prochaine version)', 'info', 5000);
+  // Bouton Sync couleurs Drive — colorise tous les dossiers pays selon cut/active
+  extraSections.querySelector('#btn-sync-colors')?.addEventListener('click', async () => {
+    if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+    const { data: countriesData } = await sb.from('countries').select('*');
+    await syncProductFolderColors(product, countriesData || []);
   });
 
   // Dropzones upload (Drag & drop + clic)
@@ -1314,16 +1316,22 @@ async function renderProduit(el, productId) {
       if (!canEdit()) { toast('Permission refusée', 'error'); return; }
       const cId = btn.dataset.toggleCut;
       const currentCut = product.cut_countries || [];
-      let newCut;
-      if (currentCut.includes(cId)) {
-        newCut = currentCut.filter(x => x !== cId);
-        toast(`${cId} réactivé`, 'success');
-      } else {
-        newCut = [...currentCut, cId];
-        toast(`${cId} coupé`, 'info');
-      }
+      const wasCut = currentCut.includes(cId);
+      const newCut = wasCut ? currentCut.filter(x => x !== cId) : [...currentCut, cId];
+      const isCutNow = !wasCut;
+
       const { error } = await sb.from('products').update({ cut_countries: newCut }).eq('id', productId);
       if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      toast(isCutNow ? `${cId} coupé` : `${cId} réactivé`, isCutNow ? 'info' : 'success');
+
+      // Auto-sync couleur du dossier Drive du pays
+      if (driveState.connected && product.drive_folder_id) {
+        const ok = await syncOneCountryFolderColor({ ...product, drive_folder_id: product.drive_folder_id }, cId, isCutNow);
+        if (ok) {
+          toast(`🎨 Couleur Drive ${cId} mise à jour`, 'success', 3000);
+        }
+      }
+
       render();
     });
   });
@@ -2746,6 +2754,68 @@ async function driveTrashFolder(folderId) {
     fileId: folderId,
     resource: { trashed: true }
   });
+}
+
+// ============================================================
+// Drive folder colors — sync avec cut/active des pays
+// (Couleurs hex de la palette officielle Google Drive)
+// ============================================================
+const DRIVE_COLOR_ACTIVE = '#16a766';   // vert
+const DRIVE_COLOR_CUT    = '#f83a22';   // rouge
+
+async function driveSetFolderColor(fileId, colorRgb) {
+  return await gapi.client.drive.files.update({
+    fileId,
+    resource: { folderColorRgb: colorRgb }
+  });
+}
+
+// Synchronise UN seul dossier pays (utilisé après toggle cut)
+async function syncOneCountryFolderColor(product, countryId, isCut) {
+  if (!driveState.connected || !product?.drive_folder_id) return false;
+  try {
+    const folder = await driveFindFolder(countryId, product.drive_folder_id);
+    if (!folder) return false;
+    const color = isCut ? DRIVE_COLOR_CUT : DRIVE_COLOR_ACTIVE;
+    await driveSetFolderColor(folder.id, color);
+    return true;
+  } catch (e) {
+    console.error(`[SYNC COLOR] ${countryId}`, e);
+    return false;
+  }
+}
+
+// Synchronise TOUS les dossiers pays d'un produit (utilisé par le bouton "🎨 Sync couleurs")
+async function syncProductFolderColors(product, countries) {
+  if (!driveState.connected || !driveState.accessToken) {
+    toast('Connecte-toi à Drive d\'abord', 'warn');
+    return;
+  }
+  if (!product?.drive_folder_id) {
+    toast('Pas de dossier Drive pour ce produit', 'warn');
+    return;
+  }
+  const cuts = product.cut_countries || [];
+  const enabled = (product.enabled_countries?.length ? product.enabled_countries : countries.map(c => c.id));
+
+  toast('🎨 Synchronisation des couleurs...', 'info');
+  let updated = 0, errors = 0, missing = 0;
+  for (const cId of enabled) {
+    try {
+      const folder = await driveFindFolder(cId, product.drive_folder_id);
+      if (!folder) { missing++; continue; }
+      const color = cuts.includes(cId) ? DRIVE_COLOR_CUT : DRIVE_COLOR_ACTIVE;
+      await driveSetFolderColor(folder.id, color);
+      updated++;
+    } catch (e) {
+      console.error(`[SYNC COLORS] ${cId}`, e);
+      errors++;
+    }
+  }
+  const parts = [`${updated} colorisé(s)`];
+  if (missing > 0) parts.push(`${missing} dossier(s) introuvables`);
+  if (errors > 0) parts.push(`${errors} erreur(s)`);
+  toast(`🎨 ${parts.join(', ')}`, errors > 0 ? 'warn' : 'success', 5000);
 }
 
 function fmtBytes(n) {
