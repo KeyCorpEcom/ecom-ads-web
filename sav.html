@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAV — KeyCorp</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🛟%3C/text%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #0a0e14;
+      --bg-card: #131820;
+      --bg-input: #1a212d;
+      --border: #2a3242;
+      --border-soft: #1f2735;
+      --text: #e8ebf0;
+      --text-dim: #8a8a9a;
+      --text-mute: #5a5e6e;
+      --gold: #c8a55a;
+      --green: #34d399;
+      --orange: #fb923c;
+      --red: #f87171;
+      --blue: #60a5fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      font-size: 18px;
+    }
+    header .brand .logo {
+      font-size: 24px;
+    }
+    header a {
+      color: var(--text-dim);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color 0.15s;
+    }
+    header a:hover {
+      color: var(--gold);
+    }
+    main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+    }
+    .hero {
+      max-width: 560px;
+      text-align: center;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 48px 32px;
+    }
+    .hero-icon {
+      font-size: 56px;
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      margin: 0 0 8px 0;
+      font-size: 28px;
+      color: var(--gold);
+    }
+    .hero p {
+      margin: 0 0 24px 0;
+      color: var(--text-dim);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .card {
+      background: var(--bg-input);
+      border: 1px solid var(--border-soft);
+      border-radius: 10px;
+      padding: 18px 16px;
+      text-align: left;
+      transition: all 0.15s;
+    }
+    .card:hover {
+      border-color: var(--gold);
+      transform: translateY(-2px);
+    }
+    .card-title {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+      color: var(--text);
+    }
+    .card-desc {
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.5;
+    }
+    footer {
+      text-align: center;
+      padding: 16px;
+      font-size: 12px;
+      color: var(--text-mute);
+      border-top: 1px solid var(--border-soft);
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      background: rgba(200, 165, 90, 0.15);
+      color: var(--gold);
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">🛟</span>
+      <span>KeyCorp · SAV</span>
+    </div>
+    <a href="/">← Retour à l'app</a>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="hero-icon">🛟</div>
+      <div class="badge">EN CONSTRUCTION</div>
+      <h1>Portail SAV</h1>
+      <p>L'espace dédié à l'équipe Service Après-Vente. Gestion des réclamations, retours, et suivi clients par pays.</p>
+
+      <div class="grid">
+        <div class="card">
+          <div class="card-title">📩 Réclamations</div>
+          <div class="card-desc">Centraliser et suivre les demandes clients par pays.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">↩️ Retours</div>
+          <div class="card-desc">Gérer les demandes de retour et remboursements.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">📊 Stats</div>
+          <div class="card-desc">Suivi des taux de SAV par produit / pays.</div>
+        </div>
+        <div class="card">
+          <div class="card-title">📨 Templates</div>
+          <div class="card-desc">Réponses pré-rédigées multi-langues.</div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    KeyCorp · SAV · accessible à l'équipe Service Après-Vente
+  </footer>
+</body>
+</html>
