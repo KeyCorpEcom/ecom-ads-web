@@ -3595,13 +3595,15 @@ async function editAdCopyFlow(adId) {
     </div>
   `);
   if (r === 'clear') {
-    await sb.from('ads').update({ ad_copy: { url: '', headline: '', primary: '', description: '', cta: '' } }).eq('id', adId);
+    const { error: errClear } = await sb.from('ads').update({ ad_copy: { url: '', headline: '', primary: '', description: '', cta: '' } }).eq('id', adId);
+    if (errClear) { console.error('[AD COPY CLEAR]', errClear); toast('Erreur clear : ' + errClear.message, 'error', 7000); return; }
     toast('Copy vidé', 'success');
     render();
     return;
   }
   if (!r) return;
-  await sb.from('ads').update({
+
+  const payload = {
     ad_copy: {
       url: (r.url || '').trim(),
       headline: (r.headline || '').trim(),
@@ -3616,7 +3618,20 @@ async function editAdCopyFlow(adId) {
       notes: (r.notes || '').trim(),
       updated_at: new Date().toISOString()
     }
-  }).eq('id', adId);
+  };
+  console.log('[AD COPY SAVE] adId=', adId, 'payload=', payload);
+
+  const { data: updated, error: errUpd } = await sb.from('ads').update(payload).eq('id', adId).select();
+  if (errUpd) {
+    console.error('[AD COPY SAVE ERROR]', errUpd);
+    toast('Erreur sauvegarde : ' + errUpd.message, 'error', 8000);
+    return;
+  }
+  console.log('[AD COPY SAVE OK]', updated);
+  if (!updated || updated.length === 0) {
+    toast('⚠️ Aucune ligne mise à jour (vérif RLS ou ID introuvable)', 'warn', 7000);
+    return;
+  }
   toast('Ad copy sauvegardé', 'success');
   render();
 }
