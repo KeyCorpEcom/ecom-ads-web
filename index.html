@@ -2757,6 +2757,129 @@ async function driveTrashFolder(folderId) {
 }
 
 // ============================================================
+// Drive Google Docs — création/mise à jour pour ad copy
+// ============================================================
+async function driveFindFile(name, parentId, mimeType) {
+  const safeName = name.replace(/'/g, "\\'");
+  const mimeQuery = mimeType ? ` and mimeType = '${mimeType}'` : '';
+  const r = await gapi.client.drive.files.list({
+    q: `'${parentId}' in parents and name = '${safeName}'${mimeQuery} and trashed = false`,
+    fields: 'files(id, name, mimeType)',
+    pageSize: 1
+  });
+  return (r.result.files || [])[0] || null;
+}
+
+async function driveCreateGoogleDocFromHtml(name, parentId, htmlContent) {
+  const accessToken = driveState.accessToken;
+  if (!accessToken) throw new Error('Pas connecté à Drive');
+  const metadata = {
+    name,
+    mimeType: 'application/vnd.google-apps.document',
+    parents: parentId ? [parentId] : undefined
+  };
+  const boundary = '-------keycorp-' + Math.random().toString(36).slice(2);
+  const body =
+    `--${boundary}\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    JSON.stringify(metadata) + `\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: text/html; charset=UTF-8\r\n\r\n` +
+    htmlContent + `\r\n` +
+    `--${boundary}--`;
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`
+    },
+    body
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Drive create doc: HTTP ${res.status} — ${errText}`);
+  }
+  return await res.json();
+}
+
+async function driveUpdateGoogleDocFromHtml(fileId, htmlContent) {
+  const accessToken = driveState.accessToken;
+  if (!accessToken) throw new Error('Pas connecté à Drive');
+  const res = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'text/html; charset=UTF-8'
+    },
+    body: htmlContent
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Drive update doc: HTTP ${res.status} — ${errText}`);
+  }
+  return await res.json();
+}
+
+function formatAdCopyAsHtml(adName, copy) {
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const nlToBr = (s) => esc(s).replace(/\n/g, '<br>');
+  const sections = [];
+
+  sections.push(`<h1 style="font-family:Arial,sans-serif;color:#c8a55a">📝 ${esc(adName)} — Ad Copy</h1>`);
+  if (copy.url)         sections.push(`<p><strong>🔗 Source URL :</strong> <a href="${esc(copy.url)}">${esc(copy.url)}</a></p>`);
+  if (copy.headline)    sections.push(`<h2>📌 Headline</h2><p>${esc(copy.headline)}</p>`);
+  if (copy.primary)     sections.push(`<h2>📝 Primary text</h2><p>${nlToBr(copy.primary)}</p>`);
+  if (copy.description) sections.push(`<h2>📄 Description</h2><p>${esc(copy.description)}</p>`);
+  if (copy.cta)         sections.push(`<h2>🎯 CTA</h2><p>${esc(copy.cta)}</p>`);
+
+  const hasStats = copy.spend || copy.views || copy.runningSince || copy.score || copy.activeCountries;
+  if (hasStats) {
+    sections.push(`<h2>📊 Stats</h2><ul>`);
+    if (copy.spend)           sections.push(`<li><strong>💰 Ad spend :</strong> ${esc(copy.spend)}</li>`);
+    if (copy.views)           sections.push(`<li><strong>👁️ Vues :</strong> ${esc(copy.views)}</li>`);
+    if (copy.runningSince)    sections.push(`<li><strong>📅 Running depuis :</strong> ${esc(copy.runningSince)}</li>`);
+    if (copy.score)           sections.push(`<li><strong>⭐ Score :</strong> ${esc(copy.score)}/10</li>`);
+    if (copy.activeCountries) sections.push(`<li><strong>🌍 Pays actifs :</strong> ${esc(copy.activeCountries)}</li>`);
+    sections.push(`</ul>`);
+  }
+
+  if (copy.notes) sections.push(`<h2>💬 Notes perso</h2><p>${nlToBr(copy.notes)}</p>`);
+  sections.push(`<hr><p style="font-size:11px;color:#888">Dernière mise à jour : ${new Date().toLocaleString('fr-FR')} · Synchronisé depuis keycorp-ecom.com</p>`);
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;line-height:1.6">${sections.join('\n')}</body></html>`;
+}
+
+// Sync ad copy → Google Doc dans 00_Ads_Concurrent
+async function syncAdCopyToDrive(adId) {
+  if (!driveState.connected) return { skipped: true, reason: 'not_connected' };
+  try {
+    const { data: ad } = await sb.from('ads').select('*, products(drive_folder_id)').eq('id', adId).single();
+    if (!ad) return { skipped: true, reason: 'ad_not_found' };
+    const driveFolderId = ad.products?.drive_folder_id;
+    if (!driveFolderId) return { skipped: true, reason: 'no_drive_folder' };
+
+    const concurrentFolder = await driveFindFolder(CONCURRENT_FOLDER_NAME, driveFolderId);
+    if (!concurrentFolder) return { skipped: true, reason: 'concurrent_folder_missing' };
+
+    const adNumber = ad.position || (parseInt((ad.name.match(/\d+/) || [0])[0], 10)) || 1;
+    const docName = `Ad copy ${adNumber}`;
+    const html = formatAdCopyAsHtml(ad.name, ad.ad_copy || {});
+
+    const existing = await driveFindFile(docName, concurrentFolder.id, 'application/vnd.google-apps.document');
+    if (existing) {
+      await driveUpdateGoogleDocFromHtml(existing.id, html);
+      return { ok: true, action: 'updated', docId: existing.id, docName };
+    } else {
+      const created = await driveCreateGoogleDocFromHtml(docName, concurrentFolder.id, html);
+      return { ok: true, action: 'created', docId: created.id, docName };
+    }
+  } catch (e) {
+    console.error('[AD COPY → DRIVE]', e);
+    return { ok: false, error: e.message };
+  }
+}
+
+// ============================================================
 // Drive folder colors — sync avec cut/active des pays
 // (Couleurs hex de la palette officielle Google Drive)
 // ============================================================
@@ -3633,6 +3756,26 @@ async function editAdCopyFlow(adId) {
     return;
   }
   toast('Ad copy sauvegardé', 'success');
+
+  // Sync vers Google Drive (Google Doc dans 00_Ads_Concurrent)
+  if (driveState.connected) {
+    const driveRes = await syncAdCopyToDrive(adId);
+    if (driveRes.ok) {
+      toast(`📄 Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
+    } else if (driveRes.skipped) {
+      const reasons = {
+        not_connected: 'Drive non connecté',
+        ad_not_found: 'Ad introuvable',
+        no_drive_folder: 'Pas de dossier Drive pour ce produit',
+        concurrent_folder_missing: 'Dossier 00_Ads_Concurrent manquant'
+      };
+      console.warn('[AD COPY DRIVE SKIP]', driveRes.reason);
+      toast(`ℹ️ Drive non synchronisé : ${reasons[driveRes.reason] || driveRes.reason}`, 'info', 5000);
+    } else {
+      toast(`⚠️ Erreur sync Drive : ${driveRes.error}`, 'warn', 6000);
+    }
+  }
+
   render();
 }
 
