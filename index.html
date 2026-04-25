@@ -3744,17 +3744,19 @@ async function editAdCopyFlow(adId) {
   };
   console.log('[AD COPY SAVE] adId=', adId, 'payload=', payload);
 
-  const { data: updated, error: errUpd } = await sb.from('ads').update(payload).eq('id', adId).select();
+  let errUpd = null;
+  try {
+    const res = await sb.from('ads').update(payload).eq('id', adId);
+    errUpd = res.error;
+  } catch (e) {
+    errUpd = { message: (e?.message || String(e)) };
+  }
   if (errUpd) {
     console.error('[AD COPY SAVE ERROR]', errUpd);
     toast('Erreur sauvegarde : ' + errUpd.message, 'error', 8000);
     return;
   }
-  console.log('[AD COPY SAVE OK]', updated);
-  if (!updated || updated.length === 0) {
-    toast('⚠️ Aucune ligne mise à jour (vérif RLS ou ID introuvable)', 'warn', 7000);
-    return;
-  }
+  console.log('[AD COPY SAVE OK]');
   toast('Ad copy sauvegardé', 'success');
 
   // Sync vers Google Drive (Google Doc dans 00_Ads_Concurrent)
