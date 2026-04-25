@@ -1139,7 +1139,7 @@ async function renderProduit(el, productId) {
                 <td class="ad-col">
                   ${escapeHtml(ad.name)}
                   <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="Éditer Ad Copy">📝</span>
-                  ${linkSrc ? `<a href="${escapeHtml(copy.url)}" target="_blank" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
+                  ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                 </td>
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
@@ -3726,9 +3726,10 @@ async function editAdCopyFlow(adId) {
   }
   if (!r) return;
 
+  const rawUrl = (r.url || '').trim();
   const payload = {
     ad_copy: {
-      url: (r.url || '').trim(),
+      url: rawUrl ? (normalizeUrl(rawUrl) || rawUrl) : '',
       headline: (r.headline || '').trim(),
       primary: (r.primary || '').trim(),
       description: (r.description || '').trim(),
