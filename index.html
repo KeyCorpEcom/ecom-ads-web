@@ -1221,6 +1221,7 @@ async function renderProduit(el, productId) {
           <thead>
             <tr>
               <th class="ad-col">Ad</th>
+              <th rowspan="2" style="border-left:2px solid var(--border-soft);min-width:60px;color:var(--gold);font-size:11px">Master</th>
               ${countries.map(c => { const isCut = (product.cut_countries || []).includes(c.id); return `<th colspan="2" class="${isCut ? 'cut cut-badge' : ''}" style="border-left:2px solid var(--border-soft);padding-top:${isCut ? '18px' : '9px'}">${flagImg(c.id)}${c.id}</th>`; }).join('')}
               <th style="min-width:60px">%</th>
             </tr>
@@ -1243,6 +1244,9 @@ async function renderProduit(el, productId) {
                   <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="Éditer Ad Copy"></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                 </td>
+                <td class="check-cell auto" style="border-left:2px solid var(--border-soft)" title="Master ${ad.master_file_id ? 'uploadé' : 'non uploadé'}">
+                  <span class="check-icon ${ad.master_file_id ? 'checked' : ''}"></span>
+                </td>
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
                   const isCut = (product.cut_countries || []).includes(c.id);
@@ -1264,6 +1268,7 @@ async function renderProduit(el, productId) {
           <tfoot>
             <tr style="background:var(--bg);border-top:2px solid var(--border)">
               <td class="ad-col" style="color:var(--gold);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:12px">TOTAL</td>
+              <td style="border-left:2px solid var(--border-soft);padding:10px 8px;text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:5px;background:${ads.filter(a => a.master_file_id).length === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(200,165,90,0.15)'};color:${ads.filter(a => a.master_file_id).length === 0 ? 'var(--text-mute)' : 'var(--gold)'};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600">${ads.filter(a => a.master_file_id).length}/${ads.length}</span></td>
               ${countries.map(c => {
                 const isCut = (product.cut_countries || []).includes(c.id);
                 const s = byCountry[c.id];
@@ -3351,48 +3356,34 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     if (createdCount > 0) await logSync(` ${product.id} : ${createdCount} ad(s) créée(s) depuis Concurrent`, 'success');
   }
 
-  // Si upload dans 00_Master_Ads → créer/lier les ads dans la DB
+  // Si upload dans 00_Master_Ads → LIER aux ads existantes (pas de création)
   if (targetFolderName === MASTER_FOLDER_NAME && okCount > 0) {
     const existingAdsByName = {};
     (existingAdsDb || []).forEach(a => { existingAdsByName[a.name.toLowerCase()] = a; });
 
-    const adsToInsert = [];
     const adsToUpdate = [];
+    const adsNotFound = [];
     for (const r of okResults) {
       const adNum = r.item.adNum;
       const adName = `Ad ${adNum}`;
       const existing = existingAdsByName[adName.toLowerCase()];
       if (existing) {
-        // Ad existe déjà → on met juste à jour master_file_id
         adsToUpdate.push({ id: existing.id, master_file_id: r.file?.id || null });
       } else {
-        // Nouvelle ad
-        adsToInsert.push({
-          product_id: product.id,
-          name: adName,
-          position: adNum,
-          master_file_id: r.file?.id || null,
-          workspace_id: currentWorkspaceId
-        });
+        adsNotFound.push(adName);
       }
     }
 
-    let createdCount = 0, updatedCount = 0;
-    if (adsToInsert.length > 0) {
-      const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
-      if (!errA && insertedAds) {
-        const acToInsert = [];
-        insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId })));
-        if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
-        createdCount = insertedAds.length;
-      }
-    }
+    let updatedCount = 0;
     for (const u of adsToUpdate) {
       await sb.from('ads').update({ master_file_id: u.master_file_id }).eq('id', u.id);
       updatedCount++;
     }
-    if (createdCount > 0) await logSync(` ${product.id} : ${createdCount} ad(s) auto-créée(s)`, 'success');
-    if (updatedCount > 0) await logSync(` ${product.id} : ${updatedCount} ad(s) re-liée(s)`, 'info');
+    if (updatedCount > 0) await logSync(`${product.id} : ${updatedCount} master(s) lié(s) aux ads existantes`, 'info');
+    if (adsNotFound.length > 0) {
+      await logSync(`${product.id} : ${adsNotFound.length} fichier(s) ignoré(s) — ad inexistante (${adsNotFound.join(', ')})`, 'warn');
+      toast(`${adsNotFound.length} fichier(s) sans ad existante : ${adsNotFound.join(', ')}. Crée-les d'abord via 00_Ads_Concurrent.`, 'warn', 8000);
+    }
   }
 
   if (okCount === 0 && items.length > 0) {
