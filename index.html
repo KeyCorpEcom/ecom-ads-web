@@ -283,21 +283,19 @@ a{color:var(--gold);text-decoration:none}
       <span id="workspace-arrow" style="color:var(--text-dim);font-size:10px">▾</span>
     </div>
     <nav class="nav">
-  <div class="nav-section-label">Vue d'ensemble</div>
-  <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer">Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
-  <a class="nav-item" data-route="dashboard">Dashboard</a>
-  <a class="nav-item" data-route="ads">Ads</a>
-  <a class="nav-item" data-route="produits">Produits<span class="nav-badge" id="nav-products"></span></a>
-  <a class="nav-item" data-route="analytics">Analytics</a>
-  <a class="nav-item" data-route="pages">Product Page<span class="nav-badge" id="nav-pages"></span></a>
-  <a class="nav-item" href="https://www.keycorp-ecom.com/sav">SAV</a>
-  <a class="nav-item" href="/hub">Hub P&amp;L</a>
-  <div class="nav-section-label">Intégrations</div>
-  <a class="nav-item" data-route="drive">Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
-  <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
-  <a class="nav-item hidden" data-route="users" id="nav-users">Utilisateurs</a>
-  <a class="nav-item hidden" data-route="parametres" id="nav-settings">Paramètres</a>
-</nav>
+      <div class="nav-section-label">Vue d'ensemble</div>
+      <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon">🔍</span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
+      <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
+      <a class="nav-item" data-route="ads"><span class="nav-icon">📺</span>Ads</a>
+      <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
+      <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
+      <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
+      <a class="nav-item" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon">🛟</span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
+      <div class="nav-section-label">Intégrations</div>
+      <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
+      <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
+      <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon">👥</span>Utilisateurs</a>
+      <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon">⚙️</span>Paramètres</a>
     </nav>
     <div class="user-box">
       <div class="user-name" id="user-name">—</div>
@@ -2733,7 +2731,7 @@ async function driveConnect(options = {}) {
   const silent = options.silent === true;
   let cfg = null;
   try {
-    const { data } = await sb.from('drive_config').select('*').eq('id', 1).maybeSingle();
+    const { data } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).maybeSingle();
     cfg = data;
   } catch (e) {
     console.error('[DRIVE] Erreur lecture config', e);
@@ -2794,8 +2792,18 @@ async function driveConnect(options = {}) {
   }
 }
 
+// Helper : upsert drive_config pour le workspace courant
+async function upsertDriveConfig(patch) {
+  const { data: existing } = await sb.from('drive_config').select('workspace_id').eq('workspace_id', currentWorkspaceId).maybeSingle();
+  if (existing) {
+    await sb.from('drive_config').update({ ...patch, updated_at: new Date().toISOString() }).eq('workspace_id', currentWorkspaceId);
+  } else {
+    await sb.from('drive_config').insert({ ...patch, workspace_id: currentWorkspaceId, updated_at: new Date().toISOString() });
+  }
+}
+
 async function tryAutoReconnectDrive() {
-  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).maybeSingle();
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).maybeSingle();
   if (!cfg?.client_id || !cfg?.api_key) return;
   const storedToken = getStoredToken();
   if (storedToken) {
@@ -3102,7 +3110,7 @@ function driveUploadWithProgress(file, parentId, name, onProgress) {
 // Crée toute la structure Drive pour un produit
 async function createProductDriveStructure(product, countries) {
   if (!driveState.connected || !driveState.accessToken) throw new Error('Pas connecté à Drive');
-  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).single();
   const rootId = cfg?.root_folder_id;
   if (!rootId) throw new Error('Dossier racine Drive non configuré');
 
@@ -3426,7 +3434,7 @@ async function syncDriveAll() {
         await logSync(`Erreur sync ${p.id} : ${extractGapiError(e)}`, 'error');
       }
     }
-    await sb.from('drive_config').update({ updated_at: new Date().toISOString() }).eq('id', 1);
+    await sb.from('drive_config').update({ updated_at: new Date().toISOString() }).eq('workspace_id', currentWorkspaceId);
     await logSync(`Sync globale : ${totalFound} fichiers scannés, ${totalNew} traduction(s)`, 'success');
     toast(`✅ Sync OK — ${totalNew} nouveau(x)`, 'success');
   } catch (e) {
@@ -3510,7 +3518,7 @@ async function syncDriveProduit(p, adsAll) {
 function setupAutoSync() {
   clearInterval(autoSyncTimer);
   (async () => {
-    const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+    const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).single();
     // Auto-sync interval is stored client-side in localStorage for now (per user pref)
     const interval = parseInt(localStorage.getItem('keycorp_autosync_interval') || '15', 10);
     const enabled = localStorage.getItem('keycorp_autosync_enabled') === 'true';
@@ -3522,7 +3530,7 @@ function setupAutoSync() {
 }
 
 async function renderDrive(el) {
-  const { data: cfg } = await sb.from('drive_config').select('*').eq('id', 1).single();
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).single();
   const { data: logs } = await sb.from('sync_log').select('*').order('ts', { ascending: false }).limit(50);
   const autoEnabled = localStorage.getItem('keycorp_autosync_enabled') === 'true';
   const autoInterval = parseInt(localStorage.getItem('keycorp_autosync_interval') || '15', 10);
@@ -3613,18 +3621,18 @@ async function renderDrive(el) {
   `;
 
   document.getElementById('btn-save-drive-config')?.addEventListener('click', async () => {
-    await sb.from('drive_config').update({
+    await upsertDriveConfig({
       client_id: document.getElementById('drive-client-id').value.trim(),
       api_key: document.getElementById('drive-api-key').value.trim(),
       updated_by: currentUser.id
-    }).eq('id', 1);
+    });
     toast('Config sauvegardée', 'success');
   });
   document.getElementById('btn-save-root')?.addEventListener('click', async () => {
-    await sb.from('drive_config').update({
+    await upsertDriveConfig({
       root_folder_id: document.getElementById('drive-root-folder').value.trim(),
       updated_by: currentUser.id
-    }).eq('id', 1);
+    });
     toast('Dossier racine enregistré', 'success');
   });
   document.getElementById('btn-drive-connect')?.addEventListener('click', () => driveConnect());
