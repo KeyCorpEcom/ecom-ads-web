@@ -1,6 +1,16 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "/hub",
+      "destination": "https://keycorppnl.vercel.app/hub"
+    },
+    {
+      "source": "/hub/:path*",
+      "destination": "https://keycorppnl.vercel.app/hub/:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -9,24 +19,6 @@
         { "key": "X-Content-Type-Options", "value": "nosniff" },
         { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
       ]
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/sav",
-      "destination": "https://sav-web.vercel.app/sav"
-    },
-    {
-      "source": "/sav/:path*",
-      "destination": "https://sav-web.vercel.app/sav/:path*"
-    },
-    {
-      "source": "/hub",
-      "destination": "https://keycorppnl.vercel.app/hub"
-    },
-    {
-      "source": "/hub/:path*",
-      "destination": "https://keycorppnl.vercel.app/hub/:path*"
     }
   ]
 }
