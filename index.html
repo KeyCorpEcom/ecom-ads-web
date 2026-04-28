@@ -107,7 +107,7 @@ a{color:var(--gold);text-decoration:none}
 .check-icon.checked{background:var(--green);border-color:var(--green)}
 .check-icon.checked::after{content:'';position:absolute;inset:4px 4px 4px 4px;background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat}
 .check-icon.meta.checked{background:var(--blue);border-color:var(--blue)}
-.check-icon.meta.checked::after{content:'🚀';background:none;inset:auto;font-size:14px;display:flex;align-items:center;justify-content:center;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+.check-icon.meta.checked::after{content:'';background:none;inset:auto;font-size:14px;display:flex;align-items:center;justify-content:center;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
 
 /* Product grid */
 .product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
@@ -240,7 +240,7 @@ a{color:var(--gold);text-decoration:none}
 .ads-table th.cut{text-decoration:line-through;color:var(--red)!important}
 .ads-table td.cut.check-cell{cursor:not-allowed!important;pointer-events:none}
 .ads-table th.cut-badge{position:relative}
-.ads-table th.cut-badge::after{content:'✂ COUPÉ';position:absolute;top:2px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--red);font-weight:700;letter-spacing:1px}
+.ads-table th.cut-badge::after{content:' COUPÉ';position:absolute;top:2px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--red);font-weight:700;letter-spacing:1px}
 </style>
 </head>
 <body>
@@ -278,25 +278,25 @@ a{color:var(--gold);text-decoration:none}
     <div class="logo">KEY CORP</div>
     <div class="logo-sub">ECOMMERCE</div>
     <div id="workspace-switcher" style="margin:8px 0 14px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:none;align-items:center;gap:8px;font-size:12px;transition:all 0.15s">
-      <span style="font-size:14px">🏢</span>
+      <span style="font-size:14px"></span>
       <span id="workspace-name" style="flex:1;font-weight:600;color:var(--gold)">—</span>
       <span id="workspace-arrow" style="color:var(--text-dim);font-size:10px">▾</span>
     </div>
     <nav class="nav">
       <div class="nav-section-label">Vue d'ensemble</div>
-      <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon">🔍</span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
-      <a class="nav-item" data-route="dashboard"><span class="nav-icon">📊</span>Dashboard</a>
-      <a class="nav-item" data-route="ads"><span class="nav-icon">📺</span>Ads</a>
-      <a class="nav-item" data-route="produits"><span class="nav-icon">📦</span>Produits<span class="nav-badge" id="nav-products"></span></a>
-      <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
-      <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
-      <a class="nav-item" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon">🛟</span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
-      <a class="nav-item" href="https://www.keycorp-ecom.com/hub" target="_blank" rel="noopener noreferrer"><span class="nav-icon">💰</span>P&amp;L<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
+      <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon"></span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
+      <a class="nav-item" data-route="dashboard"><span class="nav-icon"></span>Dashboard</a>
+      <a class="nav-item" data-route="ads"><span class="nav-icon"></span>Ads</a>
+      <a class="nav-item" data-route="produits"><span class="nav-icon"></span>Produits<span class="nav-badge" id="nav-products"></span></a>
+      <a class="nav-item" data-route="analytics"><span class="nav-icon"></span>Analytics</a>
+      <a class="nav-item" data-route="pages"><span class="nav-icon"></span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
+      <a class="nav-item" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
+      <a class="nav-item" href="https://www.keycorp-ecom.com/hub" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>P&amp;L<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
       <div class="nav-section-label">Intégrations</div>
-      <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
+      <a class="nav-item" data-route="drive"><span class="nav-icon"></span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
-      <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon">👥</span>Utilisateurs</a>
-      <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon">⚙️</span>Paramètres</a>
+      <a class="nav-item hidden" data-route="users" id="nav-users"><span class="nav-icon"></span>Utilisateurs</a>
+      <a class="nav-item hidden" data-route="parametres" id="nav-settings"><span class="nav-icon"></span>Paramètres</a>
     </nav>
     <div class="user-box">
       <div class="user-name" id="user-name">—</div>
@@ -352,7 +352,7 @@ function toast(msg, type = 'info', duration = 3000) {
   const c = document.getElementById('toast-container');
   const t = document.createElement('div');
   t.className = 'toast ' + type;
-  const icon = { success: '✅', error: '⚠️', info: 'ℹ️' }[type] || '';
+  const icon = { success: '', error: '', info: '' }[type] || '';
   t.innerHTML = `<span>${icon}</span> <span>${escapeHtml(msg)}</span>`;
   c.appendChild(t);
   setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }, duration);
@@ -444,7 +444,7 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 
 document.getElementById('btn-change-password').addEventListener('click', async () => {
   const r = await modal(`
-    <div class="modal-title">🔐 Changer mon mot de passe</div>
+    <div class="modal-title"> Changer mon mot de passe</div>
     <div class="text-sm text-dim mb-md">Choisis un nouveau mot de passe fort (min 6 caractères).</div>
     <div class="input-group">
       <label class="input-label">Nouveau mot de passe</label>
@@ -473,7 +473,7 @@ document.getElementById('btn-change-password').addEventListener('click', async (
   }
   const { error } = await sb.auth.updateUser({ password: r.pwd1 });
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
-  toast('✅ Mot de passe changé avec succès !', 'success');
+  toast(' Mot de passe changé avec succès !', 'success');
 });
 
 function renderWorkspaceSwitcher() {
@@ -496,7 +496,7 @@ function renderWorkspaceSwitcher() {
     menu.style.cssText = 'position:absolute;left:14px;top:88px;width:212px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px;z-index:1000;box-shadow:0 8px 24px rgba(0,0,0,0.5)';
     menu.innerHTML = userWorkspaces.map(m => `
       <div data-switch-ws="${m.workspace_id}" style="padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;${m.workspace_id === currentWorkspaceId ? 'background:rgba(200,165,90,0.15);color:var(--gold)' : 'color:var(--text)'}">
-        <span>${m.workspace_id === currentWorkspaceId ? '✓' : '○'}</span>
+        <span>${m.workspace_id === currentWorkspaceId ? '' : '○'}</span>
         <span style="flex:1">${escapeHtml(m.workspaces.name)}</span>
         <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase">${m.role}</span>
       </div>
@@ -647,10 +647,10 @@ async function render() {
     else if (page === 'drive') await renderDrive(el);
     else if (page === 'users') await renderUsers(el);
     else if (page === 'parametres') await renderSettings(el);
-    else el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Page introuvable</div></div>';
+    else el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Page introuvable</div></div>';
   } catch (e) {
     console.error(e);
-    el.innerHTML = `<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Erreur</div><div class="text-dim">${escapeHtml(e.message)}</div></div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-icon"></div><div class="empty-title">Erreur</div><div class="text-dim">${escapeHtml(e.message)}</div></div>`;
   }
 }
 document.addEventListener('click', (e) => {
@@ -664,7 +664,7 @@ window.addEventListener('hashchange', render);
    DATA HELPERS
    ============================================================ */
 async function fetchAll() {
-  // ⚠️ Filtre explicite par workspace courant (RLS ne suffit pas si user dans plusieurs workspaces)
+  //  Filtre explicite par workspace courant (RLS ne suffit pas si user dans plusieurs workspaces)
   const wsId = currentWorkspaceId;
   const [countriesR, productsR, adsR, adCountriesR] = await Promise.all([
     sb.from('countries').select('*').order('sort_order'),
@@ -738,7 +738,7 @@ async function renderDashboard(el) {
     <div class="grid-2">
       <div class="card">
         <div class="card-head">
-          <div class="card-title">📊 Traductions par pays</div>
+          <div class="card-title"> Traductions par pays</div>
         </div>
         ${countries.map(c => {
           const s = byCountry[c.id];
@@ -752,7 +752,7 @@ async function renderDashboard(el) {
       </div>
       <div class="card">
         <div class="card-head">
-          <div class="card-title">🚀 Lancements Meta</div>
+          <div class="card-title"> Lancements Meta</div>
         </div>
         ${countries.map(c => {
           const s = byCountry[c.id];
@@ -792,14 +792,14 @@ async function renderAds(el) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">📺 Ads</div>
+        <div class="page-title"> Ads</div>
         <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
       </div>
       ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
     </div>
     ${products.length === 0 ? `
       <div class="empty">
-        <div class="empty-icon">📺</div>
+        <div class="empty-icon"></div>
         <div class="empty-title">Aucun produit</div>
       </div>
     ` : `
@@ -831,7 +831,7 @@ async function renderAds(el) {
 
               <div style="margin-top:10px">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                  <span style="color:var(--text-dim)">📺 Trad ads</span>
+                  <span style="color:var(--text-dim)"> Trad ads</span>
                   <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
                 </div>
                 <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
@@ -866,14 +866,14 @@ async function renderProduits(el) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">📦 Produits</div>
+        <div class="page-title"> Produits</div>
         <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
       </div>
       ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
     </div>
     ${products.length === 0 ? `
       <div class="empty">
-        <div class="empty-icon">📦</div>
+        <div class="empty-icon"></div>
         <div class="empty-title">Aucun produit</div>
       </div>
     ` : `
@@ -912,14 +912,14 @@ async function renderProduits(el) {
               <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
                 <div>
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">📺 Trad ads</span>
+                    <span style="color:var(--text-dim)"> Trad ads</span>
                     <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
                   </div>
                   <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
                 </div>
                 <div>
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">🌍 Pages landing</span>
+                    <span style="color:var(--text-dim)"> Pages landing</span>
                     <span class="mono" style="color:var(--gold);font-weight:600">${pagesApproved}/${activeCs.length} · ${pagesPct}%</span>
                   </div>
                   <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${pagesPct}%;height:100%;background:linear-gradient(90deg,var(--gold),var(--green));transition:width 0.4s"></div></div>
@@ -976,45 +976,45 @@ async function newProductFlow() {
       <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none">
         <input type="checkbox" data-field="autoCreateDrive" checked style="margin:4px 0 0 0;accent-color:var(--gold);flex-shrink:0" ${!driveState.connected ? 'disabled' : ''}>
         <div>
-          <div style="font-weight:600;display:flex;align-items:center;gap:6px">☁️ Créer automatiquement la structure Drive</div>
+          <div style="font-weight:600;display:flex;align-items:center;gap:6px"> Créer automatiquement la structure Drive</div>
           <div class="text-sm text-dim" style="margin-top:2px">Crée <span class="mono">F00XX/</span> avec <span class="mono">00_Ads_Concurrent/</span> + <span class="mono">00_Master_Ads/</span> + sous-dossiers par marché (FR, DE, ...) dans ton dossier racine</div>
-          ${!driveState.connected ? '<div class="text-sm" style="color:var(--red);margin-top:4px">⚠ Connecte-toi à Drive d\'abord pour utiliser cette option</div>' : ''}
+          ${!driveState.connected ? '<div class="text-sm" style="color:var(--red);margin-top:4px"> Connecte-toi à Drive d\'abord pour utiliser cette option</div>' : ''}
         </div>
       </label>
     </div>
     <div class="input-group">
-      <label class="input-label">🌍 Marchés actifs</label>
+      <label class="input-label"> Marchés actifs</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border)">
         ${countriesHtml}
       </div>
       <div class="input-hint">Décoche les pays où tu ne lances pas ce produit (tu pourras modifier plus tard).</div>
     </div>
     <div class="input-group">
-      <label class="input-label">🏁 Pays Master (optionnel — référence interne)</label>
+      <label class="input-label"> Pays Master (optionnel — référence interne)</label>
       <select class="select" id="master-country-select">
         ${masterSelectHtml}
       </select>
       <div class="input-hint">Indique juste quel pays sert de référence. Pas d'impact sur le workflow actuel.</div>
     </div>
     <div class="input-group">
-      <label class="input-label">⚡ Priorité</label>
+      <label class="input-label"> Priorité</label>
       <select class="select" data-field="priority">
-        <option value="urgent">🔴 URGENT</option>
-        <option value="high">🟠 HAUTE</option>
-        <option value="normal" selected>🔵 NORMALE</option>
-        <option value="low">⚪ BASSE</option>
+        <option value="urgent"> URGENT</option>
+        <option value="high"> HAUTE</option>
+        <option value="normal" selected> NORMALE</option>
+        <option value="low"> BASSE</option>
       </select>
       <div class="input-hint">Les produits à priorité haute remontent en haut de Product Page et Ads.</div>
     </div>
     <div class="input-group">
-      <label class="input-label">🔗 URL Concurrent (référence pour page builder)</label>
+      <label class="input-label"> URL Concurrent (référence pour page builder)</label>
       <input class="input" data-field="concurrentPageUrl" placeholder="https://concurrent.com/products/...">
       <div class="input-hint">La landing à copier. Le page builder s'en servira pour construire la page dans Shopify.</div>
     </div>
     <div class="input-group">
-      <label class="input-label">🎬 Upload videos concurrent (optionnel)</label>
+      <label class="input-label"> Upload videos concurrent (optionnel)</label>
       <div id="new-product-dropzone" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected ? 'opacity:0.5;cursor:not-allowed' : ''}">
-        <div style="font-size:28px;margin-bottom:8px">📹</div>
+        <div style="font-size:28px;margin-bottom:8px"></div>
         <div style="font-weight:600;margin-bottom:4px">Glisse les videos du concurrent ici ou clique</div>
         <div class="text-sm text-dim">Videos brutes (avec sous-titres) · MP4, MOV, AVI, images</div>
         <input type="file" id="new-product-files" multiple style="display:none" accept="video/*,image/*">
@@ -1048,7 +1048,7 @@ async function newProductFlow() {
     const refreshList = () => {
       if (concurrentFiles.length === 0) { list.innerHTML = ''; return; }
       list.innerHTML = '<div style="text-align:left;padding:10px 0 0 0;border-top:1px solid var(--border-soft);margin-top:10px">' +
-        concurrentFiles.map((f, i) => `<div style="padding:6px 10px;background:var(--bg-card);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-size:12px"><span>🎥 <strong>Ad ${i+1}</strong> · ${escapeHtml(f.name)} <span class="text-dim">(${fmtBytes(f.size)})</span></span><button class="btn-ghost" data-remove-file="${i}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0 6px">✕</button></div>`).join('') +
+        concurrentFiles.map((f, i) => `<div style="padding:6px 10px;background:var(--bg-card);border-radius:6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-size:12px"><span> <strong>Ad ${i+1}</strong> · ${escapeHtml(f.name)} <span class="text-dim">(${fmtBytes(f.size)})</span></span><button class="btn-ghost" data-remove-file="${i}" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0 6px"></button></div>`).join('') +
         '</div>';
       list.querySelectorAll('[data-remove-file]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); concurrentFiles.splice(parseInt(b.dataset.removeFile, 10), 1); refreshList(); }));
     };
@@ -1095,11 +1095,11 @@ async function newProductFlow() {
       const { data: product } = await sb.from('products').select('*').eq('id', id).single();
       const countries = allCountries.filter(c => selectedCountries.includes(c.id));
       await createProductDriveStructure(product, countries);
-      toast(`📁 Structure Drive créée pour ${id}`, 'success');
+      toast(` Structure Drive créée pour ${id}`, 'success');
     } catch (e) {
       console.error('[CREATE DRIVE STRUCT]', e);
       const msg = extractGapiError(e);
-      toast('⚠ Produit créé mais Drive a échoué : ' + msg, 'warn', 8000);
+      toast(' Produit créé mais Drive a échoué : ' + msg, 'warn', 8000);
       // Log pour debug
       await logSync(`Erreur création structure Drive pour ${id} : ${msg}`, 'error');
     }
@@ -1110,7 +1110,7 @@ async function newProductFlow() {
     try {
       await uploadToProductFolder(id, concurrentFiles, CONCURRENT_FOLDER_NAME);
     } catch (e) {
-      toast('⚠ Erreur upload videos : ' + (e.message || 'inconnue'), 'warn', 6000);
+      toast(' Erreur upload videos : ' + (e.message || 'inconnue'), 'warn', 6000);
     }
   }
 
@@ -1148,7 +1148,7 @@ async function renderProduit(el, productId) {
     sb.from('countries').select('*').order('sort_order'),
     sb.from('ad_countries').select('*')
   ]);
-  if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Produit introuvable</div></div>'; return; }
+  if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div></div>'; return; }
   const countries = (product.enabled_countries && product.enabled_countries.length)
     ? countriesAll.filter(c => product.enabled_countries.includes(c.id))
     : countriesAll;
@@ -1182,7 +1182,7 @@ async function renderProduit(el, productId) {
       </div>
       ${canEdit() ? `
         <div class="flex gap-sm">
-          <button class="btn btn-secondary btn-sm" id="btn-edit-product">⚙️ Éditer</button>
+          <button class="btn btn-secondary btn-sm" id="btn-edit-product"> Éditer</button>
         </div>
       ` : ''}
     </div>
@@ -1205,15 +1205,15 @@ async function renderProduit(el, productId) {
       <div class="kpi-card">
         <div class="kpi-label">Marchés</div>
         <div class="kpi-value"><span style="color:var(--green)">${activeCount}</span><span style="color:var(--text-mute)">/${countries.length}</span></div>
-        <div class="kpi-sub">${cutCount > 0 ? `<span style="color:var(--red)">✂ ${cutCount} coupé${cutCount > 1 ? 's' : ''}</span> · ` : ''}${pct(totalTrad + totalMeta, totalActive * 2)}% progression</div>
+        <div class="kpi-sub">${cutCount > 0 ? `<span style="color:var(--red)"> ${cutCount} coupé${cutCount > 1 ? 's' : ''}</span> · ` : ''}${pct(totalTrad + totalMeta, totalActive * 2)}% progression</div>
       </div>
     </div>
 
     ${ads.length === 0 ? `
       <div class="empty">
-        <div class="empty-icon">🎬</div>
+        <div class="empty-icon"></div>
         <div class="empty-title">Aucune ad pour l'instant</div>
-        <div class="empty-text">Upload des videos dans <strong>"🎬 Masters (nettoyés)"</strong> ci-dessous — les ads seront créées automatiquement.</div>
+        <div class="empty-text">Upload des videos dans <strong>" Masters (nettoyés)"</strong> ci-dessous — les ads seront créées automatiquement.</div>
       </div>
     ` : `
       <div class="card" style="overflow-x:auto">
@@ -1240,7 +1240,7 @@ async function renderProduit(el, productId) {
               <tr>
                 <td class="ad-col">
                   ${escapeHtml(ad.name)}
-                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="Éditer Ad Copy">📝</span>
+                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="Éditer Ad Copy"></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                 </td>
                 ${countries.map(c => {
@@ -1248,10 +1248,10 @@ async function renderProduit(el, productId) {
                   const isCut = (product.cut_countries || []).includes(c.id);
                   if (!isCut) { rowTotal += 2; if (ac.trad) rowDone++; if (ac.meta) rowDone++; }
                   return `
-                    <td class="check-cell auto ${isCut ? 'cut' : ''}" title="${isCut ? '✂ Marché coupé' : 'Auto via Drive'}">
+                    <td class="check-cell auto ${isCut ? 'cut' : ''}" title="${isCut ? ' Marché coupé' : 'Auto via Drive'}">
                       <span class="check-icon ${ac.trad ? 'checked' : ''}"></span>
                     </td>
-                    <td class="check-cell ${canEdit() && !isCut ? '' : 'readonly'} ${isCut ? 'cut' : ''}" ${isCut ? '' : `data-toggle-meta="${ad.id}|${c.id}"`} title="${isCut ? '✂ Marché coupé — réactive-le pour éditer' : (canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule')}">
+                    <td class="check-cell ${canEdit() && !isCut ? '' : 'readonly'} ${isCut ? 'cut' : ''}" ${isCut ? '' : `data-toggle-meta="${ad.id}|${c.id}"`} title="${isCut ? ' Marché coupé — réactive-le pour éditer' : (canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule')}">
                       <span class="check-icon meta ${ac.meta ? 'checked' : ''}"></span>
                     </td>
                   `;
@@ -1290,11 +1290,11 @@ async function renderProduit(el, productId) {
   extraSections.innerHTML = `
     <div class="card">
       <div class="card-head">
-        <div class="card-title">📊 Statut des marchés</div>
+        <div class="card-title"> Statut des marchés</div>
         <div class="flex gap-sm text-sm" style="align-items:center">
           <span style="color:var(--green)">● ${activeCount} actif${activeCount > 1 ? 's' : ''}</span>
-          <span style="color:var(--red)">✂ ${cutCount} coupé${cutCount > 1 ? 's' : ''}</span>
-          ${driveState.connected && isAdmin() ? '<button class="btn btn-ghost btn-sm" id="btn-sync-colors" title="Synchroniser les couleurs des dossiers Drive selon le statut (vert=actif, rouge=coupé)">🎨 Sync couleurs</button>' : ''}
+          <span style="color:var(--red)"> ${cutCount} coupé${cutCount > 1 ? 's' : ''}</span>
+          ${driveState.connected && isAdmin() ? '<button class="btn btn-ghost btn-sm" id="btn-sync-colors" title="Synchroniser les couleurs des dossiers Drive selon le statut (vert=actif, rouge=coupé)"> Sync couleurs</button>' : ''}
         </div>
       </div>
       <div class="text-sm text-dim mb-md">Clique sur un marché pour le couper/réactiver. Les marchés coupés restent visibles dans le tableau (grisés) pour garder l'historique.</div>
@@ -1314,46 +1314,46 @@ async function renderProduit(el, productId) {
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">📤 Upload rapide</div>
-        <span class="text-sm text-dim">${driveState.connected ? 'Glisse des fichiers depuis ton PC' : '⚠ Connecte-toi à Drive d\'abord'}</span>
+        <div class="card-title"> Upload rapide</div>
+        <span class="text-sm text-dim">${driveState.connected ? 'Glisse des fichiers depuis ton PC' : ' Connecte-toi à Drive d\'abord'}</span>
       </div>
       <div class="grid-2">
         <div class="dropzone" data-upload-target="concurrent" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
-          <div style="font-size:24px;margin-bottom:8px">🎥</div>
+          <div style="font-size:24px;margin-bottom:8px"></div>
           <div style="font-weight:600;margin-bottom:4px">Videos concurrent</div>
           <div class="text-sm text-dim">Raw, avec sous-titres → <span class="mono">${CONCURRENT_FOLDER_NAME}/</span></div>
           <input type="file" multiple style="display:none" data-file-input="concurrent" accept="video/*,image/*">
         </div>
         <div class="dropzone" data-upload-target="master" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
-          <div style="font-size:24px;margin-bottom:8px">🎬</div>
+          <div style="font-size:24px;margin-bottom:8px"></div>
           <div style="font-weight:600;margin-bottom:4px">Masters (nettoyés)</div>
           <div class="text-sm text-dim">Sans sous-titres → <span class="mono">${MASTER_FOLDER_NAME}/</span></div>
           <input type="file" multiple style="display:none" data-file-input="master" accept="video/*,image/*">
         </div>
       </div>
-      ${!driveState.connected ? '<div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)">💡 Connecte-toi à Google Drive (sidebar ☁️) pour activer l\'upload auto.</div>' : ''}
+      ${!driveState.connected ? '<div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)"> Connecte-toi à Google Drive (sidebar ) pour activer l\'upload auto.</div>' : ''}
     </div>
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">📁 Config Drive</div>
+        <div class="card-title"> Config Drive</div>
       </div>
       <div class="grid-2">
         <div>
           <div class="text-sm text-dim" style="margin-bottom:4px">Dossier Drive du produit</div>
           <div class="mono text-sm" style="padding:10px;background:var(--bg-input);border-radius:6px;word-break:break-all;border:1px solid var(--border-soft)">
-            ${product.drive_folder_id ? escapeHtml(product.drive_folder_id) : '<span style="color:var(--text-mute)">Non configuré — clique ⚙️ Éditer pour ajouter l\'ID</span>'}
+            ${product.drive_folder_id ? escapeHtml(product.drive_folder_id) : '<span style="color:var(--text-mute)">Non configuré — clique  Éditer pour ajouter l\'ID</span>'}
           </div>
         </div>
         <div>
           <div class="text-sm text-dim" style="margin-bottom:4px">Structure attendue dans ce dossier</div>
           <div class="mono text-sm" style="padding:10px;background:var(--bg-input);border-radius:6px;line-height:1.7;border:1px solid var(--border-soft)">
-            📁 ${escapeHtml(product.id)}${product.name && product.name !== product.id ? ' — ' + escapeHtml(product.name) : ''}/<br>
-            &nbsp;&nbsp;📁 <span style="color:var(--gold)">00_Ads_Concurrent/</span> <span class="text-mute">(videos brutes)</span><br>
-            &nbsp;&nbsp;📁 <span style="color:var(--gold)">00_Master_Ads/</span> <span class="text-mute">(videos nettoyées)</span><br>
+             ${escapeHtml(product.id)}${product.name && product.name !== product.id ? ' — ' + escapeHtml(product.name) : ''}/<br>
+            &nbsp;&nbsp; <span style="color:var(--gold)">00_Ads_Concurrent/</span> <span class="text-mute">(videos brutes)</span><br>
+            &nbsp;&nbsp; <span style="color:var(--gold)">00_Master_Ads/</span> <span class="text-mute">(videos nettoyées)</span><br>
             ${countries.map(c => {
               const isCut = cutCountries.includes(c.id);
-              return `&nbsp;&nbsp;📁 <span style="color:${isCut ? 'var(--red)' : 'var(--gold)'};${isCut ? 'text-decoration:line-through' : ''}">${escapeHtml(c.id)}/</span> <span class="text-mute">(Ad 1.mp4, Ad 2.mp4, ...)</span>`;
+              return `&nbsp;&nbsp; <span style="color:${isCut ? 'var(--red)' : 'var(--gold)'};${isCut ? 'text-decoration:line-through' : ''}">${escapeHtml(c.id)}/</span> <span class="text-mute">(Ad 1.mp4, Ad 2.mp4, ...)</span>`;
             }).join('<br>')}
           </div>
         </div>
@@ -1430,7 +1430,7 @@ async function renderProduit(el, productId) {
       if (driveState.connected && product.drive_folder_id) {
         const ok = await syncOneCountryFolderColor({ ...product, drive_folder_id: product.drive_folder_id }, cId, isCutNow);
         if (ok) {
-          toast(`🎨 Couleur Drive ${cId} mise à jour`, 'success', 3000);
+          toast(` Couleur Drive ${cId} mise à jour`, 'success', 3000);
         }
       }
 
@@ -1481,30 +1481,30 @@ async function editProductFlow(productId) {
       <div class="input-hint">Récupère l'ID depuis l'URL Drive: drive.google.com/drive/folders/<strong>ID_ICI</strong></div>
     </div>
     <div class="input-group">
-      <label class="input-label">🌍 Marchés actifs pour ce produit</label>
+      <label class="input-label"> Marchés actifs pour ce produit</label>
       <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border)">
         ${countriesHtml}
       </div>
       <div class="input-hint">Décoche les pays où tu ne lances pas ce produit.</div>
     </div>
     <div class="input-group">
-      <label class="input-label">🏁 Pays Master (optionnel — référence interne)</label>
+      <label class="input-label"> Pays Master (optionnel — référence interne)</label>
       <select class="select" id="edit-master-country">
         ${masterSelectHtml}
       </select>
       <div class="input-hint">Indique juste quel pays sert de référence. Si tu coupes ce pays, il bascule automatiquement.</div>
     </div>
     <div class="input-group">
-      <label class="input-label">⚡ Priorité</label>
+      <label class="input-label"> Priorité</label>
       <select class="select" data-field="priority">
-        <option value="urgent" ${product.priority === 'urgent' ? 'selected' : ''}>🔴 URGENT</option>
-        <option value="high" ${product.priority === 'high' ? 'selected' : ''}>🟠 HAUTE</option>
-        <option value="normal" ${(!product.priority || product.priority === 'normal') ? 'selected' : ''}>🔵 NORMALE</option>
-        <option value="low" ${product.priority === 'low' ? 'selected' : ''}>⚪ BASSE</option>
+        <option value="urgent" ${product.priority === 'urgent' ? 'selected' : ''}> URGENT</option>
+        <option value="high" ${product.priority === 'high' ? 'selected' : ''}> HAUTE</option>
+        <option value="normal" ${(!product.priority || product.priority === 'normal') ? 'selected' : ''}> NORMALE</option>
+        <option value="low" ${product.priority === 'low' ? 'selected' : ''}> BASSE</option>
       </select>
     </div>
     <div class="input-group">
-      <label class="input-label">🔗 URL Concurrent (référence pour page builder)</label>
+      <label class="input-label"> URL Concurrent (référence pour page builder)</label>
       <input class="input" data-field="concurrentPageUrl" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://concurrent.com/products/...">
     </div>
     <div class="modal-actions">
@@ -1595,7 +1595,7 @@ async function addAdFlow(productId) {
    PAGE: USERS (admin only)
    ============================================================ */
 async function renderUsers(el) {
-  if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div><div class="empty-title">Accès réservé aux admins</div></div>'; return; }
+  if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Accès réservé aux admins</div></div>'; return; }
   const { data: profiles, error } = await sb.from('profiles').select('*').order('created_at');
   if (error) { el.innerHTML = `<div class="empty">Erreur: ${escapeHtml(error.message)}</div>`; return; }
 
@@ -1643,7 +1643,7 @@ async function renderUsers(el) {
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">💡 Comment inviter</div></div>
+      <div class="card-head"><div class="card-title"> Comment inviter</div></div>
       <div class="text-sm text-dim" style="line-height:1.7">
         1. Clique sur <strong>"+ Inviter un user"</strong><br>
         2. Entre son email + rôle<br>
@@ -1692,7 +1692,7 @@ async function inviteUserFlow() {
       <input class="input" data-field="full_name" placeholder="Prénom Nom">
     </div>
     <div class="input-group">
-      <label class="input-label">🏢 Workspace</label>
+      <label class="input-label"> Workspace</label>
       <select class="select" data-field="workspace_id">${wsOptions}</select>
       <div class="input-hint">Le user n'aura accès qu'aux données de ce workspace.</div>
     </div>
@@ -1707,7 +1707,7 @@ async function inviteUserFlow() {
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>📧 Envoyer l'invitation</button>
+      <button class="btn" data-modal-ok> Envoyer l'invitation</button>
     </div>
   `);
   if (!r || !r.email) return;
@@ -1732,7 +1732,7 @@ async function inviteUserFlow() {
       toast('Erreur : ' + (data.error || 'invitation échouée'), 'error', 6000);
       return;
     }
-    toast(`✅ Invitation envoyée à ${r.email}`, 'success', 5000);
+    toast(` Invitation envoyée à ${r.email}`, 'success', 5000);
     render();
   } catch (e) {
     console.error(e);
@@ -1744,7 +1744,7 @@ async function inviteUserFlow() {
    PAGE: SETTINGS (admin)
    ============================================================ */
 async function renderSettings(el) {
-  if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div><div class="empty-title">Admin only</div></div>'; return; }
+  if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Admin only</div></div>'; return; }
   const { data: countries } = await sb.from('countries').select('*').order('sort_order');
   const { data: products } = await sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).order('id');
   const { data: adsCount } = await sb.from('ads').select('product_id').eq('workspace_id', currentWorkspaceId);
@@ -1764,7 +1764,7 @@ async function renderSettings(el) {
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">🌍 Pays / Marchés</div>
+        <div class="card-title"> Pays / Marchés</div>
         <button class="btn btn-sm" id="btn-add-country">+ Ajouter un pays</button>
       </div>
       <div>
@@ -1781,7 +1781,7 @@ async function renderSettings(el) {
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">📦 Produits</div></div>
+      <div class="card-head"><div class="card-title"> Produits</div></div>
       ${products.length === 0 ? '<div class="empty"><div class="empty-text">Aucun produit créé</div></div>' : `
         <div>
           ${products.map(p => `
@@ -1799,7 +1799,7 @@ async function renderSettings(el) {
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">🛍️ Shops Shopify (OAuth)</div>
+        <div class="card-title"> Shops Shopify (OAuth)</div>
       </div>
       <div class="text-sm text-dim mb-md" style="line-height:1.6">
         Connecte chaque shop Shopify via OAuth. Les tokens sont stockés de manière sécurisée et utilisés pour la duplication de thèmes (Phase 3).
@@ -1815,14 +1815,14 @@ async function renderSettings(el) {
               <span class="text-dim" style="min-width:140px">${escapeHtml(c.name)}</span>
               ${isConnected ? `
                 <div style="flex:1">
-                  <div class="text-sm" style="color:var(--green);font-weight:600">✓ Connecté</div>
+                  <div class="text-sm" style="color:var(--green);font-weight:600"> Connecté</div>
                   <div class="mono text-sm text-dim" style="font-size:11px">${escapeHtml(conn.shop_domain)}</div>
                 </div>
                 <button class="btn btn-ghost btn-sm" data-disconnect-shopify="${c.id}" style="color:var(--red)">Déconnecter</button>
-                <button class="btn btn-secondary btn-sm" data-reconnect-shopify="${c.id}">🔄 Reconnecter</button>
+                <button class="btn btn-secondary btn-sm" data-reconnect-shopify="${c.id}"> Reconnecter</button>
               ` : `
                 <div style="flex:1;color:var(--text-mute)">Non connecté</div>
-                <button class="btn btn-sm" data-connect-shopify="${c.id}">🔗 Connecter</button>
+                <button class="btn btn-sm" data-connect-shopify="${c.id}"> Connecter</button>
               `}
             </div>
           `;
@@ -1831,19 +1831,19 @@ async function renderSettings(el) {
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">🛡️ Backups automatiques</div></div>
+      <div class="card-head"><div class="card-title"> Backups automatiques</div></div>
       <div class="text-sm text-dim mb-md" style="line-height:1.7">
         Supabase effectue des backups automatiques quotidiens (${isAdmin() ? '7 jours de rétention sur le plan free, 30 jours sur Pro' : 'voir plan'}).
         Pour restaurer : <a href="https://supabase.com/dashboard/project/pxzfjnsngtjzfqmahgaj/database/backups" target="_blank">Dashboard Supabase → Database → Backups</a>.
       </div>
       <div class="flex gap-sm">
-        <button class="btn btn-secondary" id="btn-export-json">📥 Exporter toutes les données (JSON)</button>
-        <a class="btn btn-secondary" href="https://supabase.com/dashboard/project/pxzfjnsngtjzfqmahgaj/database/backups" target="_blank">🔗 Ouvrir Supabase Backups</a>
+        <button class="btn btn-secondary" id="btn-export-json"> Exporter toutes les données (JSON)</button>
+        <a class="btn btn-secondary" href="https://supabase.com/dashboard/project/pxzfjnsngtjzfqmahgaj/database/backups" target="_blank"> Ouvrir Supabase Backups</a>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">ℹ️ Infos système</div></div>
+      <div class="card-head"><div class="card-title"> Infos système</div></div>
       <div class="text-sm" style="line-height:1.8">
         <div><strong>User connecté :</strong> ${escapeHtml(currentProfile.email)} (${currentProfile.role})</div>
         <div><strong>Supabase URL :</strong> <span class="mono text-dim">${SUPABASE_URL}</span></div>
@@ -1854,10 +1854,10 @@ async function renderSettings(el) {
     </div>
 
     <div class="card" style="border-color:rgba(248,113,113,0.3)">
-      <div class="card-head"><div class="card-title" style="color:var(--red)">⚠️ Zone danger</div></div>
+      <div class="card-head"><div class="card-title" style="color:var(--red)"> Zone danger</div></div>
       <div class="text-sm text-dim mb-md">Actions irréversibles. Réfléchis avant.</div>
       <div class="flex gap-sm">
-        <button class="btn btn-danger" id="btn-reset-all">🗑 Réinitialiser toutes les données</button>
+        <button class="btn btn-danger" id="btn-reset-all"> Réinitialiser toutes les données</button>
       </div>
       <div class="text-sm text-dim" style="margin-top:10px">Supprime tous les produits + ads + logs. Les pays et users restent.</div>
     </div>
@@ -1887,11 +1887,11 @@ async function connectShopifyFlow(countryId) {
 
   const credsSection = hasApp ? `
     <div style="background:var(--bg-input);border-left:3px solid var(--green);padding:10px 12px;border-radius:6px;margin-bottom:16px;font-size:12px">
-      ✅ App Dev Dashboard déjà configurée pour ${countryId}. Tu peux lancer directement l'OAuth.
+       App Dev Dashboard déjà configurée pour ${countryId}. Tu peux lancer directement l'OAuth.
     </div>
   ` : `
     <div style="background:var(--bg-input);border-left:3px solid var(--orange);padding:12px;border-radius:6px;margin-bottom:16px;font-size:12px;line-height:1.7">
-      <strong>⚠️ Première connexion pour ${countryId}</strong><br>
+      <strong> Première connexion pour ${countryId}</strong><br>
       Tu dois d'abord créer une app dans le <strong>Dev Dashboard Shopify</strong> de ce shop, puis coller ses identifiants ici.<br><br>
       <strong>Étapes</strong> :<br>
       1. Va dans l'admin du shop → <strong>Paramètres</strong> → <strong>Applications</strong> → <strong>Développer des applications dans le Dev Dashboard</strong><br>
@@ -1913,10 +1913,10 @@ async function connectShopifyFlow(countryId) {
   `;
 
   const r = await modal(`
-    <div class="modal-title">🔗 Connecter shop Shopify ${flagImg(countryId)}${countryId}</div>
+    <div class="modal-title"> Connecter shop Shopify ${flagImg(countryId)}${countryId}</div>
     ${credsSection}
     <div style="background:var(--bg-input);border-left:3px solid var(--blue);padding:10px 12px;border-radius:6px;margin-bottom:16px;font-size:12px">
-      <strong>💡 Shop domain</strong> = subdomain <span class="mono">.myshopify.com</span> (pas le domaine custom comme salvyne.de).<br>
+      <strong> Shop domain</strong> = subdomain <span class="mono">.myshopify.com</span> (pas le domaine custom comme salvyne.de).<br>
       Trouvé dans admin → Paramètres → Domaines.
     </div>
     <div class="input-group">
@@ -1926,7 +1926,7 @@ async function connectShopifyFlow(countryId) {
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>🔗 Lancer l'OAuth</button>
+      <button class="btn" data-modal-ok> Lancer l'OAuth</button>
     </div>
   `);
   if (!r || !r.shop) return;
@@ -1986,7 +1986,7 @@ function checkShopifyCallbackFlag() {
   if (hash.includes('shopify_connected=')) {
     const match = hash.match(/shopify_connected=([A-Z]{2,3})/);
     if (match) {
-      toast(`✅ Shop ${match[1]} connecté avec succès !`, 'success', 5000);
+      toast(` Shop ${match[1]} connecté avec succès !`, 'success', 5000);
       // Clean up URL
       const cleanHash = hash.replace(/[?&]shopify_connected=[A-Z]{2,3}/, '');
       window.location.hash = cleanHash;
@@ -2002,7 +2002,7 @@ async function addCountryFlow() {
     <div class="input-group">
       <label class="input-label">Code ISO (2 lettres)</label>
       <input class="input mono" data-field="id" placeholder="PL" maxlength="3" style="text-transform:uppercase">
-      <div class="input-hint">Ex: FR, DE, PL, PT, NL... Le drapeau est auto-détecté depuis ce code.<br>⚠️ Pour le Royaume-Uni, utilise <strong>UK</strong>.</div>
+      <div class="input-hint">Ex: FR, DE, PL, PT, NL... Le drapeau est auto-détecté depuis ce code.<br> Pour le Royaume-Uni, utilise <strong>UK</strong>.</div>
     </div>
     <div class="input-group">
       <label class="input-label">Nom complet</label>
@@ -2077,9 +2077,9 @@ async function deleteProductWithDriveOption(productId) {
         <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none">
           <input type="checkbox" data-field="deleteDrive" style="margin:4px 0 0 0;accent-color:var(--red);flex-shrink:0" ${driveState.connected ? '' : 'disabled'}>
           <div>
-            <div style="font-weight:600;color:var(--red)">🗑 Supprimer aussi le dossier Drive</div>
+            <div style="font-weight:600;color:var(--red)"> Supprimer aussi le dossier Drive</div>
             <div class="text-sm text-dim" style="margin-top:2px">Le dossier sera mis à la corbeille Drive (récupérable 30 jours)</div>
-            ${!driveState.connected ? '<div class="text-sm" style="color:var(--orange);margin-top:4px">⚠ Connecte-toi à Drive d\'abord</div>' : ''}
+            ${!driveState.connected ? '<div class="text-sm" style="color:var(--orange);margin-top:4px"> Connecte-toi à Drive d\'abord</div>' : ''}
           </div>
         </label>
       </div>
@@ -2102,11 +2102,11 @@ async function deleteProductWithDriveOption(productId) {
   if (deleteDrive && hasDriveFolder && driveState.connected) {
     try {
       await driveTrashFolder(product.drive_folder_id);
-      toast('🗑 Dossier Drive mis à la corbeille', 'success');
-      await logSync(`🗑 Dossier Drive de ${productId} mis à la corbeille`, 'info');
+      toast(' Dossier Drive mis à la corbeille', 'success');
+      await logSync(` Dossier Drive de ${productId} mis à la corbeille`, 'info');
     } catch (e) {
       console.error('[DELETE DRIVE]', e);
-      toast('⚠ DB supprimée mais erreur Drive : ' + extractGapiError(e), 'warn', 6000);
+      toast(' DB supprimée mais erreur Drive : ' + extractGapiError(e), 'warn', 6000);
     }
   }
 
@@ -2196,25 +2196,25 @@ async function renderAnalytics(el) {
 
     <div class="grid-2">
       <div class="card">
-        <div class="card-head"><div class="card-title">🚀 Lancements Meta par pays</div></div>
+        <div class="card-head"><div class="card-title"> Lancements Meta par pays</div></div>
         <div style="position:relative;height:280px"><canvas id="chart-meta"></canvas></div>
       </div>
       <div class="card">
-        <div class="card-head"><div class="card-title">🌐 Traductions par pays</div></div>
+        <div class="card-head"><div class="card-title"> Traductions par pays</div></div>
         <div style="position:relative;height:280px"><canvas id="chart-trad"></canvas></div>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">📦 Performance par produit</div></div>
-      ${products.length === 0 ? '<div class="empty"><div class="empty-icon">📊</div><div>Aucun produit à analyser</div></div>' : `
+      <div class="card-head"><div class="card-title"> Performance par produit</div></div>
+      ${products.length === 0 ? '<div class="empty"><div class="empty-icon"></div><div>Aucun produit à analyser</div></div>' : `
         <div style="position:relative;height:${Math.max(200, products.length * 40)}px"><canvas id="chart-prod"></canvas></div>
       `}
     </div>
 
     <div class="grid-2">
       <div class="card">
-        <div class="card-head"><div class="card-title">📊 Top pays (lancements Meta)</div></div>
+        <div class="card-head"><div class="card-title"> Top pays (lancements Meta)</div></div>
         ${(() => {
           const sorted = countries.map(c => ({ c, n: byCountry[c.id].meta })).sort((a,b) => b.n - a.n);
           return sorted.map((x, i) => `
@@ -2229,7 +2229,7 @@ async function renderAnalytics(el) {
         })()}
       </div>
       <div class="card">
-        <div class="card-head"><div class="card-title">🌍 Répartition globale</div></div>
+        <div class="card-head"><div class="card-title"> Répartition globale</div></div>
         <div style="position:relative;height:280px"><canvas id="chart-repart"></canvas></div>
       </div>
     </div>
@@ -2295,17 +2295,17 @@ function normalizeUrl(url) {
    ============================================================ */
 
 const PRIORITY_META = {
-  urgent: { label: 'URGENT',   emoji: '🔴', color: '#f87171', weight: 4 },
-  high:   { label: 'HAUTE',    emoji: '🟠', color: '#fb923c', weight: 3 },
-  normal: { label: 'NORMALE',  emoji: '🔵', color: '#60a5fa', weight: 2 },
-  low:    { label: 'BASSE',    emoji: '⚪', color: '#94a3b8', weight: 1 }
+  urgent: { label: 'URGENT',   emoji: '', color: '#f87171', weight: 4 },
+  high:   { label: 'HAUTE',    emoji: '', color: '#fb923c', weight: 3 },
+  normal: { label: 'NORMALE',  emoji: '', color: '#60a5fa', weight: 2 },
+  low:    { label: 'BASSE',    emoji: '', color: '#94a3b8', weight: 1 }
 };
 
 const STATUS_META = {
-  pending:  { label: 'À faire',   emoji: '⏸', color: 'var(--text-dim)' },
-  built:    { label: 'En review', emoji: '⏳', color: 'var(--orange)' },
-  approved: { label: 'Validée',   emoji: '✅', color: 'var(--green)' },
-  rejected: { label: 'Rejetée',   emoji: '❌', color: 'var(--red)' }
+  pending:  { label: 'À faire',   emoji: '', color: 'var(--text-dim)' },
+  built:    { label: 'En review', emoji: '', color: 'var(--orange)' },
+  approved: { label: 'Validée',   emoji: '', color: 'var(--green)' },
+  rejected: { label: 'Rejetée',   emoji: '', color: 'var(--red)' }
 };
 
 function priorityBadge(priority) {
@@ -2368,7 +2368,7 @@ async function renderPagesHome(el) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">🌍 Product Page</div>
+        <div class="page-title"> Product Page</div>
         <div class="page-subtitle">${globalStats.pending} à faire · ${globalStats.built} en review · ${globalStats.approved} validées · ${globalStats.rejected} rejetées</div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
@@ -2379,7 +2379,7 @@ async function renderPagesHome(el) {
 
     ${visibleRows.length === 0 ? `
       <div class="empty" style="padding:60px 20px">
-        <div class="empty-icon" style="font-size:48px">${productRows.length === 0 ? '🌍' : '🎉'}</div>
+        <div class="empty-icon" style="font-size:48px">${productRows.length === 0 ? '' : ''}</div>
         <div class="empty-title">${productRows.length === 0 ? 'Aucun produit' : 'Tout est validé !'}</div>
         <div class="empty-text">${productRows.length === 0 ? 'Crée un produit pour voir ses pages landing ici.' : 'Décoche le filtre pour voir les produits déjà finis.'}</div>
       </div>
@@ -2391,10 +2391,10 @@ async function renderPagesHome(el) {
           const concurrentUrl = p.concurrent_page_url ? normalizeUrl(p.concurrent_page_url) : null;
           // Mini-badges par statut (seulement si count > 0)
           const statusBadges = [
-            r.stats.pending  > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(138,138,154,0.12);color:var(--text-dim);font-weight:600">⏸ ${r.stats.pending}</span>` : '',
-            r.stats.built    > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(251,146,60,0.15);color:var(--orange);font-weight:600">⏳ ${r.stats.built}</span>` : '',
-            r.stats.approved > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(52,211,153,0.15);color:var(--green);font-weight:600">✅ ${r.stats.approved}</span>` : '',
-            r.stats.rejected > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(248,113,113,0.15);color:var(--red);font-weight:600">❌ ${r.stats.rejected}</span>` : ''
+            r.stats.pending  > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(138,138,154,0.12);color:var(--text-dim);font-weight:600"> ${r.stats.pending}</span>` : '',
+            r.stats.built    > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(251,146,60,0.15);color:var(--orange);font-weight:600"> ${r.stats.built}</span>` : '',
+            r.stats.approved > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(52,211,153,0.15);color:var(--green);font-weight:600"> ${r.stats.approved}</span>` : '',
+            r.stats.rejected > 0 ? `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:8px;font-size:11px;background:rgba(248,113,113,0.15);color:var(--red);font-weight:600"> ${r.stats.rejected}</span>` : ''
           ].filter(Boolean).join(' ');
 
           return `
@@ -2416,7 +2416,7 @@ async function renderPagesHome(el) {
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">${statusBadges}</div>
                 <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--text-dim)">
-                  ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:underline">🔗 Concurrent ↗</a>` : '<span style="color:var(--red)">⚠️ Pas d\'URL concurrent</span>'}
+                  ${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:underline"> Concurrent ↗</a>` : '<span style="color:var(--red)"> Pas d\'URL concurrent</span>'}
                   <span>${r.total} pays</span>
                 </div>
               </div>
@@ -2447,7 +2447,7 @@ async function renderPageProduct(el, productId) {
 
   if (!product) {
     el.innerHTML = `
-      <div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#pages">← Retour</a></div>
+      <div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#pages">← Retour</a></div>
     `;
     return;
   }
@@ -2476,13 +2476,13 @@ async function renderPageProduct(el, productId) {
         </div>
         <div class="page-subtitle">${active.length} pays · ${approvedCount}/${active.length} validées (${pagePct}%)</div>
       </div>
-      ${isAdmin() ? `<button class="btn btn-secondary btn-sm" id="btn-edit-product-page">⚙️ Éditer produit</button>` : ''}
+      ${isAdmin() ? `<button class="btn btn-secondary btn-sm" id="btn-edit-product-page"> Éditer produit</button>` : ''}
     </div>
 
     <!-- URL CONCURRENT (référence globale) -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-head">
-        <div class="card-title">🔗 URL Concurrent (référence pour copier)</div>
+        <div class="card-title"> URL Concurrent (référence pour copier)</div>
       </div>
       ${isAdmin() ? `
         <div style="display:flex;gap:8px;align-items:center">
@@ -2508,7 +2508,7 @@ async function renderPageProduct(el, productId) {
     <!-- PAGES PAR PAYS -->
     <div class="card">
       <div class="card-head">
-        <div class="card-title">🌍 Pages par pays</div>
+        <div class="card-title"> Pages par pays</div>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
         ${activeCountries.map(c => {
@@ -2540,18 +2540,18 @@ async function renderPageProduct(el, productId) {
 
               ${status === 'rejected' && pg.notes ? `
                 <div style="padding:10px;background:rgba(248,113,113,0.08);border-left:3px solid var(--red);border-radius:6px;margin-bottom:10px">
-                  <div style="font-weight:700;color:var(--red);font-size:11px;margin-bottom:4px">💬 FEEDBACK ADMIN</div>
+                  <div style="font-weight:700;color:var(--red);font-size:11px;margin-bottom:4px"> FEEDBACK ADMIN</div>
                   <div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${escapeHtml(pg.notes)}</div>
                 </div>
               ` : ''}
 
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
                 ${canEditPages() && status !== 'approved' ? `
-                  <button class="btn btn-sm" data-mark-built="${c.id}" style="background:var(--orange);color:#000">📤 Marquer "En review"</button>
+                  <button class="btn btn-sm" data-mark-built="${c.id}" style="background:var(--orange);color:#000"> Marquer "En review"</button>
                 ` : ''}
                 ${isAdmin() && status === 'built' ? `
-                  <button class="btn btn-sm" data-validate="${c.id}" style="background:var(--green);color:#000">✅ Valider</button>
-                  <button class="btn btn-sm btn-danger" data-reject="${c.id}">❌ Rejeter</button>
+                  <button class="btn btn-sm" data-validate="${c.id}" style="background:var(--green);color:#000"> Valider</button>
+                  <button class="btn btn-sm btn-danger" data-reject="${c.id}"> Rejeter</button>
                 ` : ''}
                 ${isAdmin() && status === 'approved' ? `
                   <button class="btn btn-sm btn-secondary" data-unvalidate="${c.id}">Retirer validation</button>
@@ -2592,7 +2592,7 @@ async function renderPageProduct(el, productId) {
       const url = input ? normalizeUrl(input.value) : null;
       if (!url) { toast('Entre d\'abord l\'URL de la page construite', 'error'); return; }
       await upsertPagePartial(productId, cId, { built_url: url, status: 'built' });
-      toast('📤 Page marquée en review', 'success');
+      toast(' Page marquée en review', 'success');
       render();
     });
   });
@@ -2607,7 +2607,7 @@ async function renderPageProduct(el, productId) {
         approved_at: new Date().toISOString(),
         notes: null
       });
-      toast('✅ Page validée', 'success');
+      toast(' Page validée', 'success');
       render();
     });
   });
@@ -2618,7 +2618,7 @@ async function renderPageProduct(el, productId) {
       const cId = btn.dataset.reject;
       const country = countriesAll.find(c => c.id === cId);
       const r = await modal(`
-        <div class="modal-title" style="color:var(--red)">❌ Rejeter ${escapeHtml(product.id)} / ${cId}</div>
+        <div class="modal-title" style="color:var(--red)"> Rejeter ${escapeHtml(product.id)} / ${cId}</div>
         <div class="text-sm text-dim mb-md">Explique ce qui ne va pas (obligatoire, le page builder va le lire) :</div>
         <div class="input-group">
           <textarea class="input" data-field="feedback" style="min-height:140px" autofocus placeholder="Ex: Le hero n'est pas aligné, la 2ème image est floue, le CTA est sous le fold..."></textarea>
@@ -2637,7 +2637,7 @@ async function renderPageProduct(el, productId) {
         approved_by: null,
         approved_at: null
       });
-      toast('❌ Page rejetée avec feedback', 'success');
+      toast(' Page rejetée avec feedback', 'success');
       render();
     });
   });
@@ -2769,7 +2769,7 @@ async function driveConnect(options = {}) {
           saveTokenToStorage(resp.access_token, resp.expires_in);
           if (!silent) {
             await logSync('Connecté à Google Drive', 'success');
-            toast('✅ Connecté à Drive', 'success');
+            toast(' Connecté à Drive', 'success');
           } else {
             await logSync('Reconnexion auto à Drive', 'info');
           }
@@ -2953,25 +2953,25 @@ function formatAdCopyAsHtml(adName, copy) {
   const nlToBr = (s) => esc(s).replace(/\n/g, '<br>');
   const sections = [];
 
-  sections.push(`<h1 style="font-family:Arial,sans-serif;color:#c8a55a">📝 ${esc(adName)} — Ad Copy</h1>`);
-  if (copy.url)         sections.push(`<p><strong>🔗 Source URL :</strong> <a href="${esc(copy.url)}">${esc(copy.url)}</a></p>`);
-  if (copy.headline)    sections.push(`<h2>📌 Headline</h2><p>${esc(copy.headline)}</p>`);
-  if (copy.primary)     sections.push(`<h2>📝 Primary text</h2><p>${nlToBr(copy.primary)}</p>`);
-  if (copy.description) sections.push(`<h2>📄 Description</h2><p>${esc(copy.description)}</p>`);
-  if (copy.cta)         sections.push(`<h2>🎯 CTA</h2><p>${esc(copy.cta)}</p>`);
+  sections.push(`<h1 style="font-family:Arial,sans-serif;color:#c8a55a"> ${esc(adName)} — Ad Copy</h1>`);
+  if (copy.url)         sections.push(`<p><strong> Source URL :</strong> <a href="${esc(copy.url)}">${esc(copy.url)}</a></p>`);
+  if (copy.headline)    sections.push(`<h2> Headline</h2><p>${esc(copy.headline)}</p>`);
+  if (copy.primary)     sections.push(`<h2> Primary text</h2><p>${nlToBr(copy.primary)}</p>`);
+  if (copy.description) sections.push(`<h2> Description</h2><p>${esc(copy.description)}</p>`);
+  if (copy.cta)         sections.push(`<h2> CTA</h2><p>${esc(copy.cta)}</p>`);
 
   const hasStats = copy.spend || copy.views || copy.runningSince || copy.score || copy.activeCountries;
   if (hasStats) {
-    sections.push(`<h2>📊 Stats</h2><ul>`);
-    if (copy.spend)           sections.push(`<li><strong>💰 Ad spend :</strong> ${esc(copy.spend)}</li>`);
-    if (copy.views)           sections.push(`<li><strong>👁️ Vues :</strong> ${esc(copy.views)}</li>`);
-    if (copy.runningSince)    sections.push(`<li><strong>📅 Running depuis :</strong> ${esc(copy.runningSince)}</li>`);
-    if (copy.score)           sections.push(`<li><strong>⭐ Score :</strong> ${esc(copy.score)}/10</li>`);
-    if (copy.activeCountries) sections.push(`<li><strong>🌍 Pays actifs :</strong> ${esc(copy.activeCountries)}</li>`);
+    sections.push(`<h2> Stats</h2><ul>`);
+    if (copy.spend)           sections.push(`<li><strong> Ad spend :</strong> ${esc(copy.spend)}</li>`);
+    if (copy.views)           sections.push(`<li><strong> Vues :</strong> ${esc(copy.views)}</li>`);
+    if (copy.runningSince)    sections.push(`<li><strong> Running depuis :</strong> ${esc(copy.runningSince)}</li>`);
+    if (copy.score)           sections.push(`<li><strong> Score :</strong> ${esc(copy.score)}/10</li>`);
+    if (copy.activeCountries) sections.push(`<li><strong> Pays actifs :</strong> ${esc(copy.activeCountries)}</li>`);
     sections.push(`</ul>`);
   }
 
-  if (copy.notes) sections.push(`<h2>💬 Notes perso</h2><p>${nlToBr(copy.notes)}</p>`);
+  if (copy.notes) sections.push(`<h2> Notes perso</h2><p>${nlToBr(copy.notes)}</p>`);
   sections.push(`<hr><p style="font-size:11px;color:#888">Dernière mise à jour : ${new Date().toLocaleString('fr-FR')} · Synchronisé depuis keycorp-ecom.com</p>`);
 
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;line-height:1.6">${sections.join('\n')}</body></html>`;
@@ -3036,7 +3036,7 @@ async function syncOneCountryFolderColor(product, countryId, isCut) {
   }
 }
 
-// Synchronise TOUS les dossiers pays d'un produit (utilisé par le bouton "🎨 Sync couleurs")
+// Synchronise TOUS les dossiers pays d'un produit (utilisé par le bouton " Sync couleurs")
 async function syncProductFolderColors(product, countries) {
   if (!driveState.connected || !driveState.accessToken) {
     toast('Connecte-toi à Drive d\'abord', 'warn');
@@ -3049,7 +3049,7 @@ async function syncProductFolderColors(product, countries) {
   const cuts = product.cut_countries || [];
   const enabled = (product.enabled_countries?.length ? product.enabled_countries : countries.map(c => c.id));
 
-  toast('🎨 Synchronisation des couleurs...', 'info');
+  toast(' Synchronisation des couleurs...', 'info');
   let updated = 0, errors = 0, missing = 0;
   for (const cId of enabled) {
     try {
@@ -3066,7 +3066,7 @@ async function syncProductFolderColors(product, countries) {
   const parts = [`${updated} colorisé(s)`];
   if (missing > 0) parts.push(`${missing} dossier(s) introuvables`);
   if (errors > 0) parts.push(`${errors} erreur(s)`);
-  toast(`🎨 ${parts.join(', ')}`, errors > 0 ? 'warn' : 'success', 5000);
+  toast(` ${parts.join(', ')}`, errors > 0 ? 'warn' : 'success', 5000);
 }
 
 function fmtBytes(n) {
@@ -3132,7 +3132,7 @@ async function createProductDriveStructure(product, countries) {
   }
   // Update product with folder id
   await sb.from('products').update({ drive_folder_id: productFolder.id }).eq('id', product.id);
-  await logSync(`✅ Structure Drive créée : ${folderName}`, 'success');
+  await logSync(` Structure Drive créée : ${folderName}`, 'success');
   return productFolder.id;
 }
 
@@ -3178,12 +3178,12 @@ async function uploadFilesWithProgressUI(files, parentId, options = {}) {
       });
       barEl.style.width = '100%';
       barEl.style.background = 'var(--green)';
-      statusEl.textContent = '✅ OK';
+      statusEl.textContent = ' OK';
       statusEl.style.color = 'var(--green)';
       results.push({ ok: true, file: r, item });
     } catch (e) {
       barEl.style.background = 'var(--red)';
-      statusEl.textContent = '❌ ' + (e.message || 'Erreur');
+      statusEl.textContent = ' ' + (e.message || 'Erreur');
       statusEl.style.color = 'var(--red)';
       results.push({ ok: false, error: e.message, item });
     }
@@ -3266,13 +3266,13 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
 
   // Bloquer si erreurs
   if (errors.length > 0) {
-    const errorsHtml = errors.map(e => `<div style="padding:10px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)">❌ ${escapeHtml(e.file)}</strong><br><span class="text-dim">${escapeHtml(e.reason)}</span></div>`).join('');
+    const errorsHtml = errors.map(e => `<div style="padding:10px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px;margin-bottom:8px;font-size:12px"><strong style="color:var(--red)"> ${escapeHtml(e.file)}</strong><br><span class="text-dim">${escapeHtml(e.reason)}</span></div>`).join('');
     await modal(`
-      <div class="modal-title" style="color:var(--red)">⚠️ ${errors.length} fichier(s) refusé(s)</div>
+      <div class="modal-title" style="color:var(--red)"> ${errors.length} fichier(s) refusé(s)</div>
       <div class="text-sm text-dim mb-md">Les fichiers suivants ne peuvent pas être uploadés :</div>
       ${errorsHtml}
       <div class="text-sm" style="margin-top:14px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue);line-height:1.6">
-        💡 <strong>Règles de nommage pour ${escapeHtml(targetFolderName)} :</strong><br>
+         <strong>Règles de nommage pour ${escapeHtml(targetFolderName)} :</strong><br>
         • Le nom doit contenir <span class="mono">Ad X</span> (ex: <span class="mono">Ad 3.mp4</span>, <span class="mono">Ad 3 clean.mov</span>)<br>
         • Le numéro doit correspondre à une ad concurrent existante<br>
         • Si Ad X existe déjà, supprime d'abord l'ancienne version sur Drive
@@ -3331,7 +3331,7 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     for (const u of adsToUpdate) {
       await sb.from('ads').update({ concurrent_file_id: u.concurrent_file_id }).eq('id', u.id);
     }
-    if (createdCount > 0) await logSync(`🎥 ${product.id} : ${createdCount} ad(s) créée(s) depuis Concurrent`, 'success');
+    if (createdCount > 0) await logSync(` ${product.id} : ${createdCount} ad(s) créée(s) depuis Concurrent`, 'success');
   }
 
   // Si upload dans 00_Master_Ads → créer/lier les ads dans la DB
@@ -3374,20 +3374,20 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
       await sb.from('ads').update({ master_file_id: u.master_file_id }).eq('id', u.id);
       updatedCount++;
     }
-    if (createdCount > 0) await logSync(`🎬 ${product.id} : ${createdCount} ad(s) auto-créée(s)`, 'success');
-    if (updatedCount > 0) await logSync(`🔄 ${product.id} : ${updatedCount} ad(s) re-liée(s)`, 'info');
+    if (createdCount > 0) await logSync(` ${product.id} : ${createdCount} ad(s) auto-créée(s)`, 'success');
+    if (updatedCount > 0) await logSync(` ${product.id} : ${updatedCount} ad(s) re-liée(s)`, 'info');
   }
 
   if (okCount === 0 && items.length > 0) {
     const firstError = koResults[0]?.error || 'inconnue';
-    await logSync(`❌ ${product.id} : TOUS les uploads ont échoué dans ${targetFolderName}. Erreur : ${firstError}`, 'error');
-    toast(`❌ 0/${items.length} uploadé. Erreur : ${firstError}`, 'error', 8000);
+    await logSync(` ${product.id} : TOUS les uploads ont échoué dans ${targetFolderName}. Erreur : ${firstError}`, 'error');
+    toast(` 0/${items.length} uploadé. Erreur : ${firstError}`, 'error', 8000);
   } else if (okCount < items.length) {
-    await logSync(`⚠ ${product.id} : ${okCount}/${items.length} uploadés dans ${targetFolderName}`, 'warn');
-    toast(`⚠ ${okCount}/${items.length} uploadé(s) — ${koResults.length} ont échoué`, 'warn', 6000);
+    await logSync(` ${product.id} : ${okCount}/${items.length} uploadés dans ${targetFolderName}`, 'warn');
+    toast(` ${okCount}/${items.length} uploadé(s) — ${koResults.length} ont échoué`, 'warn', 6000);
   } else {
-    await logSync(`📹 ${product.id} : ${okCount} fichier(s) uploadé(s) dans ${targetFolderName}`, 'success');
-    toast(`✅ ${okCount} fichier(s) uploadé(s)`, 'success');
+    await logSync(` ${product.id} : ${okCount} fichier(s) uploadé(s) dans ${targetFolderName}`, 'success');
+    toast(` ${okCount} fichier(s) uploadé(s)`, 'success');
   }
   return results;
 }
@@ -3415,12 +3415,12 @@ async function syncDriveAll() {
   if (!driveState.connected) { toast('Pas connecté à Drive', 'error'); return; }
   isSyncing = true;
   const btn = document.getElementById('btn-sync-now');
-  if (btn) { btn.disabled = true; btn.textContent = '🔄 Sync en cours...'; }
+  if (btn) { btn.disabled = true; btn.textContent = ' Sync en cours...'; }
   const watchdog = setTimeout(() => {
     isSyncing = false;
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync maintenant'; }
+    if (btn) { btn.disabled = false; btn.textContent = ' Sync maintenant'; }
     logSync('Watchdog: sync forcée à se terminer', 'error');
-    toast('⚠ Sync timeout (60s)', 'warn');
+    toast(' Sync timeout (60s)', 'warn');
   }, 60000);
 
   let totalFound = 0, totalNew = 0;
@@ -3439,14 +3439,14 @@ async function syncDriveAll() {
     }
     await sb.from('drive_config').update({ updated_at: new Date().toISOString() }).eq('workspace_id', currentWorkspaceId);
     await logSync(`Sync globale : ${totalFound} fichiers scannés, ${totalNew} traduction(s)`, 'success');
-    toast(`✅ Sync OK — ${totalNew} nouveau(x)`, 'success');
+    toast(` Sync OK — ${totalNew} nouveau(x)`, 'success');
   } catch (e) {
     await logSync('Erreur sync : ' + extractGapiError(e), 'error');
     toast('Erreur : ' + extractGapiError(e), 'error');
   } finally {
     clearTimeout(watchdog);
     isSyncing = false;
-    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync maintenant'; }
+    if (btn) { btn.disabled = false; btn.textContent = ' Sync maintenant'; }
     render();
   }
 }
@@ -3481,7 +3481,7 @@ async function syncDriveProduit(p, adsAll) {
         const acToInsert = [];
         inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId })));
         await sb.from('ad_countries').insert(acToInsert);
-        await logSync(`🎬 ${p.id} : ${inserted.length} ad(s) auto-créée(s) depuis Masters`, 'success');
+        await logSync(` ${p.id} : ${inserted.length} ad(s) auto-créée(s) depuis Masters`, 'success');
         // Recharge les ads locales
         pAds = [...pAds, ...inserted];
         found += inserted.length;
@@ -3511,7 +3511,7 @@ async function syncDriveProduit(p, adsAll) {
           await sb.from('ad_countries').insert({ ad_id: ad.id, country_id: country.id, trad: true, trad_at: now, drive_file_id: file.id, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
         }
         marked++;
-        await logSync(`✅ ${p.id} / ${country.id} / ${adName} marqué traduit`, 'success');
+        await logSync(` ${p.id} / ${country.id} / ${adName} marqué traduit`, 'success');
       }
     }
   }
@@ -3552,7 +3552,7 @@ async function renderDrive(el) {
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">🔐 Authentification Google</div></div>
+      <div class="card-head"><div class="card-title"> Authentification Google</div></div>
       <div class="input-group">
         <label class="input-label">Client ID OAuth2</label>
         <input class="input mono" id="drive-client-id" value="${escapeHtml(cfg?.client_id || '')}" ${!isAdmin() ? 'disabled' : ''} placeholder="XXXXX-xxxxx.apps.googleusercontent.com">
@@ -3565,14 +3565,14 @@ async function renderDrive(el) {
       <div class="flex gap-sm mt-md">
         ${isAdmin() ? '<button class="btn btn-secondary" id="btn-save-drive-config">Enregistrer config</button>' : ''}
         ${driveState.connected ? `
-          <button class="btn" style="background:var(--green)" disabled>✓ Connecté</button>
+          <button class="btn" style="background:var(--green)" disabled> Connecté</button>
           <button class="btn btn-ghost" id="btn-drive-disconnect">Déconnecter</button>
         ` : `<button class="btn" id="btn-drive-connect">Se connecter à Drive</button>`}
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><div class="card-title">📁 Dossier racine</div></div>
+      <div class="card-head"><div class="card-title"> Dossier racine</div></div>
       <div class="input-group">
         <label class="input-label">ID du dossier racine Drive</label>
         <input class="input mono" id="drive-root-folder" value="${escapeHtml(cfg?.root_folder_id || '')}" ${!isAdmin() ? 'disabled' : ''} placeholder="1ABCxyz...">
@@ -3583,10 +3583,10 @@ async function renderDrive(el) {
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">🔄 Synchronisation</div>
+        <div class="card-title"> Synchronisation</div>
         <div class="flex gap-sm">
           <span class="text-sm text-dim">Dernière sync : ${lastSyncStr}</span>
-          <button class="btn" id="btn-sync-now" ${!driveState.connected ? 'disabled' : ''}>🔄 Sync maintenant</button>
+          <button class="btn" id="btn-sync-now" ${!driveState.connected ? 'disabled' : ''}> Sync maintenant</button>
         </div>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:12px">
@@ -3607,7 +3607,7 @@ async function renderDrive(el) {
 
     <div class="card">
       <div class="card-head">
-        <div class="card-title">📜 Journal de synchronisation</div>
+        <div class="card-title"> Journal de synchronisation</div>
         ${isAdmin() ? '<button class="btn btn-ghost btn-sm" id="btn-clear-log">Vider</button>' : ''}
       </div>
       ${(logs || []).length === 0 ? '<div class="empty"><div class="empty-text">Aucun événement</div></div>' : `
@@ -3688,17 +3688,17 @@ async function openCmdk() {
   let items = [];
 
   const pages = [
-    { type: 'page', icon: '📊', title: 'Dashboard', route: 'dashboard' },
-    { type: 'page', icon: '📺', title: 'Ads', route: 'ads' },
-    { type: 'page', icon: '📦', title: 'Produits', route: 'produits' },
-    { type: 'page', icon: '📈', title: 'Analytics', route: 'analytics' },
-    { type: 'page', icon: '🌍', title: 'Product Page', route: 'pages' },
-    { type: 'page', icon: '🛟', title: 'SAV (externe)', externalUrl: 'https://www.keycorp-ecom.com/sav' },
-    { type: 'page', icon: '💰', title: 'P&L (externe)', externalUrl: 'https://www.keycorp-ecom.com/hub' }
+    { type: 'page', icon: '', title: 'Dashboard', route: 'dashboard' },
+    { type: 'page', icon: '', title: 'Ads', route: 'ads' },
+    { type: 'page', icon: '', title: 'Produits', route: 'produits' },
+    { type: 'page', icon: '', title: 'Analytics', route: 'analytics' },
+    { type: 'page', icon: '', title: 'Product Page', route: 'pages' },
+    { type: 'page', icon: '', title: 'SAV (externe)', externalUrl: 'https://www.keycorp-ecom.com/sav' },
+    { type: 'page', icon: '', title: 'P&L (externe)', externalUrl: 'https://www.keycorp-ecom.com/hub' }
   ];
   if (isAdmin()) {
-    pages.push({ type: 'page', icon: '👥', title: 'Utilisateurs', route: 'users' });
-    pages.push({ type: 'page', icon: '⚙️', title: 'Paramètres', route: 'parametres' });
+    pages.push({ type: 'page', icon: '', title: 'Utilisateurs', route: 'users' });
+    pages.push({ type: 'page', icon: '', title: 'Paramètres', route: 'parametres' });
   }
 
   function renderResults() {
@@ -3723,7 +3723,7 @@ async function openCmdk() {
       html += `<div class="cmdk-group-label">Produits</div>`;
       matchedProducts.forEach(p => {
         items.push({ action: () => navigate('produit/' + p.id) });
-        html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon">📦</span><span class="cmdk-item-main"><strong class="mono">${escapeHtml(p.id)}</strong> ${escapeHtml(p.name || '')}</span></div>`;
+        html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon"></span><span class="cmdk-item-main"><strong class="mono">${escapeHtml(p.id)}</strong> ${escapeHtml(p.name || '')}</span></div>`;
       });
     }
     if (matchedAds.length) {
@@ -3731,7 +3731,7 @@ async function openCmdk() {
       matchedAds.forEach(a => {
         const prod = products.find(p => p.id === a.product_id);
         items.push({ action: () => navigate('produit/' + a.product_id) });
-        html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon">🎬</span><span class="cmdk-item-main">${escapeHtml(a.name)} <span class="cmdk-item-sub">→ ${escapeHtml(prod?.id || '')}</span></span></div>`;
+        html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon"></span><span class="cmdk-item-main">${escapeHtml(a.name)} <span class="cmdk-item-sub">→ ${escapeHtml(prod?.id || '')}</span></span></div>`;
       });
     }
     if (!items.length) html = '<div style="padding:30px;text-align:center;color:var(--text-mute);font-size:13px">Aucun résultat</div>';
@@ -3781,15 +3781,15 @@ document.addEventListener('keydown', (e) => {
 function detectLinkSource(url) {
   if (!url) return null;
   const host = (url.match(/^https?:\/\/([^\/]+)/) || [])[1] || '';
-  if (/afterlib/i.test(host)) return { icon: '🧪', name: 'AfterLib' };
-  if (/facebook|fb\.com/i.test(host)) return { icon: '📘', name: 'Facebook' };
-  if (/tiktok/i.test(host)) return { icon: '🎵', name: 'TikTok' };
-  if (/youtube|youtu\.be/i.test(host)) return { icon: '▶️', name: 'YouTube' };
-  if (/trendtrack/i.test(host)) return { icon: '📈', name: 'TrendTrack' };
-  if (/minea/i.test(host)) return { icon: '🔎', name: 'Minea' };
-  if (/adheart/i.test(host)) return { icon: '❤️', name: 'AdHeart' };
-  if (/bigspy|adspy/i.test(host)) return { icon: '🕵️', name: 'AdSpy' };
-  return { icon: '🔗', name: host };
+  if (/afterlib/i.test(host)) return { icon: '', name: 'AfterLib' };
+  if (/facebook|fb\.com/i.test(host)) return { icon: '', name: 'Facebook' };
+  if (/tiktok/i.test(host)) return { icon: '', name: 'TikTok' };
+  if (/youtube|youtu\.be/i.test(host)) return { icon: '▶', name: 'YouTube' };
+  if (/trendtrack/i.test(host)) return { icon: '', name: 'TrendTrack' };
+  if (/minea/i.test(host)) return { icon: '', name: 'Minea' };
+  if (/adheart/i.test(host)) return { icon: '', name: 'AdHeart' };
+  if (/bigspy|adspy/i.test(host)) return { icon: '', name: 'AdSpy' };
+  return { icon: '', name: host };
 }
 
 async function editAdCopyFlow(adId) {
@@ -3797,59 +3797,59 @@ async function editAdCopyFlow(adId) {
   if (!ad) return;
   const copy = ad.ad_copy || {};
   const r = await modal(`
-    <div class="modal-title">📝 Ad Copy — ${escapeHtml(ad.name)}</div>
+    <div class="modal-title"> Ad Copy — ${escapeHtml(ad.name)}</div>
     <div class="input-group">
-      <label class="input-label">🔗 Lien source (AfterLib, FB, TikTok...)</label>
+      <label class="input-label"> Lien source (AfterLib, FB, TikTok...)</label>
       <input class="input" data-field="url" value="${escapeHtml(copy.url || '')}" placeholder="https://...">
     </div>
     <div class="input-group">
-      <label class="input-label">📌 Headline (titre de l'ad)</label>
+      <label class="input-label"> Headline (titre de l'ad)</label>
       <input class="input" data-field="headline" value="${escapeHtml(copy.headline || '')}">
     </div>
     <div class="input-group">
-      <label class="input-label">📝 Primary text (corps du texte)</label>
+      <label class="input-label"> Primary text (corps du texte)</label>
       <textarea class="input" data-field="primary" style="min-height:100px">${escapeHtml(copy.primary || '')}</textarea>
     </div>
     <div class="input-group">
-      <label class="input-label">📄 Description</label>
+      <label class="input-label"> Description</label>
       <input class="input" data-field="description" value="${escapeHtml(copy.description || '')}">
     </div>
     <div class="input-group">
-      <label class="input-label">🎯 CTA (call to action)</label>
+      <label class="input-label"> CTA (call to action)</label>
       <input class="input" data-field="cta" value="${escapeHtml(copy.cta || '')}" placeholder="Acheter, En savoir plus, ...">
     </div>
     <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border-soft)">
-      <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">📊 Stats (Denote/AfterLib — optionnel)</div>
+      <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px"> Stats (Denote/AfterLib — optionnel)</div>
       <div class="grid-2">
         <div class="input-group">
-          <label class="input-label">💰 Ad spend estimé</label>
+          <label class="input-label"> Ad spend estimé</label>
           <input class="input" data-field="spend" value="${escapeHtml(copy.spend || '')}" placeholder="$5K-$10K">
         </div>
         <div class="input-group">
-          <label class="input-label">👁️ Vues totales</label>
+          <label class="input-label"> Vues totales</label>
           <input class="input" data-field="views" value="${escapeHtml(copy.views || '')}" placeholder="1.2M">
         </div>
         <div class="input-group">
-          <label class="input-label">📅 Running depuis</label>
+          <label class="input-label"> Running depuis</label>
           <input class="input" data-field="runningSince" value="${escapeHtml(copy.runningSince || '')}" placeholder="45 jours">
         </div>
         <div class="input-group">
-          <label class="input-label">⭐ Score perso (1-10)</label>
+          <label class="input-label"> Score perso (1-10)</label>
           <input class="input" type="number" min="1" max="10" data-field="score" value="${escapeHtml(copy.score || '')}">
         </div>
       </div>
       <div class="input-group">
-        <label class="input-label">🌍 Pays actifs</label>
+        <label class="input-label"> Pays actifs</label>
         <input class="input" data-field="activeCountries" value="${escapeHtml(copy.activeCountries || '')}" placeholder="US, FR, UK">
       </div>
       <div class="input-group">
-        <label class="input-label">💬 Notes perso</label>
+        <label class="input-label"> Notes perso</label>
         <textarea class="input" data-field="notes" style="min-height:60px">${escapeHtml(copy.notes || '')}</textarea>
       </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn btn-danger" data-clear-copy>🗑 Tout vider</button>
+      <button class="btn btn-danger" data-clear-copy> Tout vider</button>
       <button class="btn" data-modal-ok>Enregistrer</button>
     </div>
   `);
@@ -3900,7 +3900,7 @@ async function editAdCopyFlow(adId) {
   if (driveState.connected) {
     const driveRes = await syncAdCopyToDrive(adId);
     if (driveRes.ok) {
-      toast(`📄 Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
+      toast(` Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
     } else if (driveRes.skipped) {
       const reasons = {
         not_connected: 'Drive non connecté',
@@ -3909,9 +3909,9 @@ async function editAdCopyFlow(adId) {
         concurrent_folder_missing: 'Dossier 00_Ads_Concurrent manquant'
       };
       console.warn('[AD COPY DRIVE SKIP]', driveRes.reason);
-      toast(`ℹ️ Drive non synchronisé : ${reasons[driveRes.reason] || driveRes.reason}`, 'info', 5000);
+      toast(` Drive non synchronisé : ${reasons[driveRes.reason] || driveRes.reason}`, 'info', 5000);
     } else {
-      toast(`⚠️ Erreur sync Drive : ${driveRes.error}`, 'warn', 6000);
+      toast(` Erreur sync Drive : ${driveRes.error}`, 'warn', 6000);
     }
   }
 
@@ -4027,9 +4027,9 @@ function setupMetaDragSelect(container) {
     bar.className = 'batch-action-bar';
     bar.innerHTML = `
       <div class="bab-count"><strong>${cells.length}</strong> case${cells.length > 1 ? 's' : ''} Meta sélectionnée${cells.length > 1 ? 's' : ''}</div>
-      <button class="bab-check">✅ Tout cocher</button>
-      <button class="bab-uncheck">❌ Tout décocher</button>
-      <button>✂️ Inverser</button>
+      <button class="bab-check"> Tout cocher</button>
+      <button class="bab-uncheck"> Tout décocher</button>
+      <button> Inverser</button>
       <button class="bab-cancel">Annuler</button>
     `;
     document.body.appendChild(bar);
@@ -4122,7 +4122,7 @@ async function toggleMetaCell(adId, cId) {
 
 async function promptSetPasswordAfterInvite(user) {
   const r = await modal(`
-    <div class="modal-title">🎉 Bienvenue sur Key Corp !</div>
+    <div class="modal-title"> Bienvenue sur Key Corp !</div>
     <div class="text-sm text-dim mb-md">Pour finaliser ton inscription (${escapeHtml(user.email)}), crée ton mot de passe :</div>
     <div class="input-group">
       <label class="input-label">Nouveau mot de passe</label>
@@ -4140,7 +4140,7 @@ async function promptSetPasswordAfterInvite(user) {
   if (r.pwd1 !== r.pwd2) { toast('Les mots de passe ne correspondent pas', 'error'); return promptSetPasswordAfterInvite(user); }
   const { error } = await sb.auth.updateUser({ password: r.pwd1 });
   if (error) { toast('Erreur : ' + error.message, 'error'); return promptSetPasswordAfterInvite(user); }
-  toast('✅ Compte activé, bienvenue !', 'success', 5000);
+  toast(' Compte activé, bienvenue !', 'success', 5000);
 }
 </script>
 </body>
