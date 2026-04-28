@@ -663,11 +663,13 @@ window.addEventListener('hashchange', render);
    DATA HELPERS
    ============================================================ */
 async function fetchAll() {
+  // ⚠️ Filtre explicite par workspace courant (RLS ne suffit pas si user dans plusieurs workspaces)
+  const wsId = currentWorkspaceId;
   const [countriesR, productsR, adsR, adCountriesR] = await Promise.all([
     sb.from('countries').select('*').order('sort_order'),
-    sb.from('products').select('*').order('id'),
-    sb.from('ads').select('*').order('position'),
-    sb.from('ad_countries').select('*')
+    sb.from('products').select('*').eq('workspace_id', wsId).order('id'),
+    sb.from('ads').select('*').eq('workspace_id', wsId).order('position'),
+    sb.from('ad_countries').select('*').eq('workspace_id', wsId)
   ]);
   return {
     countries: countriesR.data || [],
@@ -846,7 +848,7 @@ async function renderAds(el) {
 
 async function renderProduits(el) {
   const { countries, products, ads, adCountries } = await fetchAll();
-  const { data: pagesAll } = await sb.from('product_pages').select('product_id, country_id, status');
+  const { data: pagesAll } = await sb.from('product_pages').select('product_id, country_id, status').eq('workspace_id', currentWorkspaceId);
   const adsByProduct = {};
   products.forEach(p => adsByProduct[p.id] = ads.filter(a => a.product_id === p.id));
   const acByAd = {};
@@ -1743,8 +1745,8 @@ async function inviteUserFlow() {
 async function renderSettings(el) {
   if (!isAdmin()) { el.innerHTML = '<div class="empty"><div class="empty-icon">🔒</div><div class="empty-title">Admin only</div></div>'; return; }
   const { data: countries } = await sb.from('countries').select('*').order('sort_order');
-  const { data: products } = await sb.from('products').select('*').order('id');
-  const { data: adsCount } = await sb.from('ads').select('product_id');
+  const { data: products } = await sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).order('id');
+  const { data: adsCount } = await sb.from('ads').select('product_id').eq('workspace_id', currentWorkspaceId);
   const { data: shopifyConns } = await sb.from('shopify_connections').select('*');
   const connsByCountry = {};
   (shopifyConns || []).forEach(c => { connsByCountry[c.country_id] = c; });
@@ -2112,9 +2114,9 @@ async function deleteProductWithDriveOption(productId) {
 
 async function exportAllData() {
   const { data: countries } = await sb.from('countries').select('*');
-  const { data: products } = await sb.from('products').select('*');
-  const { data: ads } = await sb.from('ads').select('*');
-  const { data: adCountries } = await sb.from('ad_countries').select('*');
+  const { data: products } = await sb.from('products').select('*').eq('workspace_id', currentWorkspaceId);
+  const { data: ads } = await sb.from('ads').select('*').eq('workspace_id', currentWorkspaceId);
+  const { data: adCountries } = await sb.from('ad_countries').select('*').eq('workspace_id', currentWorkspaceId);
   const { data: profiles } = await sb.from('profiles').select('*');
   const exportData = { exported_at: new Date().toISOString(), countries, products, ads, adCountries, profiles };
   const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
@@ -2317,9 +2319,9 @@ function pageStatusBadge(status) {
 
 async function renderPagesHome(el) {
   const [{ data: products }, { data: countriesAll }, { data: pages }] = await Promise.all([
-    sb.from('products').select('*').order('created_at', { ascending: false }),
+    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).order('created_at', { ascending: false }),
     sb.from('countries').select('*').order('sort_order'),
-    sb.from('product_pages').select('*')
+    sb.from('product_pages').select('*').eq('workspace_id', currentWorkspaceId)
   ]);
 
   const pagesByKey = {};
@@ -3422,8 +3424,8 @@ async function syncDriveAll() {
 
   let totalFound = 0, totalNew = 0;
   try {
-    const { data: products } = await sb.from('products').select('*');
-    const { data: adsAll } = await sb.from('ads').select('*');
+    const { data: products } = await sb.from('products').select('*').eq('workspace_id', currentWorkspaceId);
+    const { data: adsAll } = await sb.from('ads').select('*').eq('workspace_id', currentWorkspaceId);
     for (const p of (products || [])) {
       if (!p.drive_folder_id) continue;
       try {
@@ -3530,8 +3532,8 @@ function setupAutoSync() {
 }
 
 async function renderDrive(el) {
-  const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).single();
-  const { data: logs } = await sb.from('sync_log').select('*').order('ts', { ascending: false }).limit(50);
+  const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).maybeSingle();
+  const { data: logs } = await sb.from('sync_log').select('*').eq('workspace_id', currentWorkspaceId).order('ts', { ascending: false }).limit(50);
   const autoEnabled = localStorage.getItem('keycorp_autosync_enabled') === 'true';
   const autoInterval = parseInt(localStorage.getItem('keycorp_autosync_interval') || '15', 10);
   const lastSyncStr = cfg?.updated_at ? new Date(cfg.updated_at).toLocaleString('fr-FR') : 'jamais';
