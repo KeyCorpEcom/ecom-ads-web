@@ -2797,11 +2797,29 @@ async function driveConnect(options = {}) {
 
 // Helper : upsert drive_config pour le workspace courant
 async function upsertDriveConfig(patch) {
-  const { data: existing } = await sb.from('drive_config').select('workspace_id').eq('workspace_id', currentWorkspaceId).maybeSingle();
+  console.log('[DRIVE CFG] upsert start, ws:', currentWorkspaceId, 'patch:', patch);
+  const { data: existing, error: errSel } = await sb.from('drive_config').select('workspace_id').eq('workspace_id', currentWorkspaceId).maybeSingle();
+  if (errSel) {
+    console.error('[DRIVE CFG SELECT ERROR]', errSel);
+    toast('Erreur lecture config Drive : ' + errSel.message, 'error', 7000);
+    throw errSel;
+  }
   if (existing) {
-    await sb.from('drive_config').update({ ...patch, updated_at: new Date().toISOString() }).eq('workspace_id', currentWorkspaceId);
+    const { error: errUpd } = await sb.from('drive_config').update({ ...patch, updated_at: new Date().toISOString() }).eq('workspace_id', currentWorkspaceId);
+    if (errUpd) {
+      console.error('[DRIVE CFG UPDATE ERROR]', errUpd);
+      toast('Erreur mise à jour Drive : ' + errUpd.message, 'error', 7000);
+      throw errUpd;
+    }
+    console.log('[DRIVE CFG] updated');
   } else {
-    await sb.from('drive_config').insert({ ...patch, workspace_id: currentWorkspaceId, updated_at: new Date().toISOString() });
+    const { error: errIns } = await sb.from('drive_config').insert({ ...patch, workspace_id: currentWorkspaceId, updated_at: new Date().toISOString() });
+    if (errIns) {
+      console.error('[DRIVE CFG INSERT ERROR]', errIns);
+      toast('Erreur insert Drive : ' + errIns.message, 'error', 7000);
+      throw errIns;
+    }
+    console.log('[DRIVE CFG] inserted');
   }
 }
 
