@@ -818,6 +818,8 @@ async function renderAds(el) {
             });
           });
           const tradPct = pct(trad, total);
+          const masterDone = pAds.filter(a => a.master_file_id).length;
+          const masterPct = pct(masterDone, pAds.length);
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
 
@@ -829,12 +831,21 @@ async function renderAds(el) {
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
-              <div style="margin-top:10px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                  <span style="color:var(--text-dim)"> Trad ads</span>
-                  <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
+                    <span style="color:var(--text-dim)">Master ads</span>
+                    <span class="mono" style="color:var(--gold);font-weight:600">${masterDone}/${pAds.length} · ${masterPct}%</span>
+                  </div>
+                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${masterPct}%;height:100%;background:var(--gold);transition:width 0.4s"></div></div>
                 </div>
-                <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
+                    <span style="color:var(--text-dim)">Trad ads</span>
+                    <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
+                  </div>
+                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
+                </div>
               </div>
             </div>
           `;
@@ -898,6 +909,8 @@ async function renderProduits(el) {
           const pagesPct = pct(pagesApproved, activeCs.length);
           const tradPct = pct(trad, total);
           const metaPct = pct(meta, total);
+          const masterDone = pAds.filter(a => a.master_file_id).length;
+          const masterPct = pct(masterDone, pAds.length);
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
 
@@ -912,17 +925,24 @@ async function renderProduits(el) {
               <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
                 <div>
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)"> Trad ads</span>
+                    <span style="color:var(--text-dim)">Master ads</span>
+                    <span class="mono" style="color:var(--gold);font-weight:600">${masterDone}/${pAds.length} · ${masterPct}%</span>
+                  </div>
+                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${masterPct}%;height:100%;background:var(--gold);transition:width 0.4s"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
+                    <span style="color:var(--text-dim)">Trad ads</span>
                     <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
                   </div>
                   <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
                 </div>
                 <div>
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)"> Pages landing</span>
-                    <span class="mono" style="color:var(--gold);font-weight:600">${pagesApproved}/${activeCs.length} · ${pagesPct}%</span>
+                    <span style="color:var(--text-dim)">Pages landing</span>
+                    <span class="mono" style="color:var(--blue);font-weight:600">${pagesApproved}/${activeCs.length} · ${pagesPct}%</span>
                   </div>
-                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${pagesPct}%;height:100%;background:linear-gradient(90deg,var(--gold),var(--green));transition:width 0.4s"></div></div>
+                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${pagesPct}%;height:100%;background:var(--blue);transition:width 0.4s"></div></div>
                 </div>
               </div>
             </div>
