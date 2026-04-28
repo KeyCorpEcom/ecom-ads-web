@@ -40,10 +40,21 @@ export default async function handler(req, res) {
   }
 
   // Invite l'user via Admin API
-  const { email, role, full_name } = req.body || {};
+  const { email, role, full_name, workspace_id } = req.body || {};
   if (!email) return res.status(400).json({ error: 'Email requis' });
   if (!['admin', 'editor', 'viewer', 'page_builder'].includes(role)) {
     return res.status(400).json({ error: 'Rôle invalide (admin/editor/viewer/page_builder)' });
+  }
+  if (!workspace_id) return res.status(400).json({ error: 'workspace_id requis' });
+
+  // Vérifie que le workspace_id existe ET que l'admin appelant en est membre admin
+  const checkWs = await fetch(
+    `${SUPABASE_URL}/rest/v1/workspace_members?workspace_id=eq.${workspace_id}&user_id=eq.${callerUser.id}&select=role`,
+    { headers: { 'apikey': SERVICE_KEY, 'Authorization': `Bearer ${SERVICE_KEY}` } }
+  );
+  const wsMembers = await checkWs.json();
+  if (!wsMembers[0] || wsMembers[0].role !== 'admin') {
+    return res.status(403).json({ error: 'Tu dois être admin de ce workspace pour inviter quelqu\'un dedans' });
   }
 
   // Détermine l'URL de redirection selon l'origine de l'appel
@@ -82,5 +93,26 @@ export default async function handler(req, res) {
     body: JSON.stringify({ role, full_name: full_name || null })
   });
 
-  return res.status(200).json({ ok: true, user_id: newUserId, email });
+  // Ajoute le nouveau user au workspace choisi
+  const addToWs = await fetch(`${SUPABASE_URL}/rest/v1/workspace_members`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SERVICE_KEY,
+      'Authorization': `Bearer ${SERVICE_KEY}`,
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify({
+      workspace_id,
+      user_id: newUserId,
+      role,
+      added_by: callerUser.id
+    })
+  });
+  if (!addToWs.ok) {
+    const errText = await addToWs.text();
+    return res.status(500).json({ error: 'User créé mais ajout au workspace échoué : ' + errText, user_id: newUserId });
+  }
+
+  return res.status(200).json({ ok: true, user_id: newUserId, email, workspace_id });
 }

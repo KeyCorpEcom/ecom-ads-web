@@ -277,6 +277,11 @@ a{color:var(--gold);text-decoration:none}
   <aside class="sidebar">
     <div class="logo">KEY CORP</div>
     <div class="logo-sub">ECOMMERCE</div>
+    <div id="workspace-switcher" style="margin:8px 0 14px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:none;align-items:center;gap:8px;font-size:12px;transition:all 0.15s">
+      <span style="font-size:14px">🏢</span>
+      <span id="workspace-name" style="flex:1;font-weight:600;color:var(--gold)">—</span>
+      <span id="workspace-arrow" style="color:var(--text-dim);font-size:10px">▾</span>
+    </div>
     <nav class="nav">
   <div class="nav-section-label">Vue d'ensemble</div>
   <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer">Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
@@ -328,6 +333,9 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 
 let currentUser = null;
 let currentProfile = null;
+let currentWorkspaceId = null;
+let currentWorkspace = null; // { id, name, slug, role }
+let userWorkspaces = []; // [{ workspace_id, role, workspaces: { id, name, slug } }]
 
 /* ============================================================
    UTILITIES
@@ -469,6 +477,87 @@ document.getElementById('btn-change-password').addEventListener('click', async (
   toast('✅ Mot de passe changé avec succès !', 'success');
 });
 
+function renderWorkspaceSwitcher() {
+  const switcher = document.getElementById('workspace-switcher');
+  const nameEl = document.getElementById('workspace-name');
+  const arrowEl = document.getElementById('workspace-arrow');
+  if (!switcher || !currentWorkspace) return;
+  switcher.style.display = 'flex';
+  nameEl.textContent = currentWorkspace.name;
+  // Si plusieurs workspaces : afficher la flèche pour switcher
+  arrowEl.style.display = userWorkspaces.length > 1 ? '' : 'none';
+
+  switcher.onclick = (e) => {
+    if (userWorkspaces.length <= 1) return;
+    // Affiche un mini-menu de switch
+    const existing = document.getElementById('workspace-menu');
+    if (existing) { existing.remove(); return; }
+    const menu = document.createElement('div');
+    menu.id = 'workspace-menu';
+    menu.style.cssText = 'position:absolute;left:14px;top:88px;width:212px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px;z-index:1000;box-shadow:0 8px 24px rgba(0,0,0,0.5)';
+    menu.innerHTML = userWorkspaces.map(m => `
+      <div data-switch-ws="${m.workspace_id}" style="padding:8px 10px;border-radius:6px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:13px;${m.workspace_id === currentWorkspaceId ? 'background:rgba(200,165,90,0.15);color:var(--gold)' : 'color:var(--text)'}">
+        <span>${m.workspace_id === currentWorkspaceId ? '✓' : '○'}</span>
+        <span style="flex:1">${escapeHtml(m.workspaces.name)}</span>
+        <span style="font-size:10px;color:var(--text-dim);text-transform:uppercase">${m.role}</span>
+      </div>
+    `).join('');
+    document.body.appendChild(menu);
+    menu.querySelectorAll('[data-switch-ws]').forEach(it => {
+      it.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const wsId = it.dataset.switchWs;
+        menu.remove();
+        if (wsId !== currentWorkspaceId) switchWorkspace(wsId);
+      });
+    });
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', function once(ev) {
+        if (!menu.contains(ev.target) && ev.target !== switcher) {
+          menu.remove();
+          document.removeEventListener('click', once);
+        }
+      });
+    }, 0);
+  };
+}
+
+async function loadCurrentWorkspace() {
+  // Charge tous les workspaces dont l'user est membre
+  const { data: memberships, error } = await sb
+    .from('workspace_members')
+    .select('workspace_id, role, workspaces(id, name, slug)')
+    .eq('user_id', currentUser.id);
+
+  if (error) { console.error('[WORKSPACE LOAD]', error); return false; }
+  if (!memberships || memberships.length === 0) {
+    toast('Aucun workspace assigné. Contacte un admin.', 'error', 8000);
+    return false;
+  }
+
+  userWorkspaces = memberships;
+
+  // Set currentWorkspaceId : depuis localStorage si valide, sinon premier
+  const savedId = localStorage.getItem('currentWorkspaceId');
+  const valid = memberships.find(m => m.workspace_id === savedId);
+  const chosen = valid || memberships[0];
+  currentWorkspaceId = chosen.workspace_id;
+  currentWorkspace = { id: chosen.workspaces.id, name: chosen.workspaces.name, slug: chosen.workspaces.slug, role: chosen.role };
+  localStorage.setItem('currentWorkspaceId', currentWorkspaceId);
+  return true;
+}
+
+function switchWorkspace(workspaceId) {
+  const m = userWorkspaces.find(w => w.workspace_id === workspaceId);
+  if (!m) { toast('Workspace introuvable', 'error'); return; }
+  currentWorkspaceId = workspaceId;
+  currentWorkspace = { id: m.workspaces.id, name: m.workspaces.name, slug: m.workspaces.slug, role: m.role };
+  localStorage.setItem('currentWorkspaceId', currentWorkspaceId);
+  toast(`Switch vers ${m.workspaces.name}`, 'success');
+  render();
+}
+
 async function initApp(user) {
   currentUser = user;
   // Charger le profil (rôle)
@@ -479,12 +568,20 @@ async function initApp(user) {
     return;
   }
   currentProfile = profile;
+
+  // Charge les workspaces de l'user
+  const wsLoaded = await loadCurrentWorkspace();
+  if (!wsLoaded) { await sb.auth.signOut(); return; }
+
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('user-name').textContent = profile.full_name || profile.email;
   const roleEl = document.getElementById('user-role');
   roleEl.textContent = profile.role;
   roleEl.className = 'user-role ' + profile.role;
+
+  // Affiche le switcher de workspace
+  renderWorkspaceSwitcher();
 
   // Page builder : cache tout sauf la page Pages
   if (profile.role === 'page_builder') {
@@ -984,7 +1081,8 @@ async function newProductFlow() {
     drive_folder_id: driveFolderId,
     priority,
     concurrent_page_url: concurrentPageUrl,
-    created_by: currentUser.id
+    created_by: currentUser.id,
+    workspace_id: currentWorkspaceId
   });
   if (errP) { toast('Erreur : ' + errP.message, 'error'); return; }
 
@@ -1482,11 +1580,11 @@ async function addAdFlow(productId) {
   const { data: countriesAll } = await sb.from('countries').select('id');
   const enabled = (product.enabled_countries && product.enabled_countries.length) ? product.enabled_countries : countriesAll.map(c => c.id);
   const adsToInsert = [];
-  for (let i = from; i <= to; i++) adsToInsert.push({ product_id: productId, name: 'Ad ' + i, position: i });
+  for (let i = from; i <= to; i++) adsToInsert.push({ product_id: productId, name: 'Ad ' + i, position: i, workspace_id: currentWorkspaceId });
   const { data: inserted, error } = await sb.from('ads').insert(adsToInsert).select();
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
   const acToInsert = [];
-  inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+  inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId })));
   await sb.from('ad_countries').insert(acToInsert);
   toast(`${inserted.length} ad(s) ajoutée(s)`, 'success');
   render();
@@ -1571,6 +1669,16 @@ async function renderUsers(el) {
 }
 
 async function inviteUserFlow() {
+  // Charge la liste de tous les workspaces dont l'admin est membre admin
+  const adminWorkspaces = userWorkspaces.filter(m => m.role === 'admin');
+  if (adminWorkspaces.length === 0) {
+    toast('Tu n\'es admin d\'aucun workspace', 'error');
+    return;
+  }
+  const wsOptions = adminWorkspaces.map(m =>
+    `<option value="${m.workspace_id}" ${m.workspace_id === currentWorkspaceId ? 'selected' : ''}>${escapeHtml(m.workspaces.name)}</option>`
+  ).join('');
+
   const r = await modal(`
     <div class="modal-title">Inviter un nouvel utilisateur</div>
     <div class="text-sm text-dim mb-md">Il recevra un email d'invitation pour créer son mot de passe et accéder à l'app.</div>
@@ -1581,6 +1689,11 @@ async function inviteUserFlow() {
     <div class="input-group">
       <label class="input-label">Nom complet (optionnel)</label>
       <input class="input" data-field="full_name" placeholder="Prénom Nom">
+    </div>
+    <div class="input-group">
+      <label class="input-label">🏢 Workspace</label>
+      <select class="select" data-field="workspace_id">${wsOptions}</select>
+      <div class="input-hint">Le user n'aura accès qu'aux données de ce workspace.</div>
     </div>
     <div class="input-group">
       <label class="input-label">Rôle</label>
@@ -1609,7 +1722,8 @@ async function inviteUserFlow() {
       body: JSON.stringify({
         email: r.email.trim().toLowerCase(),
         role: r.role,
-        full_name: (r.full_name || '').trim()
+        full_name: (r.full_name || '').trim(),
+        workspace_id: r.workspace_id
       })
     });
     const data = await res.json();
@@ -2552,7 +2666,7 @@ async function upsertPagePartial(productId, countryId, patch) {
   if (existing) {
     await sb.from('product_pages').update(payload).eq('product_id', productId).eq('country_id', countryId);
   } else {
-    await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, ...payload });
+    await sb.from('product_pages').insert({ product_id: productId, country_id: countryId, workspace_id: currentWorkspaceId, ...payload });
   }
 }
 
@@ -2711,7 +2825,7 @@ function driveDisconnect() {
 }
 
 async function logSync(msg, type = 'info') {
-  await sb.from('sync_log').insert({ msg, type, user_id: currentUser?.id || null });
+  await sb.from('sync_log').insert({ msg, type, user_id: currentUser?.id || null, workspace_id: currentWorkspaceId });
 }
 
 /* ===== Drive Helpers : Create/Find/Upload Folders & Files ===== */
@@ -3188,7 +3302,8 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
           product_id: product.id,
           name: adName,
           position: adNum,
-          concurrent_file_id: r.file?.id || null
+          concurrent_file_id: r.file?.id || null,
+          workspace_id: currentWorkspaceId
         });
       }
     }
@@ -3197,7 +3312,7 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
       const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
       if (!errA && insertedAds) {
         const acToInsert = [];
-        insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+        insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId })));
         if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
         createdCount = insertedAds.length;
       } else if (errA) { console.error('[CREATE ADS]', errA); }
@@ -3228,7 +3343,8 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
           product_id: product.id,
           name: adName,
           position: adNum,
-          master_file_id: r.file?.id || null
+          master_file_id: r.file?.id || null,
+          workspace_id: currentWorkspaceId
         });
       }
     }
@@ -3238,7 +3354,7 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
       const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
       if (!errA && insertedAds) {
         const acToInsert = [];
-        insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+        insertedAds.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId })));
         if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
         createdCount = insertedAds.length;
       }
@@ -3344,7 +3460,7 @@ async function syncDriveProduit(p, adsAll) {
       const adNum = parseInt(m[1], 10);
       const adName = 'Ad ' + adNum;
       if (!pAds.find(a => a.name.toLowerCase() === adName.toLowerCase())) {
-        adsToCreate.push({ product_id: p.id, name: adName, position: adNum, master_file_id: file.id });
+        adsToCreate.push({ product_id: p.id, name: adName, position: adNum, master_file_id: file.id, workspace_id: currentWorkspaceId });
       }
     }
     if (adsToCreate.length > 0) {
@@ -3352,7 +3468,7 @@ async function syncDriveProduit(p, adsAll) {
       if (inserted && inserted.length > 0) {
         // Créer les ad_countries pour chaque
         const acToInsert = [];
-        inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false })));
+        inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId })));
         await sb.from('ad_countries').insert(acToInsert);
         await logSync(`🎬 ${p.id} : ${inserted.length} ad(s) auto-créée(s) depuis Masters`, 'success');
         // Recharge les ads locales
@@ -3381,7 +3497,7 @@ async function syncDriveProduit(p, adsAll) {
         if (existing) {
           await sb.from('ad_countries').update({ trad: true, trad_at: now, drive_file_id: file.id, updated_at: now, updated_by: currentUser.id }).eq('ad_id', ad.id).eq('country_id', country.id);
         } else {
-          await sb.from('ad_countries').insert({ ad_id: ad.id, country_id: country.id, trad: true, trad_at: now, drive_file_id: file.id, updated_by: currentUser.id });
+          await sb.from('ad_countries').insert({ ad_id: ad.id, country_id: country.id, trad: true, trad_at: now, drive_file_id: file.id, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
         }
         marked++;
         await logSync(`✅ ${p.id} / ${country.id} / ${adName} marqué traduit`, 'success');
@@ -3928,7 +4044,7 @@ function setupMetaDragSelect(container) {
       if (existing) {
         await sb.from('ad_countries').update({ meta: newVal, meta_at: newVal ? now : null, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', cId);
       } else {
-        await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newVal, meta_at: newVal ? now : null, updated_by: currentUser.id });
+        await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newVal, meta_at: newVal ? now : null, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
       }
     }
     toast(`${cells.length} case(s) mises à jour`, 'success');
@@ -3945,7 +4061,7 @@ async function toggleMetaCell(adId, cId) {
   if (existing) {
     await sb.from('ad_countries').update({ meta: newMeta, meta_at: newMeta ? now : null, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', cId);
   } else {
-    await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newMeta, meta_at: newMeta ? now : null, updated_by: currentUser.id });
+    await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newMeta, meta_at: newMeta ? now : null, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
   }
   render();
 }
