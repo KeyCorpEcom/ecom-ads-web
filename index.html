@@ -3238,9 +3238,11 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
   const existingFiles = await driveListFolderContent(targetFolder.id);
   const existingNumsDrive = new Set(existingFiles.map(f => { const m = f.name.match(/Ad\s*(\d+)/i); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0));
 
-  // Mode : CONCURRENT = auto-number | MASTER + COUNTRY = strict (Ad X requis, pas de doublon)
+  // Mode : tous les dossiers (CONCURRENT, MASTER, COUNTRY) auto-renomment.
+  // Si le fichier a déjà "Ad X" → utilise ce numéro (sauf doublon → erreur en STRICT)
+  // Si pas de "Ad X" → auto-incrément au prochain numéro libre
   const strictMode = targetFolderName !== CONCURRENT_FOLDER_NAME;
-  console.log('[UPLOAD] Mode:', strictMode ? 'STRICT' : 'AUTO', 'existingNumsDb:', [...existingNumsDb], 'existingNumsDrive:', [...existingNumsDrive]);
+  console.log('[UPLOAD] Mode:', strictMode ? 'STRICT-HYBRID' : 'AUTO', 'existingNumsDb:', [...existingNumsDb], 'existingNumsDrive:', [...existingNumsDrive]);
   let maxN = Math.max(0, ...existingNumsDb, ...existingNumsDrive);
   const items = [];
   const errors = [];
@@ -3249,25 +3251,22 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     const m = f.name.match(/Ad\s*(\d+)/i);
     let adNum;
 
-    if (strictMode) {
-      // STRICT : Ad X obligatoire dans le nom, pas de doublon autorisé
-      if (!m) {
-        errors.push({ file: f.name, reason: 'Nom invalide — il doit contenir "Ad X" (ex: Ad 3.mp4, Ad 3 clean.mov)' });
-        continue;
-      }
+    if (m) {
+      // Le fichier a déjà un numéro Ad X
       adNum = parseInt(m[1], 10);
-      if (existingNumsDrive.has(adNum)) {
+      if (strictMode && existingNumsDrive.has(adNum)) {
         errors.push({ file: f.name, reason: `Ad ${adNum} existe déjà dans ce dossier. Supprime d'abord l'ancienne sur Drive.` });
         continue;
       }
-    } else {
-      // AUTO (concurrent) : garde le n° si détecté ET libre, sinon auto-incrément
-      if (m && !existingNumsDrive.has(parseInt(m[1], 10))) {
-        adNum = parseInt(m[1], 10);
-      } else {
+      if (!strictMode && existingNumsDrive.has(adNum)) {
+        // En mode AUTO (concurrent) on auto-incrément si conflit
         maxN++;
         adNum = maxN;
       }
+    } else {
+      // Pas de "Ad X" dans le nom → auto-incrément
+      maxN++;
+      adNum = maxN;
     }
     // Réserve ce numéro pour éviter collision intra-batch
     existingNumsDrive.add(adNum);
@@ -3290,10 +3289,10 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
       <div class="text-sm text-dim mb-md">Les fichiers suivants ne peuvent pas être uploadés :</div>
       ${errorsHtml}
       <div class="text-sm" style="margin-top:14px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue);line-height:1.6">
-         <strong>Règles de nommage pour ${escapeHtml(targetFolderName)} :</strong><br>
-        • Le nom doit contenir <span class="mono">Ad X</span> (ex: <span class="mono">Ad 3.mp4</span>, <span class="mono">Ad 3 clean.mov</span>)<br>
-        • Le numéro doit correspondre à une ad concurrent existante<br>
-        • Si Ad X existe déjà, supprime d'abord l'ancienne version sur Drive
+         <strong>Règles pour ${escapeHtml(targetFolderName)} :</strong><br>
+        • Les fichiers sans <span class="mono">Ad X</span> dans le nom sont auto-renommés<br>
+        • Si un fichier contient <span class="mono">Ad X</span> et que ce numéro existe déjà, il est refusé<br>
+        • Pour remplacer une ad : supprime d'abord l'ancienne sur Drive
       </div>
       <div class="modal-actions">
         <button class="btn" data-modal-close>Compris</button>
