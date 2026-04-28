@@ -291,6 +291,7 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" data-route="analytics"><span class="nav-icon">📈</span>Analytics</a>
       <a class="nav-item" data-route="pages"><span class="nav-icon">🌍</span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
       <a class="nav-item" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon">🛟</span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
+      <a class="nav-item" href="https://keycorppnl.vercel.app" target="_blank" rel="noopener noreferrer"><span class="nav-icon">💰</span>P&amp;L<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
       <div class="nav-section-label">Intégrations</div>
       <a class="nav-item" data-route="drive"><span class="nav-icon">☁️</span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
@@ -3691,7 +3692,9 @@ async function openCmdk() {
     { type: 'page', icon: '📺', title: 'Ads', route: 'ads' },
     { type: 'page', icon: '📦', title: 'Produits', route: 'produits' },
     { type: 'page', icon: '📈', title: 'Analytics', route: 'analytics' },
-    { type: 'page', icon: '🌍', title: 'Product Page', route: 'pages' }
+    { type: 'page', icon: '🌍', title: 'Product Page', route: 'pages' },
+    { type: 'page', icon: '🛟', title: 'SAV (externe)', externalUrl: 'https://www.keycorp-ecom.com/sav' },
+    { type: 'page', icon: '💰', title: 'P&L (externe)', externalUrl: 'https://keycorppnl.vercel.app' }
   ];
   if (isAdmin()) {
     pages.push({ type: 'page', icon: '👥', title: 'Utilisateurs', route: 'users' });
@@ -3708,7 +3711,11 @@ async function openCmdk() {
     if (matchedPages.length) {
       html += `<div class="cmdk-group-label">Pages</div>`;
       matchedPages.forEach(p => {
-        items.push({ action: () => navigate(p.route) });
+        if (p.externalUrl) {
+          items.push({ action: () => window.open(p.externalUrl, '_blank', 'noopener') });
+        } else {
+          items.push({ action: () => navigate(p.route) });
+        }
         html += `<div class="cmdk-item" data-idx="${items.length - 1}"><span class="cmdk-item-icon">${p.icon}</span><span class="cmdk-item-main">${escapeHtml(p.title)}</span></div>`;
       });
     }
