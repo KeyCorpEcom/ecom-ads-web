@@ -746,11 +746,13 @@ async function initApp(user) {
   // Affiche le switcher de workspace
   renderWorkspaceSwitcher();
 
-  // Page builder : cache tout sauf Pages + Formations
+  // Page builder : cache tout sauf Pages + Formations (recherche cachée aussi)
   if (profile.role === 'page_builder') {
     const allowedRoutes = new Set(['pages', 'formations']);
     document.querySelectorAll('.nav-item').forEach(el => {
-      if (!allowedRoutes.has(el.dataset.route) && el.id !== 'btn-open-cmdk') el.style.display = 'none';
+      // Cache la recherche (donne accès à tout le reste de l'app)
+      if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
+      if (!allowedRoutes.has(el.dataset.route)) el.style.display = 'none';
     });
     document.querySelectorAll('.nav-section-label').forEach(el => el.style.display = 'none');
     // Force navigation to pages au login (sauf si déjà sur formations)
@@ -758,12 +760,12 @@ async function initApp(user) {
     if (!allowedRoutes.has(currentRoute)) location.hash = '#pages';
   }
 
-  // Editor (ads translator) : cache tout sauf Ads + Drive + Formations
+  // Editor (ads translator) : cache tout sauf Ads + Drive + Formations (recherche cachée aussi)
   if (profile.role === 'editor') {
     const allowedRoutes = new Set(['ads', 'drive', 'formations']);
     document.querySelectorAll('.nav-item').forEach(el => {
-      // Garde le bouton Recherche (Ctrl+K)
-      if (el.id === 'btn-open-cmdk') return;
+      // Cache la recherche (donne accès à tout le reste de l'app)
+      if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
       const route = el.dataset.route;
       // Cache les routes non-autorisées + tous les liens externes (P&L, SAV)
       if (!route || !allowedRoutes.has(route)) {
@@ -4390,6 +4392,8 @@ async function renderDrive(el) {
 let cmdkOpen = false;
 
 async function openCmdk() {
+  // Sécurité : recherche réservée aux admins
+  if (currentProfile?.role !== 'admin') return;
   if (cmdkOpen) return;
   cmdkOpen = true;
   const { products, ads } = await fetchAll();
@@ -4496,7 +4500,8 @@ async function openCmdk() {
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault();
-    if (currentUser) openCmdk();
+    // Recherche réservée aux admins (page_builder/editor n'ont pas accès)
+    if (currentUser && currentProfile?.role === 'admin') openCmdk();
   }
 });
 
