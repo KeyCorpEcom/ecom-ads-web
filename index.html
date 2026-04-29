@@ -603,15 +603,33 @@ async function loadCurrentWorkspace() {
   return true;
 }
 
-function switchWorkspace(workspaceId) {
+async function switchWorkspace(workspaceId) {
   const m = userWorkspaces.find(w => w.workspace_id === workspaceId);
   if (!m) { toast('Workspace introuvable', 'error'); return; }
+
+  // 1. Déconnecte Drive du workspace courant (sans toucher au token stocké)
+  if (driveState.connected) {
+    driveState.accessToken = null;
+    driveState.connected = false;
+    if (window.gapi?.client) gapi.client.setToken(null);
+    clearInterval(autoSyncTimer);
+  }
+
+  // 2. Switch
   currentWorkspaceId = workspaceId;
   currentWorkspace = { id: m.workspaces.id, name: m.workspaces.name, slug: m.workspaces.slug, role: m.role };
   localStorage.setItem('currentWorkspaceId', currentWorkspaceId);
   toast(`Switch vers ${m.workspaces.name}`, 'success');
-  // Recharge les notifs du nouveau workspace
+
+  // 3. Recharge les notifs du nouveau workspace
   loadNotifications();
+
+  // 4. Tentative de reconnexion Drive avec le token du nouveau workspace
+  try { await tryAutoReconnectDrive(); } catch (e) { console.warn('[SWITCH WS drive]', e); }
+
+  // 5. Re-subscribe realtime pour le nouveau workspace (les notifs filtrent déjà)
+  // (subscription user_id-based ; on garde la même)
+
   render();
 }
 
@@ -1634,13 +1652,22 @@ async function uploadFinishedFlow(productId) {
 }
 
 async function uploadFinishedVideos(productId, countryId, filesArr) {
+  if (!driveState.connected) { toast('Drive non connecté pour ce workspace. Reconnecte-toi.', 'error', 6000); return; }
   toast(`Upload de ${filesArr.length} vidéo(s)...`, 'info');
   const { data: prod } = await sb.from('products').select('*').eq('id', productId).single();
   if (!prod?.drive_folder_id) { toast('Pas de dossier Drive sur ce produit', 'error'); return; }
 
   // 1. Trouver/créer _a_valider/{country}/
-  const valFolder = await driveEnsureFolder('_a_valider', prod.drive_folder_id);
-  const countryFolder = await driveEnsureFolder(countryId, valFolder.id);
+  let valFolder, countryFolder;
+  try {
+    valFolder = await driveEnsureFolder('_a_valider', prod.drive_folder_id);
+    countryFolder = await driveEnsureFolder(countryId, valFolder.id);
+  } catch (e) {
+    console.error('[UPLOAD FINISHED — drive folder]', e);
+    const msg = e?.result?.error?.message || e?.message || 'Erreur Drive inconnue';
+    toast(`Erreur Drive : ${msg}. Vérifie que tu es connecté au bon compte Drive pour ce workspace.`, 'error', 8000);
+    return;
+  }
 
   // 2. Récupérer ads existantes pour matcher Ad X
   const { data: existingAds } = await sb.from('ads').select('id, name, position').eq('product_id', productId);
@@ -3180,23 +3207,33 @@ let driveState = { gapiReady: false, tokenClient: null, accessToken: null, conne
 let autoSyncTimer = null;
 let isSyncing = false;
 
+// Token stocké PAR workspace (chaque workspace a son propre Drive / OAuth)
+function _tokenKey(wsId) { return 'keycorp_drive_token_' + (wsId || 'default'); }
+function _tokenExpKey(wsId) { return 'keycorp_drive_token_exp_' + (wsId || 'default'); }
+
 function saveTokenToStorage(token, expiresIn) {
   const expiresAt = Date.now() + ((expiresIn || 3600) * 1000);
   try {
-    localStorage.setItem('keycorp_drive_token', token);
-    localStorage.setItem('keycorp_drive_token_exp', String(expiresAt));
+    const wsId = currentWorkspaceId;
+    localStorage.setItem(_tokenKey(wsId), token);
+    localStorage.setItem(_tokenExpKey(wsId), String(expiresAt));
   } catch (e) {}
 }
 function getStoredToken() {
   try {
-    const token = localStorage.getItem('keycorp_drive_token');
-    const exp = parseInt(localStorage.getItem('keycorp_drive_token_exp'), 10);
+    const wsId = currentWorkspaceId;
+    const token = localStorage.getItem(_tokenKey(wsId));
+    const exp = parseInt(localStorage.getItem(_tokenExpKey(wsId)), 10);
     if (!token || !exp || exp < Date.now() + 60000) { clearStoredToken(); return null; }
     return token;
   } catch (e) { return null; }
 }
 function clearStoredToken() {
   try {
+    const wsId = currentWorkspaceId;
+    localStorage.removeItem(_tokenKey(wsId));
+    localStorage.removeItem(_tokenExpKey(wsId));
+    // Cleanup ancienne clé (pré-multi-workspace)
     localStorage.removeItem('keycorp_drive_token');
     localStorage.removeItem('keycorp_drive_token_exp');
   } catch (e) {}
