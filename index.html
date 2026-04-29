@@ -108,6 +108,7 @@ a{color:var(--gold);text-decoration:none}
 .check-icon.checked::after{content:'';position:absolute;inset:4px 4px 4px 4px;background:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat}
 .check-icon.meta.checked{background:var(--blue);border-color:var(--blue)}
 .check-icon.meta.checked::after{content:'';background:none;inset:auto;font-size:14px;display:flex;align-items:center;justify-content:center;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%)}
+.check-icon.master.checked{background:var(--gold);border-color:var(--gold)}
 
 /* Product grid */
 .product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
@@ -1458,7 +1459,7 @@ async function renderProduit(el, productId) {
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                 </td>
                 <td class="check-cell auto" style="border-left:2px solid var(--border-soft)" title="Master ${ad.master_file_id ? 'uploadé' : 'non uploadé'}">
-                  <span class="check-icon ${ad.master_file_id ? 'checked' : ''}"></span>
+                  <span class="check-icon master ${ad.master_file_id ? 'checked' : ''}"></span>
                 </td>
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
