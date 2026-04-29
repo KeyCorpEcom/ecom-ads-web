@@ -1140,11 +1140,12 @@ function modalWithOpen(contentHtml, onOpen) {
    PAGE: PRODUIT DETAIL
    ============================================================ */
 async function renderProduit(el, productId) {
-  const [{ data: product }, { data: ads }, { data: countriesAll }, { data: adCountries }] = await Promise.all([
+  const [{ data: product }, { data: ads }, { data: countriesAll }, { data: adCountries }, { data: pendingVals }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).single(),
     sb.from('ads').select('*').eq('product_id', productId).order('position'),
     sb.from('countries').select('*').order('sort_order'),
-    sb.from('ad_countries').select('*')
+    sb.from('ad_countries').select('*'),
+    sb.from('pending_validations').select('*').eq('product_id', productId)
   ]);
   if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div></div>'; return; }
   const countries = (product.enabled_countries && product.enabled_countries.length)
@@ -1154,6 +1155,12 @@ async function renderProduit(el, productId) {
   (adCountries || []).forEach(ac => {
     if (!acByAd[ac.ad_id]) acByAd[ac.ad_id] = {};
     acByAd[ac.ad_id][ac.country_id] = ac;
+  });
+  // Index pending_validations par (ad_id, country_id) → status
+  const pvByAd = {};
+  (pendingVals || []).forEach(pv => {
+    if (!pvByAd[pv.ad_id]) pvByAd[pv.ad_id] = {};
+    pvByAd[pv.ad_id][pv.country_id] = pv;
   });
 
   const cutCount = (product.cut_countries || []).length;
@@ -1247,13 +1254,23 @@ async function renderProduit(el, productId) {
                 </td>
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
+                  const pv = (pvByAd[ad.id] || {})[c.id];
                   const isCut = (product.cut_countries || []).includes(c.id);
                   if (!isCut) { rowTotal += 2; if (ac.trad) rowDone++; if (ac.meta) rowDone++; }
+                  // État Trad : approved (vert) > rejected (rouge) > pending (jaune) > vide
+                  let tradState = 'empty';
+                  let tradTooltip = isCut ? 'Marché coupé' : 'Aucune vidéo';
+                  if (ac.trad) { tradState = 'approved'; tradTooltip = 'Validée'; }
+                  else if (pv?.status === 'rejected') { tradState = 'rejected'; tradTooltip = 'Rejetée — clique pour voir le feedback'; }
+                  else if (pv?.status === 'pending') { tradState = 'pending'; tradTooltip = 'En attente de validation — clique pour valider/rejeter'; }
+                  const cellClickable = !isCut && (tradState === 'pending' || tradState === 'rejected' || tradState === 'approved');
+                  const tradColor = { empty: '', pending: 'rgba(251,191,36,0.25)', approved: 'rgba(52,211,153,0.25)', rejected: 'rgba(248,113,113,0.25)' }[tradState];
+                  const tradDot = { empty: '', pending: '#fbbf24', approved: '#34d399', rejected: '#f87171' }[tradState];
                   return `
-                    <td class="check-cell auto ${isCut ? 'cut' : ''}" title="${isCut ? ' Marché coupé' : 'Auto via Drive'}">
-                      <span class="check-icon ${ac.trad ? 'checked' : ''}"></span>
+                    <td class="check-cell ${cellClickable ? '' : 'auto'} ${isCut ? 'cut' : ''}" ${cellClickable ? `data-validate-trad="${ad.id}|${c.id}|${tradState}" style="cursor:pointer;background:${tradColor}"` : `style="background:${tradColor}"`} title="${escapeHtml(tradTooltip)}">
+                      ${tradState === 'empty' ? `<span class="check-icon"></span>` : `<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${tradDot}"></span>`}
                     </td>
-                    <td class="check-cell ${canEdit() && !isCut ? '' : 'readonly'} ${isCut ? 'cut' : ''}" ${isCut ? '' : `data-toggle-meta="${ad.id}|${c.id}"`} title="${isCut ? ' Marché coupé — réactive-le pour éditer' : (canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule')}">
+                    <td class="check-cell ${canEdit() && !isCut ? '' : 'readonly'} ${isCut ? 'cut' : ''}" ${isCut ? '' : `data-toggle-meta="${ad.id}|${c.id}"`} title="${isCut ? 'Marché coupé — réactive-le pour éditer' : (canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule')}">
                       <span class="check-icon meta ${ac.meta ? 'checked' : ''}"></span>
                     </td>
                   `;
@@ -1333,6 +1350,12 @@ async function renderProduit(el, productId) {
           <div class="text-sm text-dim">Sans sous-titres → <span class="mono">${MASTER_FOLDER_NAME}/</span></div>
           <input type="file" multiple style="display:none" data-file-input="master" accept="video/*,image/*">
         </div>
+      </div>
+      <div style="margin-top:14px">
+        <button id="btn-upload-finished" class="btn btn-secondary" style="width:100%;padding:14px" ${!driveState.connected || !canEdit() ? 'disabled' : ''}>
+          Uploader vidéos finies (à valider) →  <span class="mono">_a_valider/</span>
+        </button>
+        <div class="text-sm text-dim" style="margin-top:6px;text-align:center">L'admin doit valider avant que ce soit officiel</div>
       </div>
       ${!driveState.connected ? '<div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)"> Connecte-toi à Google Drive (sidebar ) pour activer l\'upload auto.</div>' : ''}
     </div>
@@ -1455,6 +1478,351 @@ async function renderProduit(el, productId) {
 
   document.getElementById('btn-add-ad')?.addEventListener('click', () => addAdFlow(productId));
   document.getElementById('btn-edit-product')?.addEventListener('click', () => editProductFlow(productId));
+
+  // Click cellule Trad → modal selon état (pending/rejected/approved)
+  el.querySelectorAll('[data-validate-trad]').forEach(td => {
+    td.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const [adId, cId, state] = td.dataset.validateTrad.split('|');
+      await openValidateTradModal(productId, adId, cId, state);
+    });
+  });
+
+  // 3ème dropzone "Vidéos finies"
+  el.querySelector('#btn-upload-finished')?.addEventListener('click', () => uploadFinishedFlow(productId));
+}
+
+async function uploadFinishedFlow(productId) {
+  if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+
+  // Récupère les pays actifs du produit
+  const { data: prod } = await sb.from('products').select('enabled_countries, cut_countries, drive_folder_id').eq('id', productId).single();
+  const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
+  const enabled = (prod.enabled_countries?.length ? prod.enabled_countries : allCountries.map(c => c.id)).filter(c => !(prod.cut_countries || []).includes(c));
+  const countryOptions = enabled.map(cId => {
+    const c = allCountries.find(c => c.id === cId);
+    return c ? `<option value="${c.id}">${c.id} — ${escapeHtml(c.name)}</option>` : '';
+  }).join('');
+
+  if (enabled.length === 0) { toast('Aucun pays actif sur ce produit', 'error'); return; }
+
+  // Modal : choix pays + file picker
+  const r = await modal(`
+    <div class="modal-title">Uploader vidéos finies (à valider)</div>
+    <div class="text-sm text-dim mb-md">Les vidéos vont dans <span class="mono">_a_valider/{pays}/</span>. Un admin doit valider avant que la cellule passe au vert.</div>
+    <div class="input-group">
+      <label class="input-label">Pays cible</label>
+      <select class="select" data-field="country">${countryOptions}</select>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Fichiers vidéo (nommés Ad 1, Ad 2, etc.)</label>
+      <input type="file" data-field="files" multiple accept="video/*">
+      <div class="input-hint">Le nom du fichier doit contenir <span class="mono">Ad X</span>. Si une version pending/rejetée existe pour cet Ad, elle sera remplacée automatiquement.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Uploader</button>
+    </div>
+  `);
+  if (!r) return;
+  const country = r.country;
+  const filesInput = document.querySelector('[data-field="files"]');
+  const files = filesInput?.files;
+  if (!country || !files || !files.length) { toast('Pays + fichiers requis', 'error'); return; }
+
+  await uploadFinishedVideos(productId, country, Array.from(files));
+}
+
+async function uploadFinishedVideos(productId, countryId, filesArr) {
+  toast(`Upload de ${filesArr.length} vidéo(s)...`, 'info');
+  const { data: prod } = await sb.from('products').select('*').eq('id', productId).single();
+  if (!prod?.drive_folder_id) { toast('Pas de dossier Drive sur ce produit', 'error'); return; }
+
+  // 1. Trouver/créer _a_valider/{country}/
+  const valFolder = await driveEnsureFolder('_a_valider', prod.drive_folder_id);
+  const countryFolder = await driveEnsureFolder(countryId, valFolder.id);
+
+  // 2. Récupérer ads existantes pour matcher Ad X
+  const { data: existingAds } = await sb.from('ads').select('id, name, position').eq('product_id', productId);
+  const adByNum = new Map();
+  (existingAds || []).forEach(a => {
+    const m = a.name.match(/Ad\s*(\d+)/i);
+    if (m) adByNum.set(parseInt(m[1], 10), a);
+  });
+
+  // 3. Pour chaque fichier : extract Ad X, valider, upload
+  const items = [];
+  const errors = [];
+  for (const f of filesArr) {
+    const m = f.name.match(/Ad\s*(\d+)/i);
+    if (!m) { errors.push({ file: f.name, reason: 'Pas de "Ad X" dans le nom' }); continue; }
+    const adNum = parseInt(m[1], 10);
+    const ad = adByNum.get(adNum);
+    if (!ad) { errors.push({ file: f.name, reason: `Ad ${adNum} n'existe pas. Crée-la d'abord via Concurrent.` }); continue; }
+    items.push({ file: f, ad, adNum });
+  }
+
+  if (errors.length > 0) {
+    const errsHtml = errors.map(e => `<div style="padding:8px;background:rgba(248,113,113,0.1);border-radius:4px;margin-bottom:6px;font-size:12px"><strong>${escapeHtml(e.file)}</strong> : ${escapeHtml(e.reason)}</div>`).join('');
+    await modal(`
+      <div class="modal-title" style="color:var(--red)">${errors.length} fichier(s) refusé(s)</div>
+      ${errsHtml}
+      <div class="modal-actions"><button class="btn" data-modal-close>OK</button></div>
+    `);
+    if (items.length === 0) return;
+  }
+
+  // 4. Pour chaque item : si pending/rejected existe → delete old Drive file
+  let successCount = 0;
+  for (const it of items) {
+    try {
+      const { data: existingPv } = await sb.from('pending_validations').select('*').eq('ad_id', it.ad.id).eq('country_id', countryId).maybeSingle();
+      if (existingPv?.drive_file_id) {
+        // Delete old Drive file (best effort, on continue même si fail)
+        try {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${existingPv.drive_file_id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${driveState.accessToken}` }
+          });
+        } catch (e) { console.warn('[DELETE OLD]', e); }
+      }
+
+      // Upload du nouveau fichier
+      const ext = it.file.name.split('.').pop() || 'mp4';
+      const newName = `Ad ${it.adNum}.${ext}`;
+      const uploaded = await driveUploadFile(it.file, countryFolder.id, newName);
+      if (!uploaded?.id) throw new Error('Upload Drive failed');
+
+      // Upsert pending_validations
+      const payload = {
+        workspace_id: currentWorkspaceId,
+        product_id: productId,
+        ad_id: it.ad.id,
+        country_id: countryId,
+        drive_file_id: uploaded.id,
+        drive_file_name: newName,
+        status: 'pending',
+        uploaded_by: currentUser.id,
+        uploaded_at: new Date().toISOString(),
+        reviewed_by: null,
+        reviewed_at: null,
+        feedback: null
+      };
+      if (existingPv) {
+        await sb.from('pending_validations').update(payload).eq('id', existingPv.id);
+      } else {
+        await sb.from('pending_validations').insert(payload);
+      }
+      successCount++;
+    } catch (e) {
+      console.error('[UPLOAD FINISHED]', e);
+      errors.push({ file: it.file.name, reason: e.message || String(e) });
+    }
+  }
+
+  toast(`${successCount}/${items.length} vidéo(s) uploadée(s) en attente de validation`, successCount === items.length ? 'success' : 'warn', 5000);
+  render();
+}
+
+// Helper : upload un fichier sur Drive (multipart)
+async function driveUploadFile(file, parentId, displayName) {
+  const accessToken = driveState.accessToken;
+  if (!accessToken) throw new Error('Drive non connecté');
+  const metadata = { name: displayName, parents: [parentId] };
+  const boundary = '-------keycorp-' + Math.random().toString(36).slice(2);
+  const reader = new FileReader();
+  const arrayBuffer = await new Promise((resolve, reject) => {
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${file.type || 'application/octet-stream'}\r\n\r\n`,
+    arrayBuffer,
+    `\r\n--${boundary}--`
+  ]);
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+    body
+  });
+  if (!res.ok) throw new Error('Drive upload: HTTP ' + res.status);
+  return await res.json();
+}
+
+async function openValidateTradModal(productId, adId, countryId, state) {
+  const { data: ad } = await sb.from('ads').select('name').eq('id', adId).single();
+  const { data: pv } = await sb.from('pending_validations').select('*').eq('ad_id', adId).eq('country_id', countryId).maybeSingle();
+  const adName = ad?.name || 'Ad';
+
+  if (state === 'approved') {
+    // Affichage info validée (si pv existe = c'est une validation passée par notre flow)
+    let info = '<div class="text-sm text-dim">Cette traduction a été validée.</div>';
+    if (pv?.reviewed_by) {
+      const { data: reviewer } = await sb.from('profiles').select('full_name, email').eq('id', pv.reviewed_by).maybeSingle();
+      info = `<div class="text-sm text-dim">Validée par <strong>${escapeHtml(reviewer?.full_name || reviewer?.email || 'admin')}</strong> le ${new Date(pv.reviewed_at).toLocaleString('fr-FR')}.</div>`;
+    }
+    await modal(`
+      <div class="modal-title">${escapeHtml(adName)} / ${countryId} — Validée</div>
+      ${info}
+      <div class="modal-actions"><button class="btn" data-modal-ok>OK</button></div>
+    `);
+    return;
+  }
+
+  if (state === 'rejected') {
+    await modal(`
+      <div class="modal-title" style="color:var(--red)">${escapeHtml(adName)} / ${countryId} — Rejetée</div>
+      <div style="padding:12px;background:rgba(248,113,113,0.1);border-left:3px solid var(--red);border-radius:6px;margin-bottom:12px">
+        <div style="font-weight:700;color:var(--red);font-size:11px;margin-bottom:6px">FEEDBACK</div>
+        <div style="font-size:13px;line-height:1.6;white-space:pre-wrap">${escapeHtml(pv?.feedback || '(aucun feedback)')}</div>
+      </div>
+      <div class="text-sm text-dim">En attente de re-upload de la version corrigée par l'éditeur.</div>
+      <div class="modal-actions"><button class="btn" data-modal-ok>OK</button></div>
+    `);
+    return;
+  }
+
+  // state === 'pending'
+  if (!isAdmin()) {
+    // Editor / Page Builder : juste voir
+    await modal(`
+      <div class="modal-title">${escapeHtml(adName)} / ${countryId} — En attente</div>
+      <div class="text-sm text-dim mb-md">Cette vidéo attend la validation d'un admin.</div>
+      ${pv?.drive_file_id ? `<a href="https://drive.google.com/file/d/${escapeHtml(pv.drive_file_id)}/view" target="_blank" rel="noopener noreferrer" class="btn btn-secondary">Voir la vidéo sur Drive</a>` : ''}
+      <div class="modal-actions"><button class="btn" data-modal-ok>OK</button></div>
+    `);
+    return;
+  }
+
+  // Admin → action validate/reject
+  const driveLink = pv?.drive_file_id ? `https://drive.google.com/file/d/${pv.drive_file_id}/view` : null;
+  let uploaderName = '';
+  if (pv?.uploaded_by) {
+    const { data: up } = await sb.from('profiles').select('full_name, email').eq('id', pv.uploaded_by).maybeSingle();
+    uploaderName = up?.full_name || up?.email || 'utilisateur';
+  }
+  const r = await modal(`
+    <div class="modal-title" style="color:var(--orange)">${escapeHtml(adName)} / ${countryId} — En attente de validation</div>
+    <div class="text-sm text-dim mb-md">
+      Uploadé par <strong>${escapeHtml(uploaderName)}</strong>
+      ${pv?.uploaded_at ? ` · ${new Date(pv.uploaded_at).toLocaleString('fr-FR')}` : ''}
+    </div>
+    ${driveLink ? `<a href="${escapeHtml(driveLink)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="margin-bottom:14px">Voir la vidéo sur Drive</a>` : ''}
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Fermer</button>
+      <button class="btn btn-danger" data-action="reject">Rejeter</button>
+      <button class="btn" style="background:var(--green);color:#000" data-action="approve">Valider</button>
+    </div>
+  `);
+  if (!r) return;
+  if (r.action === 'approve') {
+    await approveTradVideo(pv);
+  } else if (r.action === 'reject') {
+    await rejectTradVideo(pv, adName, countryId);
+  }
+}
+
+async function approveTradVideo(pv) {
+  if (!pv) return;
+  if (!isAdmin()) { toast('Permission refusée', 'error'); return; }
+  toast('Validation en cours...', 'info');
+  try {
+    // 1. Déplacer le fichier de _a_valider/{country}/ vers {country}/ sur Drive
+    const moved = await driveMoveValidatedFile(pv);
+    if (!moved.ok) throw new Error(moved.error || 'Drive move failed');
+
+    // 2. Update pending_validations → status approved
+    await sb.from('pending_validations').update({
+      status: 'approved',
+      reviewed_by: currentUser.id,
+      reviewed_at: new Date().toISOString(),
+      drive_file_id: moved.newFileId, // l'ID change après le move
+      feedback: null
+    }).eq('id', pv.id);
+
+    // 3. Update ad_countries → trad = true
+    const { data: existing } = await sb.from('ad_countries').select('*').eq('ad_id', pv.ad_id).eq('country_id', pv.country_id).maybeSingle();
+    const acPayload = {
+      trad: true,
+      trad_at: new Date().toISOString(),
+      drive_file_id: moved.newFileId,
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser.id
+    };
+    if (existing) {
+      await sb.from('ad_countries').update(acPayload).eq('ad_id', pv.ad_id).eq('country_id', pv.country_id);
+    } else {
+      await sb.from('ad_countries').insert({ ad_id: pv.ad_id, country_id: pv.country_id, ...acPayload, meta: false, workspace_id: currentWorkspaceId });
+    }
+
+    toast('Vidéo validée', 'success');
+    render();
+  } catch (e) {
+    console.error('[VALIDATE TRAD]', e);
+    toast('Erreur validation : ' + (e.message || e), 'error', 6000);
+  }
+}
+
+async function rejectTradVideo(pv, adName, countryId) {
+  if (!pv) return;
+  if (!isAdmin()) { toast('Permission refusée', 'error'); return; }
+  const r = await modal(`
+    <div class="modal-title" style="color:var(--red)">Rejeter ${escapeHtml(adName)} / ${countryId}</div>
+    <div class="text-sm text-dim mb-md">Feedback pour l'éditeur (obligatoire) :</div>
+    <div class="input-group">
+      <textarea class="input" data-field="feedback" style="min-height:120px" autofocus placeholder="Ex: Sous-titres mal alignés, refais avec sync précise sur la 2ème scène"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Rejeter avec ce feedback</button>
+    </div>
+  `);
+  if (!r) return;
+  const feedback = (r.feedback || '').trim();
+  if (!feedback) { toast('Feedback obligatoire', 'error'); return; }
+
+  await sb.from('pending_validations').update({
+    status: 'rejected',
+    reviewed_by: currentUser.id,
+    reviewed_at: new Date().toISOString(),
+    feedback
+  }).eq('id', pv.id);
+  toast('Vidéo rejetée — l\'éditeur peut maintenant re-uploader', 'success');
+  render();
+}
+
+// Helper : déplace le fichier de _a_valider/{country}/Ad X.mp4 vers {country}/Ad X.mp4
+async function driveMoveValidatedFile(pv) {
+  if (!driveState.connected) return { ok: false, error: 'Drive non connecté' };
+  try {
+    // Récupérer le drive_folder_id du produit
+    const { data: prod } = await sb.from('products').select('drive_folder_id').eq('id', pv.product_id).single();
+    if (!prod?.drive_folder_id) return { ok: false, error: 'Pas de drive_folder_id' };
+
+    // Trouver le dossier de destination {country}/
+    const targetFolder = await driveFindFolder(pv.country_id, prod.drive_folder_id);
+    if (!targetFolder) return { ok: false, error: `Dossier ${pv.country_id}/ introuvable` };
+
+    // Trouver le dossier source _a_valider/{country}/
+    const valFolder = await driveFindFolder('_a_valider', prod.drive_folder_id);
+    if (!valFolder) return { ok: false, error: '_a_valider introuvable' };
+    const sourceFolder = await driveFindFolder(pv.country_id, valFolder.id);
+    if (!sourceFolder) return { ok: false, error: `_a_valider/${pv.country_id}/ introuvable` };
+
+    // Déplacer le fichier (changer parents)
+    const accessToken = driveState.accessToken;
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${pv.drive_file_id}?addParents=${targetFolder.id}&removeParents=${sourceFolder.id}&fields=id,parents`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!res.ok) return { ok: false, error: 'Drive API: HTTP ' + res.status };
+    const out = await res.json();
+    return { ok: true, newFileId: out.id };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
 }
 
 async function editProductFlow(productId) {
