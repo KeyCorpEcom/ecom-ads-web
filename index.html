@@ -1579,8 +1579,10 @@ async function renderProduit(el, productId) {
           </div>
         `).join('')}
       </div>
-      <div class="text-sm text-dim" style="margin-top:10px;padding:8px 10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--orange);line-height:1.5">
-        Les vidéos vont dans <span class="mono">_a_valider/{pays}/</span>. Un admin doit valider pour qu'elles passent dans <span class="mono">{pays}/</span> et que la case Trad coche en vert.
+      <div class="text-sm text-dim" style="margin-top:10px;padding:10px 12px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--orange);line-height:1.6">
+        <div style="margin-bottom:6px"><strong style="color:var(--orange)">Nom de fichier obligatoire :</strong> <span class="mono">Ad X - ${escapeHtml(product.id)} - PAYS.mp4</span></div>
+        <div style="margin-bottom:6px;font-size:11px">Exemples : <span class="mono">Ad 1 - ${escapeHtml(product.id)} - FR.mp4</span> · <span class="mono">Ad 2 - ${escapeHtml(product.id)} - BE.mp4</span></div>
+        <div style="font-size:11px;color:var(--text-mute)">Les vidéos vont dans <span class="mono">_a_valider/{pays}/</span>. Un admin doit valider pour qu'elles passent dans <span class="mono">{pays}/</span> et que la case Trad coche en vert.</div>
       </div>
     </div>
 
@@ -1756,15 +1758,19 @@ async function uploadFinishedFlow(productId) {
   // Modal : choix pays + file picker
   const r = await modal(`
     <div class="modal-title">Uploader vidéos finies (à valider)</div>
-    <div class="text-sm text-dim mb-md">Les vidéos vont dans <span class="mono">_a_valider/{pays}/</span>. Un admin doit valider avant que la cellule passe au vert.</div>
+    <div style="padding:10px 12px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--orange);line-height:1.6;margin-bottom:14px">
+      <div style="margin-bottom:6px;font-size:13px"><strong style="color:var(--orange)">Nom de fichier obligatoire :</strong> <span class="mono">Ad X - ${escapeHtml(productId)} - PAYS.mp4</span></div>
+      <div style="margin-bottom:6px;font-size:11px;color:var(--text-dim)">Exemples : <span class="mono">Ad 1 - ${escapeHtml(productId)} - FR.mp4</span> · <span class="mono">Ad 2 - ${escapeHtml(productId)} - BE.mp4</span></div>
+      <div style="font-size:11px;color:var(--text-mute)">Les vidéos vont dans <span class="mono">_a_valider/{pays}/</span>. Un admin doit valider avant que la cellule passe au vert.</div>
+    </div>
     <div class="input-group">
       <label class="input-label">Pays cible</label>
       <select class="select" data-field="country">${countryOptions}</select>
     </div>
     <div class="input-group">
-      <label class="input-label">Fichiers vidéo (nommés Ad 1, Ad 2, etc.)</label>
+      <label class="input-label">Fichiers vidéo</label>
       <input type="file" data-field="files" multiple accept="video/*">
-      <div class="input-hint">Le nom du fichier doit contenir <span class="mono">Ad X</span>. Si une version pending/rejetée existe pour cet Ad, elle sera remplacée automatiquement.</div>
+      <div class="input-hint">Le nom du fichier doit contenir <span class="mono">Ad X</span> (ex: <span class="mono">Ad 1 - ${escapeHtml(productId)} - FR.mp4</span>). Si une version pending/rejetée existe, elle sera remplacée automatiquement.</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
@@ -1843,9 +1849,9 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
         } catch (e) { console.warn('[DELETE OLD]', e); }
       }
 
-      // Upload du nouveau fichier
+      // Upload du nouveau fichier — convention : "Ad X - {productId} - {countryId}.ext"
       const ext = it.file.name.split('.').pop() || 'mp4';
-      const newName = `Ad ${it.adNum}.${ext}`;
+      const newName = `Ad ${it.adNum} - ${productId} - ${countryId}.${ext}`;
       const uploaded = await driveUploadFile(it.file, countryFolder.id, newName);
       if (!uploaded?.id) throw new Error('Upload Drive failed');
 
