@@ -321,39 +321,34 @@ a{color:var(--gold);text-decoration:none}
 .tracking-table th{background:var(--bg);font-size:11px;text-transform:uppercase;color:var(--text-dim);font-weight:600;letter-spacing:0.5px;position:sticky;top:0}
 .tracking-table th.user-col, .tracking-table td.user-col{text-align:left;padding-left:16px;min-width:200px;position:sticky;left:0;background:var(--bg-card);z-index:1}
 .tracking-table th.user-col{background:var(--bg);z-index:2}
-.tracking-table .seen{color:var(--green);font-size:18px;font-weight:700}
-.tracking-table .unseen{color:var(--text-mute);font-size:18px}
+.tracking-table .seen{color:var(--green);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px}
+.tracking-table .unseen{color:var(--text-mute);font-size:14px}
 
 /* Category cards (formations home) */
-.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
-.cat-card{display:flex;align-items:center;gap:16px;padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.18s;position:relative}
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.cat-card{display:flex;align-items:center;gap:16px;padding:20px 22px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.18s;position:relative}
 .cat-card:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.3)}
-.cat-card-icon{font-size:32px;width:56px;height:56px;border-radius:12px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .cat-card-body{flex:1;min-width:0}
-.cat-card-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px}
-.cat-card-meta{display:flex;gap:10px;font-size:11px;color:var(--text-dim);align-items:center}
+.cat-card-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:6px;letter-spacing:-0.01em}
+.cat-card-meta{display:flex;gap:10px;font-size:11px;color:var(--text-dim);align-items:center;flex-wrap:wrap}
 .cat-card-count{padding:2px 8px;background:var(--bg-input);border-radius:10px;font-weight:600}
 .cat-card-viewed{color:var(--green);font-weight:500}
-.cat-card-arrow{color:var(--text-mute);font-size:18px;transition:all 0.15s;flex-shrink:0}
-.cat-card:hover .cat-card-arrow{color:var(--gold);transform:translateX(4px)}
-.cat-card-actions{display:flex;gap:4px;align-items:center}
-.btn-icon{width:30px;height:30px;border-radius:6px;background:transparent;border:1px solid var(--border);color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all 0.15s;padding:0}
-.btn-icon:hover{background:var(--bg-input);color:var(--text);border-color:var(--gold)}
-.btn-icon.danger:hover{background:rgba(248,113,113,0.1);color:var(--red);border-color:var(--red)}
+.cat-card-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
+.btn-text-action{background:transparent;border:none;color:var(--text-dim);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;cursor:pointer;padding:6px 10px;border-radius:5px;transition:all 0.15s}
+.btn-text-action:hover{background:var(--bg-input);color:var(--gold)}
+.btn-text-action.danger{color:var(--text-mute)}
+.btn-text-action.danger:hover{background:rgba(248,113,113,0.1);color:var(--red)}
 
 /* Numbered training list (category detail) */
 .numbered-list{display:flex;flex-direction:column;gap:10px}
-.numbered-item{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.15s}
-.numbered-item:hover{border-color:var(--gold);transform:translateX(4px);background:var(--bg-card-hover, var(--bg-card))}
+.numbered-item{display:flex;align-items:center;gap:18px;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.15s}
+.numbered-item:hover{border-color:var(--gold);background:var(--bg-card-hover, var(--bg-card))}
 .numbered-num{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:800;color:var(--gold);min-width:50px;letter-spacing:-0.02em;flex-shrink:0;text-align:center}
-.numbered-thumb{aspect-ratio:16/9;width:120px;background:var(--bg-input);border-radius:6px;flex-shrink:0;background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;color:var(--text-mute);position:relative}
-.numbered-thumb-play{width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.numbered-thumb{aspect-ratio:16/9;width:120px;background:var(--bg-input);border-radius:6px;flex-shrink:0;background-size:cover;background-position:center}
 .numbered-body{flex:1;min-width:0}
-.numbered-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px}
+.numbered-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px;letter-spacing:-0.01em}
 .numbered-desc{font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .numbered-meta{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
-.numbered-arrow{color:var(--text-mute);font-size:18px;transition:all 0.15s;flex-shrink:0}
-.numbered-item:hover .numbered-arrow{color:var(--gold)}
 
 /* Ad Copy : tabs par pays */
 .copy-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--border-soft);padding-bottom:0}
@@ -4876,7 +4871,6 @@ async function renderFormations(el) {
       <div class="cat-grid">
         ${showCats.map(c => `
           <div class="cat-card" ${c.id ? `data-cat="${c.id}"` : 'data-cat="__none__"'}>
-            <div class="cat-card-icon">${getCategoryIcon(c.name)}</div>
             <div class="cat-card-body">
               <div class="cat-card-title">${escapeHtml(c.name)}</div>
               <div class="cat-card-meta">
@@ -4886,11 +4880,10 @@ async function renderFormations(el) {
             </div>
             ${isAdminUser && c.id ? `
               <div class="cat-card-actions" onclick="event.stopPropagation()">
-                <button class="btn-icon" data-edit-cat="${c.id}" title="Renommer">✎</button>
-                <button class="btn-icon danger" data-del-cat="${c.id}" title="Supprimer">×</button>
+                <button class="btn-text-action" data-edit-cat="${c.id}">Renommer</button>
+                <button class="btn-text-action danger" data-del-cat="${c.id}">Suppr.</button>
               </div>
             ` : ''}
-            <div class="cat-card-arrow">→</div>
           </div>
         `).join('')}
       </div>
@@ -4908,34 +4901,6 @@ async function renderFormations(el) {
     el.querySelectorAll('[data-edit-cat]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); editCategoryFlow(b.dataset.editCat); }));
     el.querySelectorAll('[data-del-cat]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); deleteCategoryFlow(b.dataset.delCat); }));
   }
-}
-
-// SVG line icons (Feather/Lucide style — pro, no emoji)
-function getCategoryIcon(name) {
-  const n = (name || '').toLowerCase();
-  const wrap = (path) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px">${path}</svg>`;
-  // Page Building : layout
-  if (n.includes('page') || n.includes('build')) return wrap('<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>');
-  // Validation Ads : check-circle
-  if (n.includes('ad') || n.includes('valid')) return wrap('<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>');
-  // Admin / Config : settings gear
-  if (n.includes('admin') || n.includes('config')) return wrap('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>');
-  // Process général : book / document
-  if (n.includes('process') || n.includes('général') || n.includes('general')) return wrap('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>');
-  // Drive / Cloud
-  if (n.includes('drive') || n.includes('import') || n.includes('cloud')) return wrap('<path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>');
-  // P&L / Finance
-  if (n.includes('pnl') || n.includes('p&l') || n.includes('finance')) return wrap('<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>');
-  // SAV : help / lifebuoy
-  if (n.includes('sav') || n.includes('support')) return wrap('<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="14.83" y1="9.17" x2="18.36" y2="5.64"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/>');
-  // Default : folder
-  return wrap('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>');
-}
-
-// Petit SVG play (pour les thumbnails de formations)
-function svgPlayIcon(size) {
-  const s = size || 18;
-  return `<svg viewBox="0 0 24 24" fill="currentColor" style="width:${s}px;height:${s}px"><polygon points="6 4 20 12 6 20"/></svg>`;
 }
 
 async function renderFormationCategory(el, catId) {
@@ -4966,8 +4931,8 @@ async function renderFormationCategory(el, catId) {
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <a class="btn btn-ghost btn-sm" href="#formations" style="margin-bottom:8px">← Formations</a>
-        <div class="page-title" style="display:flex;align-items:center;gap:12px"><span style="display:inline-flex;width:32px;height:32px;border-radius:8px;background:var(--bg-input);align-items:center;justify-content:center;color:var(--gold)">${getCategoryIcon(cat.name)}</span>${escapeHtml(cat.name)}</div>
+        <a class="btn btn-ghost btn-sm" href="#formations" style="margin-bottom:8px">Retour</a>
+        <div class="page-title">${escapeHtml(cat.name)}</div>
         <div class="page-subtitle">${visible.length} formation${visible.length > 1 ? 's' : ''}</div>
       </div>
       ${isAdminUser ? `
@@ -4991,18 +4956,15 @@ async function renderFormationCategory(el, catId) {
           return `
             <div class="numbered-item" data-formation="${t.id}">
               <div class="numbered-num">${String(i + 1).padStart(2, '0')}</div>
-              <div class="numbered-thumb" ${thumb ? `style="background-image:url('${escapeHtml(thumb)}')"` : ''}>
-                ${!thumb ? `<span style="opacity:0.45;color:var(--text-mute)">${svgPlayIcon(28)}</span>` : `<div class="numbered-thumb-play">${svgPlayIcon(14)}</div>`}
-              </div>
+              <div class="numbered-thumb" ${thumb ? `style="background-image:url('${escapeHtml(thumb)}')"` : ''}></div>
               <div class="numbered-body">
                 <div class="numbered-title">${escapeHtml(t.title)}</div>
                 ${t.description ? `<div class="numbered-desc">${escapeHtml(t.description)}</div>` : ''}
                 <div class="numbered-meta">
                   ${(t.roles || []).map(r => `<span class="formation-role-chip ${r}">${r.replace('_', ' ')}</span>`).join('')}
-                  ${isAdminUser && viewed ? '<span style="margin-left:auto;font-size:11px;color:var(--green)">✓ tu as vu</span>' : ''}
+                  ${isAdminUser && viewed ? '<span style="margin-left:auto;font-size:11px;color:var(--green);font-weight:600">Tu as vu</span>' : ''}
                 </div>
               </div>
-              <div class="numbered-arrow">→</div>
             </div>
           `;
         }).join('')}
@@ -5057,7 +5019,7 @@ async function renderFormationDetail(el, trainingId) {
     <div class="formation-detail">
       <div class="page-head">
         <div>
-          <a class="btn btn-ghost btn-sm" href="#formations" style="margin-bottom:8px">← Formations</a>
+          <a class="btn btn-ghost btn-sm" href="#formations" style="margin-bottom:8px">Retour</a>
           ${catName ? `<div class="text-sm text-dim">${escapeHtml(catName)}</div>` : ''}
           <div class="page-title">${escapeHtml(t.title)}</div>
           ${t.description ? `<div class="page-subtitle">${escapeHtml(t.description)}</div>` : ''}
@@ -5137,8 +5099,8 @@ async function renderFormationsSuivi(el) {
                   if (!applies) return '<td style="color:var(--text-mute)">—</td>';
                   const seen = seenSet.has(`${u.id}|${t.id}`);
                   return seen
-                    ? '<td class="seen">✓</td>'
-                    : '<td class="unseen">○</td>';
+                    ? '<td class="seen">Vu</td>'
+                    : '<td class="unseen">—</td>';
                 }).join('')}
               </tr>
             `).join('')}
