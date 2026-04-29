@@ -1269,11 +1269,12 @@ async function renderProduit(el, productId) {
                   else if (pv?.status === 'rejected') { tradState = 'rejected'; tradTooltip = 'Rejetée — clique pour voir le feedback'; }
                   else if (pv?.status === 'pending') { tradState = 'pending'; tradTooltip = 'En attente de validation — clique pour valider/rejeter'; }
                   const cellClickable = !isCut && (tradState === 'pending' || tradState === 'rejected' || tradState === 'approved');
-                  const tradColor = { empty: '', pending: 'rgba(251,191,36,0.25)', approved: 'rgba(52,211,153,0.25)', rejected: 'rgba(248,113,113,0.25)' }[tradState];
-                  const tradDot = { empty: '', pending: '#fbbf24', approved: '#34d399', rejected: '#f87171' }[tradState];
+                  // Couleur du carré (style identique aux cases Meta) — pas de fond sur la cellule entière
+                  const tradBg = { empty: 'var(--bg-input)', pending: '#fbbf24', approved: '#34d399', rejected: '#f87171' }[tradState];
+                  const tradBorder = { empty: 'var(--border)', pending: '#fbbf24', approved: '#34d399', rejected: '#f87171' }[tradState];
                   return `
-                    <td class="check-cell ${cellClickable ? '' : 'auto'} ${isCut ? 'cut' : ''}" ${cellClickable ? `data-validate-trad="${ad.id}|${c.id}|${tradState}" style="cursor:pointer;background:${tradColor}"` : `style="background:${tradColor}"`} title="${escapeHtml(tradTooltip)}">
-                      ${tradState === 'empty' ? `<span class="check-icon"></span>` : `<span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${tradDot}"></span>`}
+                    <td class="check-cell ${cellClickable ? '' : 'auto'} ${isCut ? 'cut' : ''}" ${cellClickable ? `data-validate-trad="${ad.id}|${c.id}|${tradState}" style="cursor:pointer"` : ''} title="${escapeHtml(tradTooltip)}">
+                      <span class="check-icon" style="background:${tradBg};border-color:${tradBorder}"></span>
                     </td>
                     <td class="check-cell ${canEdit() && !isCut ? '' : 'readonly'} ${isCut ? 'cut' : ''}" ${isCut ? '' : `data-toggle-meta="${ad.id}|${c.id}"`} title="${isCut ? 'Marché coupé — réactive-le pour éditer' : (canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule')}">
                       <span class="check-icon meta ${ac.meta ? 'checked' : ''}"></span>
