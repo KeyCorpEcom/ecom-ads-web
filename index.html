@@ -246,6 +246,37 @@ a{color:var(--gold);text-decoration:none}
 .ads-table, .ads-table *{user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none}
 .ads-table .check-cell:focus, .ads-table .check-cell:focus-visible{outline:none}
 .ads-table td[data-validate-trad], .ads-table td[data-toggle-meta]{-webkit-tap-highlight-color:transparent}
+
+/* ============ NOTIFICATIONS BELL ============ */
+.notif-bell{position:fixed;top:18px;right:24px;z-index:50}
+.notif-bell-btn{position:relative;width:40px;height:40px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all 0.15s}
+.notif-bell-btn:hover{background:var(--bg-input);border-color:var(--gold)}
+.notif-bell-btn svg{width:18px;height:18px}
+.notif-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid var(--bg)}
+.notif-badge.hidden{display:none}
+.notif-dropdown{position:absolute;top:48px;right:0;width:380px;max-height:520px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.5);overflow:hidden;display:flex;flex-direction:column;animation:fadeIn 0.12s ease}
+.notif-dropdown.hidden{display:none}
+.notif-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border-soft);font-weight:600;font-size:13px}
+.notif-header button{background:transparent;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:4px 8px;border-radius:4px}
+.notif-header button:hover{color:var(--gold);background:var(--bg-input)}
+.notif-list{flex:1;overflow-y:auto;max-height:440px}
+.notif-empty{padding:32px 16px;text-align:center;color:var(--text-dim);font-size:13px}
+.notif-item{padding:12px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;display:flex;gap:10px;transition:background 0.1s}
+.notif-item:hover{background:var(--bg-input)}
+.notif-item.unread{background:rgba(96,165,250,0.06)}
+.notif-item.unread:hover{background:rgba(96,165,250,0.12)}
+.notif-item:last-child{border-bottom:none}
+.notif-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;font-weight:700}
+.notif-icon.approved{background:rgba(52,211,153,0.15);color:var(--green)}
+.notif-icon.rejected{background:rgba(248,113,113,0.15);color:var(--red)}
+.notif-icon.pending{background:rgba(251,191,36,0.15);color:#fbbf24}
+.notif-body{flex:1;min-width:0}
+.notif-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.notif-msg{font-size:12px;color:var(--text-dim);line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.notif-msg.expanded{white-space:normal}
+.notif-time{font-size:10px;color:var(--text-mute);margin-top:4px}
+.notif-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);align-self:center;flex-shrink:0}
+.notif-item:not(.unread) .notif-dot{visibility:hidden}
 </style>
 </head>
 <body>
@@ -313,6 +344,23 @@ a{color:var(--gold);text-decoration:none}
   <main class="main">
     <div id="page"></div>
   </main>
+
+  <!-- Notification bell (fixed top-right) -->
+  <div class="notif-bell" id="notif-bell" style="display:none">
+    <button class="notif-bell-btn" id="notif-bell-btn" title="Notifications">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+      <span class="notif-badge hidden" id="notif-badge">0</span>
+    </button>
+    <div class="notif-dropdown hidden" id="notif-dropdown">
+      <div class="notif-header">
+        <div>Notifications</div>
+        <button id="notif-mark-all">Tout marquer lu</button>
+      </div>
+      <div class="notif-list" id="notif-list">
+        <div class="notif-empty">Aucune notification</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div id="toast-container"></div>
@@ -559,6 +607,8 @@ function switchWorkspace(workspaceId) {
   currentWorkspace = { id: m.workspaces.id, name: m.workspaces.name, slug: m.workspaces.slug, role: m.role };
   localStorage.setItem('currentWorkspaceId', currentWorkspaceId);
   toast(`Switch vers ${m.workspaces.name}`, 'success');
+  // Recharge les notifs du nouveau workspace
+  loadNotifications();
   render();
 }
 
@@ -605,6 +655,10 @@ async function initApp(user) {
     document.getElementById('nav-users').classList.remove('hidden');
     document.getElementById('nav-settings').classList.remove('hidden');
   }
+  // Notifications : load + bind handlers + subscribe realtime
+  setupNotifBellHandlers();
+  await loadNotifications();
+  subscribeRealtimeNotifs();
   render();
 }
 
@@ -1664,6 +1718,21 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
   }
 
   toast(`${successCount}/${items.length} vidéo(s) uploadée(s) en attente de validation`, successCount === items.length ? 'success' : 'warn', 5000);
+  // Notifier tous les admins du workspace
+  if (successCount > 0) {
+    const adminIds = await getWorkspaceAdmins();
+    const uploaderName = currentProfile?.full_name || currentProfile?.email || 'éditeur';
+    const adNames = items.slice(0, successCount).map(it => `Ad ${it.adNum}`).join(', ');
+    for (const adminId of adminIds) {
+      await sendNotification({
+        userId: adminId,
+        type: 'trad_pending',
+        title: `${successCount} vidéo(s) à valider`,
+        message: `${uploaderName} a uploadé ${adNames} / ${countryId} pour ${prod.name || productId}.`,
+        link: { product_id: productId, country_id: countryId }
+      });
+    }
+  }
   render();
 }
 
@@ -1819,6 +1888,15 @@ async function approveTradVideo(pv) {
     }
 
     toast('Vidéo validée', 'success');
+    // Notifier l'uploader
+    const { data: ad2 } = await sb.from('ads').select('name, product_id').eq('id', pv.ad_id).single();
+    await sendNotification({
+      userId: pv.uploaded_by,
+      type: 'trad_approved',
+      title: 'Vidéo validée ✓',
+      message: `${ad2?.name || 'Ad'} / ${pv.country_id} — ta traduction a été validée.`,
+      link: { product_id: pv.product_id, ad_id: pv.ad_id, country_id: pv.country_id }
+    });
     render();
   } catch (e) {
     console.error('[VALIDATE TRAD]', e);
@@ -1851,6 +1929,14 @@ async function rejectTradVideo(pv, adName, countryId) {
     feedback
   }).eq('id', pv.id);
   toast('Vidéo rejetée — l\'éditeur peut maintenant re-uploader', 'success');
+  // Notifier l'uploader avec le feedback
+  await sendNotification({
+    userId: pv.uploaded_by,
+    type: 'trad_rejected',
+    title: 'Vidéo rejetée',
+    message: `${adName} / ${countryId} — Feedback : ${feedback}`,
+    link: { product_id: pv.product_id, ad_id: pv.ad_id, country_id: pv.country_id }
+  });
   render();
 }
 
@@ -4501,6 +4587,201 @@ async function toggleMetaCell(adId, cId) {
 }
 
 /* ============================================================
+   NOTIFICATIONS
+   ============================================================ */
+const notifState = {
+  items: [],
+  unreadCount: 0,
+  channel: null,
+  open: false,
+};
+
+async function loadNotifications() {
+  if (!currentUser || !currentWorkspaceId) return;
+  const { data, error } = await sb
+    .from('notifications')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .eq('workspace_id', currentWorkspaceId)
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (error) { console.error('[NOTIFS load]', error); return; }
+  notifState.items = data || [];
+  notifState.unreadCount = notifState.items.filter(n => !n.read).length;
+  renderNotifBell();
+  if (notifState.open) renderNotifList();
+}
+
+function renderNotifBell() {
+  const bell = document.getElementById('notif-bell');
+  if (!bell) return;
+  bell.style.display = currentUser ? '' : 'none';
+  const badge = document.getElementById('notif-badge');
+  if (notifState.unreadCount > 0) {
+    badge.textContent = notifState.unreadCount > 99 ? '99+' : String(notifState.unreadCount);
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+function notifTimeAgo(iso) {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return 'à l\'instant';
+  if (diff < 3600) return `il y a ${Math.floor(diff / 60)}min`;
+  if (diff < 86400) return `il y a ${Math.floor(diff / 3600)}h`;
+  if (diff < 86400 * 7) return `il y a ${Math.floor(diff / 86400)}j`;
+  return new Date(iso).toLocaleDateString('fr-FR');
+}
+
+function renderNotifList() {
+  const list = document.getElementById('notif-list');
+  if (!list) return;
+  if (notifState.items.length === 0) {
+    list.innerHTML = '<div class="notif-empty">Aucune notification</div>';
+    return;
+  }
+  list.innerHTML = notifState.items.map(n => {
+    const iconClass = n.type === 'trad_approved' ? 'approved'
+      : n.type === 'trad_rejected' ? 'rejected'
+      : 'pending';
+    const iconChar = n.type === 'trad_approved' ? '✓'
+      : n.type === 'trad_rejected' ? '✗'
+      : '⏱';
+    return `
+      <div class="notif-item ${n.read ? '' : 'unread'}" data-notif-id="${n.id}">
+        <div class="notif-icon ${iconClass}">${iconChar}</div>
+        <div class="notif-body">
+          <div class="notif-title">${escapeHtml(n.title)}</div>
+          <div class="notif-msg ${n.type === 'trad_rejected' ? 'expanded' : ''}">${escapeHtml(n.message || '')}</div>
+          <div class="notif-time">${notifTimeAgo(n.created_at)}</div>
+        </div>
+        <div class="notif-dot"></div>
+      </div>
+    `;
+  }).join('');
+  // Bind clicks
+  list.querySelectorAll('.notif-item').forEach(el => {
+    el.addEventListener('click', () => onNotifClick(el.dataset.notifId));
+  });
+}
+
+async function onNotifClick(notifId) {
+  const n = notifState.items.find(x => x.id === notifId);
+  if (!n) return;
+  // Mark as read si pas déjà
+  if (!n.read) {
+    await sb.from('notifications').update({ read: true }).eq('id', n.id);
+    n.read = true;
+    notifState.unreadCount = Math.max(0, notifState.unreadCount - 1);
+    renderNotifBell();
+  }
+  // Naviguer vers le produit/ad concerné
+  if (n.link?.product_id) {
+    closeNotifDropdown();
+    navigate('produit/' + n.link.product_id);
+  } else {
+    renderNotifList();
+  }
+}
+
+async function markAllNotifsRead() {
+  if (notifState.unreadCount === 0) return;
+  const ids = notifState.items.filter(x => !x.read).map(x => x.id);
+  if (ids.length === 0) return;
+  await sb.from('notifications').update({ read: true }).in('id', ids);
+  notifState.items.forEach(x => x.read = true);
+  notifState.unreadCount = 0;
+  renderNotifBell();
+  renderNotifList();
+  toast('Toutes les notifications marquées comme lues', 'success');
+}
+
+function openNotifDropdown() {
+  notifState.open = true;
+  document.getElementById('notif-dropdown').classList.remove('hidden');
+  renderNotifList();
+}
+function closeNotifDropdown() {
+  notifState.open = false;
+  document.getElementById('notif-dropdown').classList.add('hidden');
+}
+function toggleNotifDropdown() {
+  if (notifState.open) closeNotifDropdown(); else openNotifDropdown();
+}
+
+function setupNotifBellHandlers() {
+  const btn = document.getElementById('notif-bell-btn');
+  const markAll = document.getElementById('notif-mark-all');
+  if (!btn || btn.dataset.bound === '1') return;
+  btn.dataset.bound = '1';
+  btn.addEventListener('click', (e) => { e.stopPropagation(); toggleNotifDropdown(); });
+  markAll.addEventListener('click', (e) => { e.stopPropagation(); markAllNotifsRead(); });
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (!notifState.open) return;
+    const dd = document.getElementById('notif-dropdown');
+    const bell = document.getElementById('notif-bell');
+    if (dd && !dd.contains(e.target) && !bell.contains(e.target)) closeNotifDropdown();
+  });
+}
+
+function subscribeRealtimeNotifs() {
+  if (!currentUser) return;
+  if (notifState.channel) {
+    try { sb.removeChannel(notifState.channel); } catch (e) {}
+    notifState.channel = null;
+  }
+  notifState.channel = sb.channel('notifs-' + currentUser.id)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'notifications',
+      filter: `user_id=eq.${currentUser.id}`
+    }, (payload) => {
+      const n = payload.new;
+      // Filtre workspace courant
+      if (n.workspace_id !== currentWorkspaceId) return;
+      notifState.items.unshift(n);
+      if (!n.read) {
+        notifState.unreadCount++;
+        // Toast discret
+        toast(`${n.title} — ${n.message || ''}`.slice(0, 100), n.type === 'trad_rejected' ? 'error' : (n.type === 'trad_approved' ? 'success' : 'info'), 5000);
+      }
+      renderNotifBell();
+      if (notifState.open) renderNotifList();
+    })
+    .subscribe();
+}
+
+// Helper : envoie une notification à un user (à appeler depuis approve/reject/upload)
+async function sendNotification({ userId, type, title, message, link }) {
+  if (!userId || userId === currentUser?.id) return; // Pas de self-notif
+  try {
+    await sb.from('notifications').insert({
+      workspace_id: currentWorkspaceId,
+      user_id: userId,
+      type,
+      title,
+      message: message || null,
+      link: link || null
+    });
+  } catch (e) {
+    console.warn('[NOTIF send]', e);
+  }
+}
+
+// Helper : récupère les admins du workspace (pour notifier "vidéo à valider")
+async function getWorkspaceAdmins() {
+  const { data } = await sb
+    .from('workspace_members')
+    .select('user_id, role')
+    .eq('workspace_id', currentWorkspaceId)
+    .eq('role', 'admin');
+  return (data || []).map(m => m.user_id);
+}
+
+/* ============================================================
    INIT
    ============================================================ */
 (async function init() {
@@ -4525,6 +4806,10 @@ async function toggleMetaCell(adId, cId) {
     if (event === 'SIGNED_OUT' && currentUser) {
       currentUser = null;
       currentProfile = null;
+      // Cleanup notifications channel
+      if (notifState.channel) { try { sb.removeChannel(notifState.channel); } catch (e) {} notifState.channel = null; }
+      notifState.items = []; notifState.unreadCount = 0;
+      document.getElementById('notif-bell').style.display = 'none';
       document.getElementById('app').classList.add('hidden');
       document.getElementById('login-screen').classList.remove('hidden');
     } else if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user && !currentUser) {
