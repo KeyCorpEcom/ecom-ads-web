@@ -354,6 +354,15 @@ a{color:var(--gold);text-decoration:none}
 .numbered-meta{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .numbered-arrow{color:var(--text-mute);font-size:18px;transition:all 0.15s;flex-shrink:0}
 .numbered-item:hover .numbered-arrow{color:var(--gold)}
+
+/* Ad Copy : tabs par pays */
+.copy-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--border-soft);padding-bottom:0}
+.copy-tab{display:inline-flex;align-items:center;padding:8px 14px;border-radius:8px 8px 0 0;background:transparent;border:1px solid transparent;border-bottom:none;color:var(--text-dim);cursor:pointer;font-size:13px;font-weight:500;transition:all 0.15s;margin-bottom:-1px}
+.copy-tab:hover{color:var(--text);background:var(--bg-input)}
+.copy-tab.active{background:var(--bg-card);border-color:var(--border-soft);border-bottom-color:var(--bg-card);color:var(--gold);font-weight:600}
+.copy-tab img{vertical-align:middle}
+.copy-panel{padding-top:6px}
+.copy-panel.hidden{display:none}
 </style>
 </head>
 <body>
@@ -1407,7 +1416,13 @@ async function renderProduit(el, productId) {
           <tbody>
             ${ads.map(ad => {
               const copy = ad.ad_copy || {};
-              const hasCopy = copy.url || copy.headline || copy.primary || copy.description || copy.cta;
+              // Vérifie si une copy par pays est remplie (nouveau format)
+              const adCountryCopies = (adCountries || []).filter(ac => ac.ad_id === ad.id);
+              const hasPerCountryCopy = adCountryCopies.some(ac => {
+                const c = ac.copy || {};
+                return c.headline || c.primary || c.description;
+              });
+              const hasCopy = copy.url || hasPerCountryCopy || copy.headline || copy.primary || copy.description;
               const linkSrc = copy.url ? detectLinkSource(copy.url) : null;
               let rowDone = 0, rowTotal = 0;
               return `
@@ -4423,126 +4438,146 @@ function detectLinkSource(url) {
 }
 
 async function editAdCopyFlow(adId) {
+  // 1. Charge ad + product (pour pays) + ad_countries (pour copy par pays)
   const { data: ad } = await sb.from('ads').select('*').eq('id', adId).single();
   if (!ad) return;
-  const copy = ad.ad_copy || {};
-  const r = await modal(`
-    <div class="modal-title"> Ad Copy — ${escapeHtml(ad.name)}</div>
-    <div class="input-group">
-      <label class="input-label"> Lien source (AfterLib, FB, TikTok...)</label>
-      <input class="input" data-field="url" value="${escapeHtml(copy.url || '')}" placeholder="https://...">
-    </div>
-    <div class="input-group">
-      <label class="input-label"> Headline (titre de l'ad)</label>
-      <input class="input" data-field="headline" value="${escapeHtml(copy.headline || '')}">
-    </div>
-    <div class="input-group">
-      <label class="input-label"> Primary text (corps du texte)</label>
-      <textarea class="input" data-field="primary" style="min-height:100px">${escapeHtml(copy.primary || '')}</textarea>
-    </div>
-    <div class="input-group">
-      <label class="input-label"> Description</label>
-      <input class="input" data-field="description" value="${escapeHtml(copy.description || '')}">
-    </div>
-    <div class="input-group">
-      <label class="input-label"> CTA (call to action)</label>
-      <input class="input" data-field="cta" value="${escapeHtml(copy.cta || '')}" placeholder="Acheter, En savoir plus, ...">
-    </div>
-    <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border-soft)">
-      <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px"> Stats (Denote/AfterLib — optionnel)</div>
-      <div class="grid-2">
+  const { data: product } = await sb.from('products').select('enabled_countries, cut_countries').eq('id', ad.product_id).single();
+  const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
+  const { data: acRows } = await sb.from('ad_countries').select('*').eq('ad_id', adId);
+
+  // Pays actifs (enabled - cut)
+  const enabledIds = (product?.enabled_countries?.length ? product.enabled_countries : allCountries.map(c => c.id))
+    .filter(c => !(product?.cut_countries || []).includes(c));
+  const countries = allCountries.filter(c => enabledIds.includes(c.id));
+
+  if (countries.length === 0) { toast('Aucun pays actif sur ce produit', 'error'); return; }
+
+  // Map des copies par pays
+  const copyByCountry = {};
+  (acRows || []).forEach(ac => { copyByCountry[ac.country_id] = ac.copy || {}; });
+
+  // URL source globale (sur ad.ad_copy.url) — fallback ancien format
+  const sourceUrl = (ad.ad_copy && ad.ad_copy.url) || '';
+
+  // Onglets
+  const tabsHtml = countries.map((c, i) => `
+    <button type="button" class="copy-tab ${i === 0 ? 'active' : ''}" data-copy-tab="${c.id}">
+      ${flagImg(c.id)}<span style="margin-left:6px">${c.id}</span>
+    </button>
+  `).join('');
+
+  // Panels
+  const panelsHtml = countries.map((c, i) => {
+    const cp = copyByCountry[c.id] || {};
+    return `
+      <div class="copy-panel ${i === 0 ? '' : 'hidden'}" data-copy-panel="${c.id}">
         <div class="input-group">
-          <label class="input-label"> Ad spend estimé</label>
-          <input class="input" data-field="spend" value="${escapeHtml(copy.spend || '')}" placeholder="$5K-$10K">
+          <label class="input-label">Headline (titre)</label>
+          <input class="input" data-copy-field="headline" data-copy-country="${c.id}" value="${escapeHtml(cp.headline || '')}" placeholder="Titre de l'ad pour ${c.id}">
         </div>
         <div class="input-group">
-          <label class="input-label"> Vues totales</label>
-          <input class="input" data-field="views" value="${escapeHtml(copy.views || '')}" placeholder="1.2M">
+          <label class="input-label">Primary text (corps de l'annonce)</label>
+          <textarea class="input" data-copy-field="primary" data-copy-country="${c.id}" style="min-height:140px" placeholder="Texte principal qui apparaît au-dessus de l'ad...">${escapeHtml(cp.primary || '')}</textarea>
         </div>
         <div class="input-group">
-          <label class="input-label"> Running depuis</label>
-          <input class="input" data-field="runningSince" value="${escapeHtml(copy.runningSince || '')}" placeholder="45 jours">
-        </div>
-        <div class="input-group">
-          <label class="input-label"> Score perso (1-10)</label>
-          <input class="input" type="number" min="1" max="10" data-field="score" value="${escapeHtml(copy.score || '')}">
+          <label class="input-label">Description (sous-titre / link description)</label>
+          <input class="input" data-copy-field="description" data-copy-country="${c.id}" value="${escapeHtml(cp.description || '')}" placeholder="Sous-titre court sous le headline">
         </div>
       </div>
-      <div class="input-group">
-        <label class="input-label"> Pays actifs</label>
-        <input class="input" data-field="activeCountries" value="${escapeHtml(copy.activeCountries || '')}" placeholder="US, FR, UK">
-      </div>
-      <div class="input-group">
-        <label class="input-label"> Notes perso</label>
-        <textarea class="input" data-field="notes" style="min-height:60px">${escapeHtml(copy.notes || '')}</textarea>
-      </div>
+    `;
+  }).join('');
+
+  const r = await modalWithOpen(`
+    <div class="modal-title">Ad Copy — ${escapeHtml(ad.name)}</div>
+    <div class="input-group">
+      <label class="input-label">Lien source (AfterLib, FB, TikTok...) <span style="color:var(--text-mute);font-weight:400">— commun à tous les pays</span></label>
+      <input class="input" data-field="url" value="${escapeHtml(sourceUrl)}" placeholder="https://...">
+    </div>
+    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)">
+      <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Copy par pays</div>
+      <div class="copy-tabs">${tabsHtml}</div>
+      <div class="copy-panels">${panelsHtml}</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn btn-danger" data-clear-copy> Tout vider</button>
+      <button class="btn btn-danger" data-clear-copy-all>Vider tout</button>
       <button class="btn" data-modal-ok>Enregistrer</button>
     </div>
-  `);
-  if (r === 'clear') {
-    const { error: errClear } = await sb.from('ads').update({ ad_copy: { url: '', headline: '', primary: '', description: '', cta: '' } }).eq('id', adId);
-    if (errClear) { console.error('[AD COPY CLEAR]', errClear); toast('Erreur clear : ' + errClear.message, 'error', 7000); return; }
-    toast('Copy vidé', 'success');
-    render();
-    return;
-  }
+  `, (bd) => {
+    // Tab switching
+    bd.querySelectorAll('[data-copy-tab]').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        e.preventDefault();
+        const cId = tab.dataset.copyTab;
+        bd.querySelectorAll('[data-copy-tab]').forEach(t => t.classList.toggle('active', t === tab));
+        bd.querySelectorAll('[data-copy-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.copyPanel !== cId));
+      });
+    });
+    // Bouton "Vider tout"
+    bd.querySelector('[data-clear-copy-all]')?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const ok = confirm('Vider toutes les copies (URL + tous les pays) ?');
+      if (!ok) return;
+      await sb.from('ads').update({ ad_copy: { url: '' } }).eq('id', adId);
+      for (const c of countries) {
+        const existing = (acRows || []).find(ac => ac.country_id === c.id);
+        if (existing) {
+          await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', adId).eq('country_id', c.id);
+        }
+      }
+      toast('Copy vidé', 'success');
+      bd.remove();
+      render();
+    });
+  });
+
   if (!r) return;
 
+  // 2. Save URL globale sur ads.ad_copy
   const rawUrl = (r.url || '').trim();
-  const payload = {
-    ad_copy: {
-      url: rawUrl ? (normalizeUrl(rawUrl) || rawUrl) : '',
-      headline: (r.headline || '').trim(),
-      primary: (r.primary || '').trim(),
-      description: (r.description || '').trim(),
-      cta: (r.cta || '').trim(),
-      spend: (r.spend || '').trim(),
-      views: (r.views || '').trim(),
-      runningSince: (r.runningSince || '').trim(),
-      score: (r.score || '').trim(),
-      activeCountries: (r.activeCountries || '').trim(),
-      notes: (r.notes || '').trim(),
-      updated_at: new Date().toISOString()
-    }
-  };
-  console.log('[AD COPY SAVE] adId=', adId, 'payload=', payload);
-
+  const adPayload = { ad_copy: { url: rawUrl ? (normalizeUrl(rawUrl) || rawUrl) : '' } };
   let errUpd = null;
   try {
-    const res = await sb.from('ads').update(payload).eq('id', adId);
+    const res = await sb.from('ads').update(adPayload).eq('id', adId);
     errUpd = res.error;
   } catch (e) {
     errUpd = { message: (e?.message || String(e)) };
   }
   if (errUpd) {
-    console.error('[AD COPY SAVE ERROR]', errUpd);
-    toast('Erreur sauvegarde : ' + errUpd.message, 'error', 8000);
+    console.error('[AD COPY SAVE URL]', errUpd);
+    toast('Erreur sauvegarde URL : ' + errUpd.message, 'error', 8000);
     return;
   }
-  console.log('[AD COPY SAVE OK]');
-  toast('Ad copy sauvegardé', 'success');
 
-  // Sync vers Google Drive (Google Doc dans 00_Ads_Concurrent)
-  if (driveState.connected) {
-    const driveRes = await syncAdCopyToDrive(adId);
-    if (driveRes.ok) {
-      toast(` Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
-    } else if (driveRes.skipped) {
-      const reasons = {
-        not_connected: 'Drive non connecté',
-        ad_not_found: 'Ad introuvable',
-        no_drive_folder: 'Pas de dossier Drive pour ce produit',
-        concurrent_folder_missing: 'Dossier 00_Ads_Concurrent manquant'
-      };
-      console.warn('[AD COPY DRIVE SKIP]', driveRes.reason);
-      toast(` Drive non synchronisé : ${reasons[driveRes.reason] || driveRes.reason}`, 'info', 5000);
-    } else {
-      toast(` Erreur sync Drive : ${driveRes.error}`, 'warn', 6000);
+  // 3. Save copy par pays sur ad_countries
+  const now = new Date().toISOString();
+  for (const c of countries) {
+    const headline = (document.querySelector(`[data-copy-field="headline"][data-copy-country="${c.id}"]`)?.value || '').trim();
+    const primary = (document.querySelector(`[data-copy-field="primary"][data-copy-country="${c.id}"]`)?.value || '').trim();
+    const description = (document.querySelector(`[data-copy-field="description"][data-copy-country="${c.id}"]`)?.value || '').trim();
+    const copyObj = (headline || primary || description)
+      ? { headline, primary, description, updated_at: now }
+      : {};
+
+    const existing = (acRows || []).find(ac => ac.country_id === c.id);
+    if (existing) {
+      await sb.from('ad_countries').update({ copy: copyObj, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', c.id);
+    } else if (Object.keys(copyObj).length > 0) {
+      // Crée la ligne ad_countries si elle n'existait pas (uniquement si y'a du contenu)
+      await sb.from('ad_countries').insert({ ad_id: adId, country_id: c.id, copy: copyObj, meta: false, trad: false, updated_at: now, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
     }
+  }
+
+  toast('Copy enregistré', 'success');
+
+  // Sync vers Google Drive (Google Doc dans 00_Ads_Concurrent) — best-effort
+  if (driveState.connected) {
+    try {
+      const driveRes = await syncAdCopyToDrive(adId);
+      if (driveRes?.ok) {
+        toast(`Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
+      }
+    } catch (e) { console.warn('[AD COPY drive sync]', e); }
   }
 
   render();
