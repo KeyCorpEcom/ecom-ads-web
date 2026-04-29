@@ -5600,13 +5600,23 @@ async function sendNotification({ userId, type, title, message, link }) {
 }
 
 // Helper : récupère les admins du workspace (pour notifier "vidéo à valider")
+// Filtre à la fois sur workspace_members.role='admin' ET profiles.role='admin'
+// → un page_builder qui serait member admin ne reçoit PAS les notifs ads
 async function getWorkspaceAdmins() {
-  const { data } = await sb
+  const { data: members } = await sb
     .from('workspace_members')
-    .select('user_id, role')
+    .select('user_id')
     .eq('workspace_id', currentWorkspaceId)
     .eq('role', 'admin');
-  return (data || []).map(m => m.user_id);
+  if (!members || members.length === 0) return [];
+  const memberIds = members.map(m => m.user_id);
+  // Filtre sur profile global admin uniquement
+  const { data: profiles } = await sb
+    .from('profiles')
+    .select('id, role')
+    .in('id', memberIds)
+    .eq('role', 'admin');
+  return (profiles || []).map(p => p.id);
 }
 
 /* ============================================================
