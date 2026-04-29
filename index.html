@@ -3633,33 +3633,31 @@ async function driveUpdateGoogleDocFromHtml(fileId, htmlContent) {
   return await res.json();
 }
 
-function formatAdCopyAsHtml(adName, copy) {
+// Nouveau format : URL globale + un bloc par pays (headline / primary / description)
+function formatAdCopyAsHtml(adName, sourceUrl, perCountryCopies) {
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const nlToBr = (s) => esc(s).replace(/\n/g, '<br>');
   const sections = [];
 
-  sections.push(`<h1 style="font-family:Arial,sans-serif;color:#c8a55a"> ${esc(adName)} — Ad Copy</h1>`);
-  if (copy.url)         sections.push(`<p><strong> Source URL :</strong> <a href="${esc(copy.url)}">${esc(copy.url)}</a></p>`);
-  if (copy.headline)    sections.push(`<h2> Headline</h2><p>${esc(copy.headline)}</p>`);
-  if (copy.primary)     sections.push(`<h2> Primary text</h2><p>${nlToBr(copy.primary)}</p>`);
-  if (copy.description) sections.push(`<h2> Description</h2><p>${esc(copy.description)}</p>`);
-  if (copy.cta)         sections.push(`<h2> CTA</h2><p>${esc(copy.cta)}</p>`);
+  sections.push(`<h1 style="font-family:Arial,sans-serif;color:#c8a55a">${esc(adName)} — Ad Copy</h1>`);
+  if (sourceUrl) sections.push(`<p><strong>Source URL :</strong> <a href="${esc(sourceUrl)}">${esc(sourceUrl)}</a></p>`);
 
-  const hasStats = copy.spend || copy.views || copy.runningSince || copy.score || copy.activeCountries;
-  if (hasStats) {
-    sections.push(`<h2> Stats</h2><ul>`);
-    if (copy.spend)           sections.push(`<li><strong> Ad spend :</strong> ${esc(copy.spend)}</li>`);
-    if (copy.views)           sections.push(`<li><strong> Vues :</strong> ${esc(copy.views)}</li>`);
-    if (copy.runningSince)    sections.push(`<li><strong> Running depuis :</strong> ${esc(copy.runningSince)}</li>`);
-    if (copy.score)           sections.push(`<li><strong> Score :</strong> ${esc(copy.score)}/10</li>`);
-    if (copy.activeCountries) sections.push(`<li><strong> Pays actifs :</strong> ${esc(copy.activeCountries)}</li>`);
-    sections.push(`</ul>`);
+  // Bloc par pays
+  const filledCountries = (perCountryCopies || []).filter(({ copy }) => copy && (copy.headline || copy.primary || copy.description));
+  if (filledCountries.length === 0) {
+    sections.push(`<p style="color:#888;font-style:italic">Aucune copy renseignée pour le moment.</p>`);
+  } else {
+    filledCountries.forEach(({ countryId, copy }) => {
+      sections.push(`<hr><h2 style="color:#c8a55a;margin-top:20px">${esc(countryId)}</h2>`);
+      if (copy.headline)    sections.push(`<h3>Headline</h3><p>${esc(copy.headline)}</p>`);
+      if (copy.primary)     sections.push(`<h3>Primary text</h3><p>${nlToBr(copy.primary)}</p>`);
+      if (copy.description) sections.push(`<h3>Description</h3><p>${esc(copy.description)}</p>`);
+    });
   }
 
-  if (copy.notes) sections.push(`<h2> Notes perso</h2><p>${nlToBr(copy.notes)}</p>`);
   sections.push(`<hr><p style="font-size:11px;color:#888">Dernière mise à jour : ${new Date().toLocaleString('fr-FR')} · Synchronisé depuis keycorp-ecom.com</p>`);
 
-  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;line-height:1.6">${sections.join('\n')}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:Arial,sans-serif;line-height:1.6;max-width:800px;margin:0 auto;padding:20px">${sections.join('\n')}</body></html>`;
 }
 
 // Sync ad copy → Google Doc dans 00_Ads_Concurrent
@@ -3674,9 +3672,21 @@ async function syncAdCopyToDrive(adId) {
     const concurrentFolder = await driveFindFolder(CONCURRENT_FOLDER_NAME, driveFolderId);
     if (!concurrentFolder) return { skipped: true, reason: 'concurrent_folder_missing' };
 
+    // Récupère les copies par pays (depuis ad_countries.copy) + ordre des pays
+    const [{ data: acRows }, { data: countriesAll }] = await Promise.all([
+      sb.from('ad_countries').select('country_id, copy').eq('ad_id', adId),
+      sb.from('countries').select('id, sort_order').order('sort_order')
+    ]);
+    // Ordre : selon countries.sort_order
+    const orderMap = new Map((countriesAll || []).map(c => [c.id, c.sort_order ?? 999]));
+    const perCountry = (acRows || [])
+      .map(ac => ({ countryId: ac.country_id, copy: ac.copy || {} }))
+      .sort((a, b) => (orderMap.get(a.countryId) ?? 999) - (orderMap.get(b.countryId) ?? 999));
+
     const adNumber = ad.position || (parseInt((ad.name.match(/\d+/) || [0])[0], 10)) || 1;
     const docName = `Ad copy ${adNumber}`;
-    const html = formatAdCopyAsHtml(ad.name, ad.ad_copy || {});
+    const sourceUrl = (ad.ad_copy && ad.ad_copy.url) || '';
+    const html = formatAdCopyAsHtml(ad.name, sourceUrl, perCountry);
 
     const existing = await driveFindFile(docName, concurrentFolder.id, 'application/vnd.google-apps.document');
     if (existing) {
@@ -4512,23 +4522,36 @@ async function editAdCopyFlow(adId) {
     `;
   }).join('');
 
-  const r = await modalWithOpen(`
-    <div class="modal-title">Ad Copy — ${escapeHtml(ad.name)}</div>
-    <div class="input-group">
-      <label class="input-label">Lien source (AfterLib, FB, TikTok...) <span style="color:var(--text-mute);font-weight:400">— commun à tous les pays</span></label>
-      <input class="input" data-field="url" value="${escapeHtml(sourceUrl)}" placeholder="https://...">
-    </div>
-    <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)">
-      <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Copy par pays</div>
-      <div class="copy-tabs">${tabsHtml}</div>
-      <div class="copy-panels">${panelsHtml}</div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn btn-danger" data-clear-copy-all>Vider tout</button>
-      <button class="btn" data-modal-ok>Enregistrer</button>
-    </div>
-  `, (bd) => {
+  // Modal custom Promise-based pour capturer TOUT (URL + per-country) avant fermeture
+  const r = await new Promise((resolve) => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `
+      <div class="modal">
+        <div class="modal-title">Ad Copy — ${escapeHtml(ad.name)}</div>
+        <div class="input-group">
+          <label class="input-label">Lien source (AfterLib, FB, TikTok...) <span style="color:var(--text-mute);font-weight:400">— commun à tous les pays</span></label>
+          <input class="input" data-field="url" value="${escapeHtml(sourceUrl)}" placeholder="https://...">
+        </div>
+        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)">
+          <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Copy par pays</div>
+          <div class="copy-tabs">${tabsHtml}</div>
+          <div class="copy-panels">${panelsHtml}</div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-action="cancel">Annuler</button>
+          <button class="btn btn-danger" data-action="clear">Vider tout</button>
+          <button class="btn" data-action="save">Enregistrer</button>
+        </div>
+      </div>
+    `;
+    container.appendChild(bd);
+    const close = (result) => { if (bd.parentNode) bd.remove(); resolve(result); };
+
+    // Backdrop click → cancel
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+
     // Tab switching
     bd.querySelectorAll('[data-copy-tab]').forEach(tab => {
       tab.addEventListener('click', (e) => {
@@ -4538,26 +4561,49 @@ async function editAdCopyFlow(adId) {
         bd.querySelectorAll('[data-copy-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.copyPanel !== cId));
       });
     });
-    // Bouton "Vider tout"
-    bd.querySelector('[data-clear-copy-all]')?.addEventListener('click', async (e) => {
-      e.preventDefault();
+
+    // Annuler
+    bd.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
+
+    // Vider tout
+    bd.querySelector('[data-action="clear"]').addEventListener('click', () => {
       const ok = confirm('Vider toutes les copies (URL + tous les pays) ?');
       if (!ok) return;
-      await sb.from('ads').update({ ad_copy: { url: '' } }).eq('id', adId);
-      for (const c of countries) {
-        const existing = (acRows || []).find(ac => ac.country_id === c.id);
-        if (existing) {
-          await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', adId).eq('country_id', c.id);
-        }
-      }
-      toast('Copy vidé', 'success');
-      bd.remove();
-      render();
+      close({ action: 'clear' });
+    });
+
+    // Enregistrer : on capture TOUTES les valeurs AVANT que le modal soit retiré du DOM
+    bd.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const url = bd.querySelector('[data-field="url"]')?.value || '';
+      const perCountry = {};
+      countries.forEach(c => {
+        perCountry[c.id] = {
+          headline: (bd.querySelector(`[data-copy-field="headline"][data-copy-country="${c.id}"]`)?.value || '').trim(),
+          primary: (bd.querySelector(`[data-copy-field="primary"][data-copy-country="${c.id}"]`)?.value || '').trim(),
+          description: (bd.querySelector(`[data-copy-field="description"][data-copy-country="${c.id}"]`)?.value || '').trim()
+        };
+      });
+      close({ action: 'save', url, perCountry });
     });
   });
 
   if (!r) return;
 
+  // === Action : VIDER TOUT ===
+  if (r.action === 'clear') {
+    await sb.from('ads').update({ ad_copy: { url: '' } }).eq('id', adId);
+    for (const c of countries) {
+      const existing = (acRows || []).find(ac => ac.country_id === c.id);
+      if (existing) {
+        await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', adId).eq('country_id', c.id);
+      }
+    }
+    toast('Copy vidé', 'success');
+    render();
+    return;
+  }
+
+  // === Action : SAVE ===
   // 2. Save URL globale sur ads.ad_copy
   const rawUrl = (r.url || '').trim();
   const adPayload = { ad_copy: { url: rawUrl ? (normalizeUrl(rawUrl) || rawUrl) : '' } };
@@ -4574,12 +4620,12 @@ async function editAdCopyFlow(adId) {
     return;
   }
 
-  // 3. Save copy par pays sur ad_countries
+  // 3. Save copy par pays sur ad_countries — utilise les valeurs capturées (r.perCountry)
   const now = new Date().toISOString();
+  let savedCountries = 0;
   for (const c of countries) {
-    const headline = (document.querySelector(`[data-copy-field="headline"][data-copy-country="${c.id}"]`)?.value || '').trim();
-    const primary = (document.querySelector(`[data-copy-field="primary"][data-copy-country="${c.id}"]`)?.value || '').trim();
-    const description = (document.querySelector(`[data-copy-field="description"][data-copy-country="${c.id}"]`)?.value || '').trim();
+    const cap = r.perCountry[c.id] || { headline: '', primary: '', description: '' };
+    const { headline, primary, description } = cap;
     const copyObj = (headline || primary || description)
       ? { headline, primary, description, updated_at: now }
       : {};
