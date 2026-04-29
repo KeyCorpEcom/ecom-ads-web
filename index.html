@@ -333,11 +333,11 @@ a{color:var(--gold);text-decoration:none}
 .cat-card-meta{display:flex;gap:10px;font-size:11px;color:var(--text-dim);align-items:center;flex-wrap:wrap}
 .cat-card-count{padding:2px 8px;background:var(--bg-input);border-radius:10px;font-weight:600}
 .cat-card-viewed{color:var(--green);font-weight:500}
-.cat-card-actions{display:flex;gap:4px;align-items:center;flex-shrink:0}
-.btn-text-action{background:transparent;border:none;color:var(--text-dim);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;cursor:pointer;padding:6px 10px;border-radius:5px;transition:all 0.15s}
-.btn-text-action:hover{background:var(--bg-input);color:var(--gold)}
-.btn-text-action.danger{color:var(--text-mute)}
-.btn-text-action.danger:hover{background:rgba(248,113,113,0.1);color:var(--red)}
+.cat-card-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.btn-icon-action{width:32px;height:32px;border-radius:6px;background:transparent;border:1px solid var(--border);color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all 0.15s}
+.btn-icon-action svg{width:14px;height:14px;display:block}
+.btn-icon-action:hover{background:var(--bg-input);color:var(--gold);border-color:var(--gold)}
+.btn-icon-action.danger:hover{background:rgba(248,113,113,0.1);color:var(--red);border-color:var(--red)}
 
 /* Numbered training list (category detail) */
 .numbered-list{display:flex;flex-direction:column;gap:10px}
@@ -4880,8 +4880,12 @@ async function renderFormations(el) {
             </div>
             ${isAdminUser && c.id ? `
               <div class="cat-card-actions" onclick="event.stopPropagation()">
-                <button class="btn-text-action" data-edit-cat="${c.id}">Renommer</button>
-                <button class="btn-text-action danger" data-del-cat="${c.id}">Suppr.</button>
+                <button class="btn-icon-action" data-edit-cat="${c.id}" title="Renommer">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                </button>
+                <button class="btn-icon-action danger" data-del-cat="${c.id}" title="Supprimer">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                </button>
               </div>
             ` : ''}
           </div>
