@@ -322,6 +322,37 @@ a{color:var(--gold);text-decoration:none}
 .tracking-table th.user-col{background:var(--bg);z-index:2}
 .tracking-table .seen{color:var(--green);font-size:18px;font-weight:700}
 .tracking-table .unseen{color:var(--text-mute);font-size:18px}
+
+/* Category cards (formations home) */
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.cat-card{display:flex;align-items:center;gap:16px;padding:20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;cursor:pointer;transition:all 0.18s;position:relative}
+.cat-card:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+.cat-card-icon{font-size:32px;width:56px;height:56px;border-radius:12px;background:var(--bg-input);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.cat-card-body{flex:1;min-width:0}
+.cat-card-title{font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px}
+.cat-card-meta{display:flex;gap:10px;font-size:11px;color:var(--text-dim);align-items:center}
+.cat-card-count{padding:2px 8px;background:var(--bg-input);border-radius:10px;font-weight:600}
+.cat-card-viewed{color:var(--green);font-weight:500}
+.cat-card-arrow{color:var(--text-mute);font-size:18px;transition:all 0.15s;flex-shrink:0}
+.cat-card:hover .cat-card-arrow{color:var(--gold);transform:translateX(4px)}
+.cat-card-actions{display:flex;gap:4px;align-items:center}
+.btn-icon{width:30px;height:30px;border-radius:6px;background:transparent;border:1px solid var(--border);color:var(--text-dim);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all 0.15s;padding:0}
+.btn-icon:hover{background:var(--bg-input);color:var(--text);border-color:var(--gold)}
+.btn-icon.danger:hover{background:rgba(248,113,113,0.1);color:var(--red);border-color:var(--red)}
+
+/* Numbered training list (category detail) */
+.numbered-list{display:flex;flex-direction:column;gap:10px}
+.numbered-item{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all 0.15s}
+.numbered-item:hover{border-color:var(--gold);transform:translateX(4px);background:var(--bg-card-hover, var(--bg-card))}
+.numbered-num{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:800;color:var(--gold);min-width:50px;letter-spacing:-0.02em;flex-shrink:0;text-align:center}
+.numbered-thumb{aspect-ratio:16/9;width:120px;background:var(--bg-input);border-radius:6px;flex-shrink:0;background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;color:var(--text-mute);position:relative}
+.numbered-thumb-play{width:36px;height:36px;border-radius:50%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.numbered-body{flex:1;min-width:0}
+.numbered-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px}
+.numbered-desc{font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.numbered-meta{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.numbered-arrow{color:var(--text-mute);font-size:18px;transition:all 0.15s;flex-shrink:0}
+.numbered-item:hover .numbered-arrow{color:var(--gold)}
 </style>
 </head>
 <body>
@@ -777,7 +808,10 @@ async function render() {
     else if (page === 'drive') await renderDrive(el);
     else if (page === 'users') await renderUsers(el);
     else if (page === 'parametres') await renderSettings(el);
-    else if (page === 'formations') await renderFormations(el);
+    else if (page === 'formations') {
+      if (params[0]) await renderFormationCategory(el, params[0]);
+      else await renderFormations(el);
+    }
     else if (page === 'formation') await renderFormationDetail(el, params[0]);
     else if (page === 'formations-suivi') await renderFormationsSuivi(el);
     else el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Page introuvable</div></div>';
@@ -4744,34 +4778,49 @@ async function renderFormations(el) {
   const userRole = currentProfile?.role || 'media_buyer';
   const isAdminUser = userRole === 'admin';
 
-  // Charger catégories + formations + views de l'user
+  // Charger catégories + formations
   const [{ data: cats }, { data: trainings }, { data: myViews }] = await Promise.all([
     sb.from('training_categories').select('*').order('position').order('name'),
-    sb.from('trainings').select('*').order('position').order('created_at'),
+    sb.from('trainings').select('id, category_id, roles').order('position'),
     sb.from('training_views').select('training_id').eq('user_id', currentUser.id)
   ]);
 
-  // Filtre par rôle
+  // Filtre formations par rôle
   const visible = (trainings || []).filter(t =>
-    isAdminUser /* admin voit tout */ || (Array.isArray(t.roles) && t.roles.includes(userRole))
+    isAdminUser || (Array.isArray(t.roles) && t.roles.includes(userRole))
   );
   const viewedSet = new Set((myViews || []).map(v => v.training_id));
 
-  // Group by category
-  const byCat = new Map();
-  (cats || []).forEach(c => byCat.set(c.id, { cat: c, items: [] }));
-  byCat.set(null, { cat: { id: null, name: 'Sans catégorie' }, items: [] });
+  // Compte par catégorie
+  const countByCat = new Map();
+  const viewedByCat = new Map();
   visible.forEach(t => {
-    const k = t.category_id || null;
-    if (!byCat.has(k)) byCat.set(k, { cat: { id: k, name: 'Inconnu' }, items: [] });
-    byCat.get(k).items.push(t);
+    const k = t.category_id || '__none__';
+    countByCat.set(k, (countByCat.get(k) || 0) + 1);
+    if (viewedSet.has(t.id)) viewedByCat.set(k, (viewedByCat.get(k) || 0) + 1);
   });
+
+  // Catégories à afficher
+  // - Pour user normal : seulement celles avec ≥1 formation visible
+  // - Pour admin : toutes (même vides) pour qu'il puisse créer dedans
+  const allCats = (cats || []).map(c => ({
+    ...c,
+    count: countByCat.get(c.id) || 0,
+    viewed: viewedByCat.get(c.id) || 0
+  }));
+  const showCats = isAdminUser ? allCats : allCats.filter(c => c.count > 0);
+
+  // Cas "sans catégorie" si y'a des formations orphelines visibles
+  const orphanCount = countByCat.get('__none__') || 0;
+  if (orphanCount > 0 || (isAdminUser && (cats || []).length === 0)) {
+    showCats.push({ id: null, name: 'Sans catégorie', count: orphanCount, viewed: viewedByCat.get('__none__') || 0 });
+  }
 
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title">Formations</div>
-        <div class="page-subtitle">${visible.length} formation${visible.length > 1 ? 's' : ''} disponible${visible.length > 1 ? 's' : ''} pour ton rôle <strong style="color:var(--gold)">${userRole}</strong></div>
+        <div class="page-subtitle">${visible.length} formation${visible.length > 1 ? 's' : ''} disponible${visible.length > 1 ? 's' : ''} ${isAdminUser ? '(admin : tu vois tout)' : `pour ton rôle <strong style="color:var(--gold)">${userRole.replace('_', ' ')}</strong>`}</div>
       </div>
       ${isAdminUser ? `
         <div class="flex gap-sm">
@@ -4781,65 +4830,141 @@ async function renderFormations(el) {
       ` : ''}
     </div>
 
-    <div id="formations-body">
-      ${Array.from(byCat.values()).filter(g => g.items.length > 0 || (isAdminUser && g.cat.id)).map(g => `
-        <div class="formation-cat">
-          <div class="formation-cat-head">
-            <div>
-              <div class="formation-cat-title">${escapeHtml(g.cat.name)}</div>
-              <div class="formation-cat-count">${g.items.length} formation${g.items.length > 1 ? 's' : ''}</div>
+    ${showCats.length === 0 ? `
+      <div class="empty">
+        <div class="empty-icon"></div>
+        <div class="empty-title">Aucune formation pour l'instant</div>
+        <div class="empty-text">${isAdminUser ? 'Crée la première catégorie + formation avec les boutons en haut.' : 'L\'admin n\'a pas encore publié de formation pour ton rôle.'}</div>
+      </div>
+    ` : `
+      <div class="cat-grid">
+        ${showCats.map(c => `
+          <div class="cat-card" ${c.id ? `data-cat="${c.id}"` : 'data-cat="__none__"'}>
+            <div class="cat-card-icon">${getCategoryEmoji(c.name)}</div>
+            <div class="cat-card-body">
+              <div class="cat-card-title">${escapeHtml(c.name)}</div>
+              <div class="cat-card-meta">
+                <span class="cat-card-count">${c.count} formation${c.count > 1 ? 's' : ''}</span>
+                ${isAdminUser && c.count > 0 ? `<span class="cat-card-viewed">${c.viewed}/${c.count} vues par toi</span>` : ''}
+              </div>
             </div>
-            ${isAdminUser && g.cat.id ? `
-              <div class="flex gap-sm">
-                <button class="btn btn-ghost btn-sm" data-edit-cat="${g.cat.id}">Renommer</button>
-                <button class="btn btn-ghost btn-sm" style="color:var(--red)" data-del-cat="${g.cat.id}">Suppr.</button>
+            ${isAdminUser && c.id ? `
+              <div class="cat-card-actions" onclick="event.stopPropagation()">
+                <button class="btn-icon" data-edit-cat="${c.id}" title="Renommer">✎</button>
+                <button class="btn-icon danger" data-del-cat="${c.id}" title="Supprimer">×</button>
               </div>
             ` : ''}
+            <div class="cat-card-arrow">→</div>
           </div>
-          ${g.items.length === 0 ? `
-            <div style="padding:18px;background:var(--bg-card);border:1px dashed var(--border);border-radius:8px;text-align:center;color:var(--text-dim);font-size:13px">Aucune formation dans cette catégorie</div>
-          ` : `
-            <div class="formation-grid">
-              ${g.items.map(t => {
-                const viewed = viewedSet.has(t.id);
-                const thumb = t.video_url ? getVideoThumbnail(t.video_url) : null;
-                return `
-                  <div class="formation-card" data-formation="${t.id}">
-                    <div class="formation-card-thumb" ${thumb ? `style="background-image:url('${escapeHtml(thumb)}')"` : ''}>
-                      ${!thumb ? '<span style="opacity:0.4">▶</span>' : '<div class="formation-card-thumb-play">▶</div>'}
-                    </div>
-                    <div class="formation-card-title">${escapeHtml(t.title)}</div>
-                    ${t.description ? `<div class="formation-card-desc">${escapeHtml(t.description)}</div>` : ''}
-                    <div class="formation-card-roles">
-                      ${(t.roles || []).map(r => `<span class="formation-role-chip ${r}">${r.replace('_', ' ')}</span>`).join('')}
-                      ${isAdminUser && viewed ? '<span style="margin-left:auto;font-size:11px;color:var(--green)">✓ tu as vu</span>' : ''}
-                    </div>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          `}
-        </div>
-      `).join('') || `
-        <div class="empty">
-          <div class="empty-icon"></div>
-          <div class="empty-title">Aucune formation pour l'instant</div>
-          <div class="empty-text">${isAdminUser ? 'Crée la première formation avec le bouton "+ Formation" en haut.' : 'L\'admin n\'a pas encore publié de formation pour ton rôle.'}</div>
-        </div>
-      `}
-    </div>
+        `).join('')}
+      </div>
+    `}
   `;
 
-  // Click sur une carte → detail
-  el.querySelectorAll('[data-formation]').forEach(card => {
-    card.addEventListener('click', () => navigate('formation/' + card.dataset.formation));
+  // Click sur une catégorie → page détail
+  el.querySelectorAll('[data-cat]').forEach(card => {
+    card.addEventListener('click', () => navigate('formations/' + card.dataset.cat));
   });
 
   if (isAdminUser) {
     document.getElementById('btn-new-cat')?.addEventListener('click', () => createCategoryFlow());
     document.getElementById('btn-new-training')?.addEventListener('click', () => editTrainingFlow(null));
-    el.querySelectorAll('[data-edit-cat]').forEach(b => b.addEventListener('click', () => editCategoryFlow(b.dataset.editCat)));
-    el.querySelectorAll('[data-del-cat]').forEach(b => b.addEventListener('click', () => deleteCategoryFlow(b.dataset.delCat)));
+    el.querySelectorAll('[data-edit-cat]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); editCategoryFlow(b.dataset.editCat); }));
+    el.querySelectorAll('[data-del-cat]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); deleteCategoryFlow(b.dataset.delCat); }));
+  }
+}
+
+function getCategoryEmoji(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('page') || n.includes('build')) return '🏗️';
+  if (n.includes('ad') || n.includes('valid')) return '✅';
+  if (n.includes('admin') || n.includes('config')) return '⚙️';
+  if (n.includes('process') || n.includes('général')) return '📚';
+  if (n.includes('drive') || n.includes('import')) return '☁️';
+  if (n.includes('pnl') || n.includes('p&l') || n.includes('finance')) return '💰';
+  if (n.includes('sav')) return '🛟';
+  return '📁';
+}
+
+async function renderFormationCategory(el, catId) {
+  const userRole = currentProfile?.role || 'media_buyer';
+  const isAdminUser = userRole === 'admin';
+  const isOrphan = catId === '__none__';
+
+  // Charge catégorie + formations + views
+  const [catRes, trainingsRes, viewsRes] = await Promise.all([
+    isOrphan ? Promise.resolve({ data: null }) : sb.from('training_categories').select('*').eq('id', catId).maybeSingle(),
+    isOrphan
+      ? sb.from('trainings').select('*').is('category_id', null).order('position').order('created_at')
+      : sb.from('trainings').select('*').eq('category_id', catId).order('position').order('created_at'),
+    sb.from('training_views').select('training_id').eq('user_id', currentUser.id)
+  ]);
+
+  const cat = isOrphan ? { id: null, name: 'Sans catégorie' } : catRes.data;
+  if (!cat && !isOrphan) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Catégorie introuvable</div></div>';
+    return;
+  }
+
+  const visible = (trainingsRes.data || []).filter(t =>
+    isAdminUser || (Array.isArray(t.roles) && t.roles.includes(userRole))
+  );
+  const viewedSet = new Set((viewsRes.data || []).map(v => v.training_id));
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <a class="btn btn-ghost btn-sm" href="#formations" style="margin-bottom:8px">← Formations</a>
+        <div class="page-title"><span style="margin-right:10px">${getCategoryEmoji(cat.name)}</span>${escapeHtml(cat.name)}</div>
+        <div class="page-subtitle">${visible.length} formation${visible.length > 1 ? 's' : ''}</div>
+      </div>
+      ${isAdminUser ? `
+        <div class="flex gap-sm">
+          <button class="btn btn-sm" id="btn-new-training-here">+ Formation</button>
+        </div>
+      ` : ''}
+    </div>
+
+    ${visible.length === 0 ? `
+      <div class="empty">
+        <div class="empty-icon"></div>
+        <div class="empty-title">Aucune formation dans cette catégorie</div>
+        <div class="empty-text">${isAdminUser ? 'Clique sur "+ Formation" pour en créer une.' : 'Pas encore de contenu pour ton rôle ici.'}</div>
+      </div>
+    ` : `
+      <div class="numbered-list">
+        ${visible.map((t, i) => {
+          const viewed = viewedSet.has(t.id);
+          const thumb = t.video_url ? getVideoThumbnail(t.video_url) : null;
+          return `
+            <div class="numbered-item" data-formation="${t.id}">
+              <div class="numbered-num">${String(i + 1).padStart(2, '0')}</div>
+              <div class="numbered-thumb" ${thumb ? `style="background-image:url('${escapeHtml(thumb)}')"` : ''}>
+                ${!thumb ? '<span style="opacity:0.5;font-size:24px">▶</span>' : '<div class="numbered-thumb-play">▶</div>'}
+              </div>
+              <div class="numbered-body">
+                <div class="numbered-title">${escapeHtml(t.title)}</div>
+                ${t.description ? `<div class="numbered-desc">${escapeHtml(t.description)}</div>` : ''}
+                <div class="numbered-meta">
+                  ${(t.roles || []).map(r => `<span class="formation-role-chip ${r}">${r.replace('_', ' ')}</span>`).join('')}
+                  ${isAdminUser && viewed ? '<span style="margin-left:auto;font-size:11px;color:var(--green)">✓ tu as vu</span>' : ''}
+                </div>
+              </div>
+              <div class="numbered-arrow">→</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  // Click sur une formation → detail
+  el.querySelectorAll('[data-formation]').forEach(item => {
+    item.addEventListener('click', () => navigate('formation/' + item.dataset.formation));
+  });
+
+  if (isAdminUser) {
+    document.getElementById('btn-new-training-here')?.addEventListener('click', () => editTrainingFlow(null, isOrphan ? null : catId));
   }
 }
 
@@ -5039,9 +5164,9 @@ async function deleteCategoryFlow(catId) {
   render();
 }
 
-async function editTrainingFlow(existing) {
+async function editTrainingFlow(existing, defaultCatId) {
   const { data: cats } = await sb.from('training_categories').select('*').order('position').order('name');
-  const t = existing || { title: '', description: '', video_url: '', content: '', category_id: '', roles: [], position: 0 };
+  const t = existing || { title: '', description: '', video_url: '', content: '', category_id: defaultCatId || '', roles: [], position: 0 };
   const catOptions = (cats || []).map(c =>
     `<option value="${c.id}" ${c.id === t.category_id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
   ).join('');
