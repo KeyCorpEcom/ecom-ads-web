@@ -247,14 +247,15 @@ a{color:var(--gold);text-decoration:none}
 .ads-table .check-cell:focus, .ads-table .check-cell:focus-visible{outline:none}
 .ads-table td[data-validate-trad], .ads-table td[data-toggle-meta]{-webkit-tap-highlight-color:transparent}
 
-/* ============ NOTIFICATIONS BELL ============ */
-.notif-bell{position:fixed;top:18px;right:24px;z-index:50}
-.notif-bell-btn{position:relative;width:40px;height:40px;border-radius:10px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;transition:all 0.15s}
-.notif-bell-btn:hover{background:var(--bg-input);border-color:var(--gold)}
-.notif-bell-btn svg{width:18px;height:18px}
-.notif-badge{position:absolute;top:-4px;right:-4px;min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px;border:2px solid var(--bg)}
+/* ============ NOTIFICATIONS BELL (sidebar) ============ */
+.notif-bell{position:relative;margin:0 0 14px}
+.notif-bell-btn{position:relative;width:100%;padding:10px 12px;border-radius:8px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-dim);cursor:pointer;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:500;transition:all 0.15s;text-align:left}
+.notif-bell-btn:hover{background:var(--bg-card-hover);color:var(--text);border-color:var(--gold)}
+.notif-bell-btn svg{width:16px;height:16px;flex-shrink:0}
+.notif-bell-label{flex:1}
+.notif-badge{min-width:18px;height:18px;border-radius:9px;background:var(--red);color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 5px}
 .notif-badge.hidden{display:none}
-.notif-dropdown{position:absolute;top:48px;right:0;width:380px;max-height:520px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.5);overflow:hidden;display:flex;flex-direction:column;animation:fadeIn 0.12s ease}
+.notif-dropdown{position:fixed;top:80px;left:248px;width:380px;max-height:520px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,0.5);overflow:hidden;display:flex;flex-direction:column;animation:fadeIn 0.12s ease;z-index:50}
 .notif-dropdown.hidden{display:none}
 .notif-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border-soft);font-weight:600;font-size:13px}
 .notif-header button{background:transparent;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:4px 8px;border-radius:4px}
@@ -313,6 +314,25 @@ a{color:var(--gold);text-decoration:none}
   <aside class="sidebar">
     <div class="logo">KEY CORP</div>
     <div class="logo-sub">ECOMMERCE</div>
+
+    <!-- Notification bell (sidebar) -->
+    <div class="notif-bell" id="notif-bell" style="display:none">
+      <button class="notif-bell-btn" id="notif-bell-btn" title="Notifications">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+        <span class="notif-bell-label">Notifications</span>
+        <span class="notif-badge hidden" id="notif-badge">0</span>
+      </button>
+      <div class="notif-dropdown hidden" id="notif-dropdown">
+        <div class="notif-header">
+          <div>Notifications</div>
+          <button id="notif-mark-all">Tout marquer lu</button>
+        </div>
+        <div class="notif-list" id="notif-list">
+          <div class="notif-empty">Aucune notification</div>
+        </div>
+      </div>
+    </div>
+
     <div id="workspace-switcher" style="margin:8px 0 14px;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:none;align-items:center;gap:8px;font-size:12px;transition:all 0.15s">
       <span style="font-size:14px"></span>
       <span id="workspace-name" style="flex:1;font-weight:600;color:var(--gold)">—</span>
@@ -344,23 +364,6 @@ a{color:var(--gold);text-decoration:none}
   <main class="main">
     <div id="page"></div>
   </main>
-
-  <!-- Notification bell (fixed top-right) -->
-  <div class="notif-bell" id="notif-bell" style="display:none">
-    <button class="notif-bell-btn" id="notif-bell-btn" title="Notifications">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-      <span class="notif-badge hidden" id="notif-badge">0</span>
-    </button>
-    <div class="notif-dropdown hidden" id="notif-dropdown">
-      <div class="notif-header">
-        <div>Notifications</div>
-        <button id="notif-mark-all">Tout marquer lu</button>
-      </div>
-      <div class="notif-list" id="notif-list">
-        <div class="notif-empty">Aucune notification</div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <div id="toast-container"></div>
@@ -4594,7 +4597,39 @@ const notifState = {
   unreadCount: 0,
   channel: null,
   open: false,
+  audioCtx: null,
 };
+
+// Joue un petit "ding" pleasant via Web Audio API (pas de fichier externe)
+function playNotifSound() {
+  try {
+    if (!notifState.audioCtx) {
+      notifState.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const ctx = notifState.audioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const now = ctx.currentTime;
+    // Deux notes : un "ding-dong" doux
+    const tones = [
+      { freq: 880, start: 0, dur: 0.18, vol: 0.18 },   // A5
+      { freq: 1318.5, start: 0.12, dur: 0.22, vol: 0.18 } // E6
+    ];
+    tones.forEach(t => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = t.freq;
+      gain.gain.setValueAtTime(0, now + t.start);
+      gain.gain.linearRampToValueAtTime(t.vol, now + t.start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + t.start + t.dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + t.start);
+      osc.stop(now + t.start + t.dur + 0.02);
+    });
+  } catch (e) {
+    console.warn('[NOTIF sound]', e);
+  }
+}
 
 async function loadNotifications() {
   if (!currentUser || !currentWorkspaceId) return;
@@ -4724,6 +4759,19 @@ function setupNotifBellHandlers() {
     const bell = document.getElementById('notif-bell');
     if (dd && !dd.contains(e.target) && !bell.contains(e.target)) closeNotifDropdown();
   });
+  // Déverrouille l'audio context au 1er clic n'importe où sur la page
+  const unlock = () => {
+    try {
+      if (!notifState.audioCtx) {
+        notifState.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (notifState.audioCtx.state === 'suspended') notifState.audioCtx.resume();
+    } catch (e) {}
+    document.removeEventListener('click', unlock);
+    document.removeEventListener('keydown', unlock);
+  };
+  document.addEventListener('click', unlock, { once: false });
+  document.addEventListener('keydown', unlock, { once: false });
 }
 
 function subscribeRealtimeNotifs() {
@@ -4745,8 +4793,9 @@ function subscribeRealtimeNotifs() {
       notifState.items.unshift(n);
       if (!n.read) {
         notifState.unreadCount++;
-        // Toast discret
+        // Toast discret + son
         toast(`${n.title} — ${n.message || ''}`.slice(0, 100), n.type === 'trad_rejected' ? 'error' : (n.type === 'trad_approved' ? 'success' : 'info'), 5000);
+        playNotifSound();
       }
       renderNotifBell();
       if (notifState.open) renderNotifList();
