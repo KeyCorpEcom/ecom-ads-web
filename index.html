@@ -807,7 +807,7 @@ async function renderDashboard(el) {
           const p = pct(s.trad, s.total);
           return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
             <div style="width:80px;display:flex;align-items:center">${flagImg(c.id)}${c.id}</div>
-            <div style="flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:${p}%;height:100%;background:${c.color};transition:width 0.4s"></div></div>
+            <div style="flex:1;height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:${p}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
             <div class="mono text-sm text-dim" style="min-width:70px;text-align:right">${s.trad}/${s.total}</div>
           </div>`;
         }).join('')}
