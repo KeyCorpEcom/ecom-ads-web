@@ -1731,30 +1731,47 @@ async function openValidateTradModal(productId, adId, countryId, state) {
     return;
   }
 
-  // Admin → action validate/reject
+  // Admin → action validate/reject (custom modal pour gérer 3 boutons d'action)
   const driveLink = pv?.drive_file_id ? `https://drive.google.com/file/d/${pv.drive_file_id}/view` : null;
   let uploaderName = '';
   if (pv?.uploaded_by) {
     const { data: up } = await sb.from('profiles').select('full_name, email').eq('id', pv.uploaded_by).maybeSingle();
     uploaderName = up?.full_name || up?.email || 'utilisateur';
   }
-  const r = await modal(`
-    <div class="modal-title" style="color:var(--orange)">${escapeHtml(adName)} / ${countryId} — En attente de validation</div>
-    <div class="text-sm text-dim mb-md">
-      Uploadé par <strong>${escapeHtml(uploaderName)}</strong>
-      ${pv?.uploaded_at ? ` · ${new Date(pv.uploaded_at).toLocaleString('fr-FR')}` : ''}
-    </div>
-    ${driveLink ? `<a href="${escapeHtml(driveLink)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="margin-bottom:14px">Voir la vidéo sur Drive</a>` : ''}
-    <div class="modal-actions">
-      <button class="btn btn-secondary" data-modal-close>Fermer</button>
-      <button class="btn btn-danger" data-action="reject">Rejeter</button>
-      <button class="btn" style="background:var(--green);color:#000" data-action="approve">Valider</button>
-    </div>
-  `);
-  if (!r) return;
-  if (r.action === 'approve') {
+
+  const action = await new Promise((resolve) => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `
+      <div class="modal">
+        <div class="modal-title" style="color:var(--orange)">${escapeHtml(adName)} / ${countryId} — En attente de validation</div>
+        <div class="text-sm text-dim mb-md">
+          Uploadé par <strong>${escapeHtml(uploaderName)}</strong>
+          ${pv?.uploaded_at ? ` · ${new Date(pv.uploaded_at).toLocaleString('fr-FR')}` : ''}
+        </div>
+        ${driveLink ? `<a href="${escapeHtml(driveLink)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="margin-bottom:14px;display:inline-block">Voir la vidéo sur Drive</a>` : ''}
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-action="close">Fermer</button>
+          <button class="btn btn-danger" data-action="reject">Rejeter</button>
+          <button class="btn" style="background:var(--green);color:#000" data-action="approve">Valider</button>
+        </div>
+      </div>
+    `;
+    container.appendChild(bd);
+    const close = (a) => { if (bd.parentNode) bd.remove(); resolve(a); };
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const a = btn.dataset.action;
+        close(a === 'close' ? null : a);
+      });
+    });
+  });
+
+  if (action === 'approve') {
     await approveTradVideo(pv);
-  } else if (r.action === 'reject') {
+  } else if (action === 'reject') {
     await rejectTradVideo(pv, adName, countryId);
   }
 }
