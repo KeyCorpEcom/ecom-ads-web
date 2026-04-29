@@ -241,6 +241,11 @@ a{color:var(--gold);text-decoration:none}
 .ads-table td.cut.check-cell{cursor:not-allowed!important;pointer-events:none}
 .ads-table th.cut-badge{position:relative}
 .ads-table th.cut-badge::after{content:' COUPÉ';position:absolute;top:2px;left:50%;transform:translateX(-50%);font-size:8px;color:var(--red);font-weight:700;letter-spacing:1px}
+
+/* Bloque la sélection texte native (rubber-band bleue) sur la table de tracking */
+.ads-table, .ads-table *{user-select:none;-webkit-user-select:none;-moz-user-select:none;-ms-user-select:none}
+.ads-table .check-cell:focus, .ads-table .check-cell:focus-visible{outline:none}
+.ads-table td[data-validate-trad], .ads-table td[data-toggle-meta]{-webkit-tap-highlight-color:transparent}
 </style>
 </head>
 <body>
@@ -1495,6 +1500,7 @@ async function renderProduit(el, productId) {
 
   // Click cellule Trad → modal selon état (pending/rejected/approved)
   el.querySelectorAll('[data-validate-trad]').forEach(td => {
+    td.addEventListener('mousedown', (ev) => { ev.preventDefault(); }); // bloque rubber-band texte
     td.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       const [adId, cId, state] = td.dataset.validateTrad.split('|');
@@ -4387,6 +4393,7 @@ function setupMetaDragSelect(container) {
     const cell = e.target.closest('.check-cell[data-toggle-meta]');
     if (!cell) return;
     if (!canEdit()) return;
+    e.preventDefault(); // bloque la sélection texte native (rubber-band bleu)
     startCell = cell;
     startX = e.clientX;
     startY = e.clientY;
