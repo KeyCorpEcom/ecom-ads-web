@@ -349,6 +349,10 @@ a{color:var(--gold);text-decoration:none}
 .numbered-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:3px;letter-spacing:-0.01em}
 .numbered-desc{font-size:12px;color:var(--text-dim);line-height:1.5;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .numbered-meta{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.numbered-actions{display:grid;grid-template-columns:repeat(2,1fr);gap:4px;align-items:center;flex-shrink:0;padding-left:10px;border-left:1px solid var(--border-soft);margin-left:6px}
+.numbered-actions .btn-icon-action{width:28px;height:28px;border-radius:5px}
+.numbered-actions .btn-icon-action svg{width:12px;height:12px}
+.numbered-actions .btn-icon-action[disabled]{opacity:0.25;cursor:not-allowed;pointer-events:none}
 
 /* Ad Copy : tabs par pays */
 .copy-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--border-soft);padding-bottom:0}
@@ -4969,6 +4973,22 @@ async function renderFormationCategory(el, catId) {
                   ${isAdminUser && viewed ? '<span style="margin-left:auto;font-size:11px;color:var(--green);font-weight:600">Tu as vu</span>' : ''}
                 </div>
               </div>
+              ${isAdminUser ? `
+                <div class="numbered-actions" onclick="event.stopPropagation()">
+                  <button class="btn-icon-action" data-move-up="${t.id}" ${i === 0 ? 'disabled' : ''} title="Monter">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+                  </button>
+                  <button class="btn-icon-action" data-move-down="${t.id}" ${i === visible.length - 1 ? 'disabled' : ''} title="Descendre">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <button class="btn-icon-action" data-edit-training="${t.id}" title="Éditer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  </button>
+                  <button class="btn-icon-action danger" data-del-training="${t.id}" title="Supprimer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
+                </div>
+              ` : ''}
             </div>
           `;
         }).join('')}
@@ -4983,7 +5003,43 @@ async function renderFormationCategory(el, catId) {
 
   if (isAdminUser) {
     document.getElementById('btn-new-training-here')?.addEventListener('click', () => editTrainingFlow(null, isOrphan ? null : catId));
+    // Move up/down + edit/delete sur chaque formation (admin only)
+    el.querySelectorAll('[data-move-up]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); moveTrainingPosition(b.dataset.moveUp, visible, -1); }));
+    el.querySelectorAll('[data-move-down]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); moveTrainingPosition(b.dataset.moveDown, visible, +1); }));
+    el.querySelectorAll('[data-edit-training]').forEach(b => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const { data: full } = await sb.from('trainings').select('*').eq('id', b.dataset.editTraining).single();
+      if (full) editTrainingFlow(full);
+    }));
+    el.querySelectorAll('[data-del-training]').forEach(b => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const { data: full } = await sb.from('trainings').select('id, title').eq('id', b.dataset.delTraining).single();
+      if (full) deleteTrainingFlow(full);
+    }));
   }
+}
+
+async function moveTrainingPosition(trainingId, list, delta) {
+  const idx = list.findIndex(t => t.id === trainingId);
+  const targetIdx = idx + delta;
+  if (idx < 0 || targetIdx < 0 || targetIdx >= list.length) return;
+  const me = list[idx];
+  const other = list[targetIdx];
+  // Swap positions (en utilisant des positions stables : si elles sont égales, on incrémente)
+  let myPos = me.position ?? 0;
+  let otherPos = other.position ?? 0;
+  if (myPos === otherPos) {
+    // Si collision, on rénumérote toute la liste pour avoir des positions uniques
+    for (let i = 0; i < list.length; i++) {
+      await sb.from('trainings').update({ position: i }).eq('id', list[i].id);
+    }
+    myPos = idx;
+    otherPos = targetIdx;
+  }
+  // Swap
+  await sb.from('trainings').update({ position: otherPos }).eq('id', me.id);
+  await sb.from('trainings').update({ position: myPos }).eq('id', other.id);
+  render();
 }
 
 function getVideoThumbnail(url) {
