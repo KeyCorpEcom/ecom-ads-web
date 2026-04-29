@@ -278,6 +278,50 @@ a{color:var(--gold);text-decoration:none}
 .notif-time{font-size:10px;color:var(--text-mute);margin-top:4px}
 .notif-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);align-self:center;flex-shrink:0}
 .notif-item:not(.unread) .notif-dot{visibility:hidden}
+
+/* ============ FORMATIONS ============ */
+.formation-cat{margin-bottom:32px}
+.formation-cat-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px}
+.formation-cat-title{font-size:18px;font-weight:700;color:var(--gold);letter-spacing:-0.01em}
+.formation-cat-count{font-size:11px;color:var(--text-mute);font-weight:500}
+.formation-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.formation-card{background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;transition:all 0.15s;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden}
+.formation-card:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,0.25)}
+.formation-card-thumb{aspect-ratio:16/9;background:var(--bg-input);border-radius:6px;margin-bottom:8px;display:flex;align-items:center;justify-content:center;color:var(--text-mute);font-size:32px;background-size:cover;background-position:center;position:relative}
+.formation-card-thumb-play{width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px}
+.formation-card-title{font-weight:700;font-size:14px;color:var(--text);line-height:1.35}
+.formation-card-desc{font-size:12px;color:var(--text-dim);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.formation-card-roles{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto}
+.formation-role-chip{font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg-input);color:var(--text-dim);font-weight:500;text-transform:capitalize}
+.formation-role-chip.admin{background:rgba(200,165,90,0.15);color:var(--gold)}
+.formation-role-chip.media_buyer{background:rgba(96,165,250,0.15);color:var(--blue)}
+.formation-role-chip.editor{background:rgba(167,139,250,0.15);color:#a78bfa}
+.formation-role-chip.page_builder{background:rgba(52,211,153,0.15);color:var(--green)}
+
+/* Detail */
+.formation-detail{max-width:900px;margin:0 auto}
+.formation-video-wrap{aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;margin-bottom:20px;position:relative}
+.formation-video-wrap iframe, .formation-video-wrap video{width:100%;height:100%;border:none;display:block}
+.formation-content{font-size:14px;line-height:1.7;color:var(--text)}
+.formation-content h1,.formation-content h2,.formation-content h3{margin-top:20px;margin-bottom:8px;color:var(--gold)}
+.formation-content h2{font-size:18px}.formation-content h3{font-size:15px}
+.formation-content p{margin-bottom:12px}
+.formation-content ul,.formation-content ol{margin-left:20px;margin-bottom:12px}
+.formation-content li{margin-bottom:6px}
+.formation-content code{background:var(--bg-input);padding:1px 6px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:12px}
+.formation-content pre{background:var(--bg-input);padding:12px;border-radius:6px;overflow:auto;margin-bottom:12px}
+.formation-content a{color:var(--blue);text-decoration:underline}
+.formation-content strong{color:var(--text);font-weight:700}
+
+/* Tracking grid */
+.tracking-grid{overflow-x:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:10px}
+.tracking-table{border-collapse:collapse;width:100%;min-width:600px}
+.tracking-table th, .tracking-table td{padding:10px 12px;border-bottom:1px solid var(--border-soft);text-align:center;font-size:13px}
+.tracking-table th{background:var(--bg);font-size:11px;text-transform:uppercase;color:var(--text-dim);font-weight:600;letter-spacing:0.5px;position:sticky;top:0}
+.tracking-table th.user-col, .tracking-table td.user-col{text-align:left;padding-left:16px;min-width:200px;position:sticky;left:0;background:var(--bg-card);z-index:1}
+.tracking-table th.user-col{background:var(--bg);z-index:2}
+.tracking-table .seen{color:var(--green);font-size:18px;font-weight:700}
+.tracking-table .unseen{color:var(--text-mute);font-size:18px}
 </style>
 </head>
 <body>
@@ -348,6 +392,9 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" data-route="pages"><span class="nav-icon"></span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
       <a class="nav-item" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
       <a class="nav-item" href="https://www.keycorp-ecom.com/hub" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>P&amp;L<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
+      <div class="nav-section-label">Apprentissage</div>
+      <a class="nav-item" data-route="formations"><span class="nav-icon"></span>Formations</a>
+      <a class="nav-item hidden" data-route="formations-suivi" id="nav-formations-suivi"><span class="nav-icon"></span>Suivi formations</a>
       <div class="nav-section-label">Intégrations</div>
       <a class="nav-item" data-route="drive"><span class="nav-icon"></span>Google Drive<span class="nav-badge" id="nav-drive-status"></span></a>
       <div class="nav-section-label" id="nav-admin-label" style="display:none">Admin</div>
@@ -658,14 +705,16 @@ async function initApp(user) {
   // Affiche le switcher de workspace
   renderWorkspaceSwitcher();
 
-  // Page builder : cache tout sauf la page Pages
+  // Page builder : cache tout sauf Pages + Formations
   if (profile.role === 'page_builder') {
+    const allowedRoutes = new Set(['pages', 'formations']);
     document.querySelectorAll('.nav-item').forEach(el => {
-      if (el.dataset.route !== 'pages' && el.id !== 'btn-open-cmdk') el.style.display = 'none';
+      if (!allowedRoutes.has(el.dataset.route) && el.id !== 'btn-open-cmdk') el.style.display = 'none';
     });
     document.querySelectorAll('.nav-section-label').forEach(el => el.style.display = 'none');
-    // Force navigation to pages
-    if (location.hash.slice(1) !== 'pages') location.hash = '#pages';
+    // Force navigation to pages au login (sauf si déjà sur formations)
+    const currentRoute = location.hash.slice(1).split('/')[0];
+    if (!allowedRoutes.has(currentRoute)) location.hash = '#pages';
   }
 
   // Tentative reconnexion auto Drive (si déjà configuré)
@@ -675,6 +724,7 @@ async function initApp(user) {
     document.getElementById('nav-admin-label').style.display = '';
     document.getElementById('nav-users').classList.remove('hidden');
     document.getElementById('nav-settings').classList.remove('hidden');
+    document.getElementById('nav-formations-suivi').classList.remove('hidden');
   }
   // Notifications : load + bind handlers + subscribe realtime
   setupNotifBellHandlers();
@@ -696,8 +746,8 @@ function navigate(route) { location.hash = '#' + route; }
 async function render() {
   const { page, params } = getRoute();
 
-  // Si page_builder : restriction à la page Pages uniquement
-  if (currentProfile?.role === 'page_builder' && page !== 'pages') {
+  // Si page_builder : restriction à Pages + Formations
+  if (currentProfile?.role === 'page_builder' && !['pages', 'formations', 'formation'].includes(page)) {
     navigate('pages');
     return;
   }
@@ -727,6 +777,9 @@ async function render() {
     else if (page === 'drive') await renderDrive(el);
     else if (page === 'users') await renderUsers(el);
     else if (page === 'parametres') await renderSettings(el);
+    else if (page === 'formations') await renderFormations(el);
+    else if (page === 'formation') await renderFormationDetail(el, params[0]);
+    else if (page === 'formations-suivi') await renderFormationsSuivi(el);
     else el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Page introuvable</div></div>';
   } catch (e) {
     console.error(e);
@@ -4624,6 +4677,470 @@ async function toggleMetaCell(adId, cId) {
     await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newMeta, meta_at: newMeta ? now : null, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
   }
   render();
+}
+
+/* ============================================================
+   FORMATIONS
+   ============================================================ */
+const ALL_ROLES = ['admin', 'media_buyer', 'editor', 'page_builder'];
+
+function escHtmlBasic(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+// Convertit URL YouTube/Loom/Drive en URL embed
+function toEmbedUrl(url) {
+  if (!url) return null;
+  const u = url.trim();
+  // YouTube
+  let m = u.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]{6,})/);
+  if (m) return `https://www.youtube.com/embed/${m[1]}`;
+  // Loom
+  m = u.match(/loom\.com\/share\/([a-f0-9]+)/);
+  if (m) return `https://www.loom.com/embed/${m[1]}`;
+  // Google Drive (file)
+  m = u.match(/drive\.google\.com\/file\/d\/([\w-]+)/);
+  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+  // Vimeo
+  m = u.match(/vimeo\.com\/(\d+)/);
+  if (m) return `https://player.vimeo.com/video/${m[1]}`;
+  // Si déjà embed, on retourne tel quel
+  return u;
+}
+
+// Convertit du markdown très light en HTML (pas de lib externe)
+function lightMdToHtml(md) {
+  if (!md) return '';
+  let h = escHtmlBasic(md);
+  // Code block ```...```
+  h = h.replace(/```([\s\S]*?)```/g, (_, c) => `<pre>${c.trim()}</pre>`);
+  // Inline code `...`
+  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  // Headings
+  h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  h = h.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  h = h.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold + italic
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  // Links [text](url)
+  h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  // Lists
+  h = h.replace(/(^|\n)((?:- .+(?:\n|$))+)/g, (_, lead, block) => {
+    const items = block.trim().split('\n').map(l => `<li>${l.replace(/^- /, '')}</li>`).join('');
+    return `${lead}<ul>${items}</ul>`;
+  });
+  h = h.replace(/(^|\n)((?:\d+\. .+(?:\n|$))+)/g, (_, lead, block) => {
+    const items = block.trim().split('\n').map(l => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('');
+    return `${lead}<ol>${items}</ol>`;
+  });
+  // Paragraphs (lignes vides = saut)
+  h = h.split(/\n{2,}/).map(p => {
+    if (/^<(h\d|ul|ol|pre|blockquote)/.test(p.trim())) return p;
+    return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+  }).join('\n');
+  return h;
+}
+
+async function renderFormations(el) {
+  const userRole = currentProfile?.role || 'media_buyer';
+  const isAdminUser = userRole === 'admin';
+
+  // Charger catégories + formations + views de l'user
+  const [{ data: cats }, { data: trainings }, { data: myViews }] = await Promise.all([
+    sb.from('training_categories').select('*').order('position').order('name'),
+    sb.from('trainings').select('*').order('position').order('created_at'),
+    sb.from('training_views').select('training_id').eq('user_id', currentUser.id)
+  ]);
+
+  // Filtre par rôle
+  const visible = (trainings || []).filter(t =>
+    isAdminUser /* admin voit tout */ || (Array.isArray(t.roles) && t.roles.includes(userRole))
+  );
+  const viewedSet = new Set((myViews || []).map(v => v.training_id));
+
+  // Group by category
+  const byCat = new Map();
+  (cats || []).forEach(c => byCat.set(c.id, { cat: c, items: [] }));
+  byCat.set(null, { cat: { id: null, name: 'Sans catégorie' }, items: [] });
+  visible.forEach(t => {
+    const k = t.category_id || null;
+    if (!byCat.has(k)) byCat.set(k, { cat: { id: k, name: 'Inconnu' }, items: [] });
+    byCat.get(k).items.push(t);
+  });
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Formations</div>
+        <div class="page-subtitle">${visible.length} formation${visible.length > 1 ? 's' : ''} disponible${visible.length > 1 ? 's' : ''} pour ton rôle <strong style="color:var(--gold)">${userRole}</strong></div>
+      </div>
+      ${isAdminUser ? `
+        <div class="flex gap-sm">
+          <button class="btn btn-secondary btn-sm" id="btn-new-cat">+ Catégorie</button>
+          <button class="btn btn-sm" id="btn-new-training">+ Formation</button>
+        </div>
+      ` : ''}
+    </div>
+
+    <div id="formations-body">
+      ${Array.from(byCat.values()).filter(g => g.items.length > 0 || (isAdminUser && g.cat.id)).map(g => `
+        <div class="formation-cat">
+          <div class="formation-cat-head">
+            <div>
+              <div class="formation-cat-title">${escapeHtml(g.cat.name)}</div>
+              <div class="formation-cat-count">${g.items.length} formation${g.items.length > 1 ? 's' : ''}</div>
+            </div>
+            ${isAdminUser && g.cat.id ? `
+              <div class="flex gap-sm">
+                <button class="btn btn-ghost btn-sm" data-edit-cat="${g.cat.id}">Renommer</button>
+                <button class="btn btn-ghost btn-sm" style="color:var(--red)" data-del-cat="${g.cat.id}">Suppr.</button>
+              </div>
+            ` : ''}
+          </div>
+          ${g.items.length === 0 ? `
+            <div style="padding:18px;background:var(--bg-card);border:1px dashed var(--border);border-radius:8px;text-align:center;color:var(--text-dim);font-size:13px">Aucune formation dans cette catégorie</div>
+          ` : `
+            <div class="formation-grid">
+              ${g.items.map(t => {
+                const viewed = viewedSet.has(t.id);
+                const thumb = t.video_url ? getVideoThumbnail(t.video_url) : null;
+                return `
+                  <div class="formation-card" data-formation="${t.id}">
+                    <div class="formation-card-thumb" ${thumb ? `style="background-image:url('${escapeHtml(thumb)}')"` : ''}>
+                      ${!thumb ? '<span style="opacity:0.4">▶</span>' : '<div class="formation-card-thumb-play">▶</div>'}
+                    </div>
+                    <div class="formation-card-title">${escapeHtml(t.title)}</div>
+                    ${t.description ? `<div class="formation-card-desc">${escapeHtml(t.description)}</div>` : ''}
+                    <div class="formation-card-roles">
+                      ${(t.roles || []).map(r => `<span class="formation-role-chip ${r}">${r.replace('_', ' ')}</span>`).join('')}
+                      ${isAdminUser && viewed ? '<span style="margin-left:auto;font-size:11px;color:var(--green)">✓ tu as vu</span>' : ''}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `}
+        </div>
+      `).join('') || `
+        <div class="empty">
+          <div class="empty-icon"></div>
+          <div class="empty-title">Aucune formation pour l'instant</div>
+          <div class="empty-text">${isAdminUser ? 'Crée la première formation avec le bouton "+ Formation" en haut.' : 'L\'admin n\'a pas encore publié de formation pour ton rôle.'}</div>
+        </div>
+      `}
+    </div>
+  `;
+
+  // Click sur une carte → detail
+  el.querySelectorAll('[data-formation]').forEach(card => {
+    card.addEventListener('click', () => navigate('formation/' + card.dataset.formation));
+  });
+
+  if (isAdminUser) {
+    document.getElementById('btn-new-cat')?.addEventListener('click', () => createCategoryFlow());
+    document.getElementById('btn-new-training')?.addEventListener('click', () => editTrainingFlow(null));
+    el.querySelectorAll('[data-edit-cat]').forEach(b => b.addEventListener('click', () => editCategoryFlow(b.dataset.editCat)));
+    el.querySelectorAll('[data-del-cat]').forEach(b => b.addEventListener('click', () => deleteCategoryFlow(b.dataset.delCat)));
+  }
+}
+
+function getVideoThumbnail(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]{6,})/);
+  if (m) return `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
+  return null;
+}
+
+async function renderFormationDetail(el, trainingId) {
+  const userRole = currentProfile?.role || 'media_buyer';
+  const isAdminUser = userRole === 'admin';
+
+  const { data: t } = await sb.from('trainings').select('*, training_categories(name)').eq('id', trainingId).maybeSingle();
+  if (!t) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Formation introuvable</div></div>';
+    return;
+  }
+  // Vérifier accès rôle
+  if (!isAdminUser && (!Array.isArray(t.roles) || !t.roles.includes(userRole))) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Accès refusé</div><div class="text-dim">Cette formation n\'est pas pour ton rôle.</div></div>';
+    return;
+  }
+
+  // Marquer comme vue (upsert)
+  try {
+    await sb.from('training_views').upsert(
+      { training_id: trainingId, user_id: currentUser.id, viewed_at: new Date().toISOString() },
+      { onConflict: 'training_id,user_id' }
+    );
+  } catch (e) { console.warn('[VIEW track]', e); }
+
+  const embed = toEmbedUrl(t.video_url);
+  const catName = t.training_categories?.name || '';
+
+  el.innerHTML = `
+    <div class="formation-detail">
+      <div class="page-head">
+        <div>
+          <a class="btn btn-ghost btn-sm" href="#formations" style="margin-bottom:8px">← Formations</a>
+          ${catName ? `<div class="text-sm text-dim">${escapeHtml(catName)}</div>` : ''}
+          <div class="page-title">${escapeHtml(t.title)}</div>
+          ${t.description ? `<div class="page-subtitle">${escapeHtml(t.description)}</div>` : ''}
+        </div>
+        ${isAdminUser ? `
+          <div class="flex gap-sm">
+            <button class="btn btn-secondary btn-sm" id="btn-edit-training">Éditer</button>
+            <button class="btn btn-ghost btn-sm" style="color:var(--red)" id="btn-del-training">Supprimer</button>
+          </div>
+        ` : ''}
+      </div>
+
+      ${embed ? `<div class="formation-video-wrap"><iframe src="${escapeHtml(embed)}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe></div>` : ''}
+
+      ${t.content ? `<div class="formation-content">${lightMdToHtml(t.content)}</div>` : ''}
+
+      <div style="margin-top:30px;padding-top:18px;border-top:1px solid var(--border-soft);display:flex;gap:8px;flex-wrap:wrap">
+        ${(t.roles || []).map(r => `<span class="formation-role-chip ${r}">${r.replace('_', ' ')}</span>`).join('')}
+      </div>
+    </div>
+  `;
+
+  if (isAdminUser) {
+    document.getElementById('btn-edit-training')?.addEventListener('click', () => editTrainingFlow(t));
+    document.getElementById('btn-del-training')?.addEventListener('click', () => deleteTrainingFlow(t));
+  }
+}
+
+async function renderFormationsSuivi(el) {
+  if (currentProfile?.role !== 'admin') {
+    el.innerHTML = '<div class="empty"><div class="empty-title">Accès admin uniquement</div></div>';
+    return;
+  }
+
+  const [{ data: trainings }, { data: views }, { data: profiles }] = await Promise.all([
+    sb.from('trainings').select('id, title, roles, category_id, training_categories(name)').order('position').order('created_at'),
+    sb.from('training_views').select('*'),
+    sb.from('profiles').select('id, email, full_name, role').order('full_name')
+  ]);
+
+  // Index views par user_id × training_id
+  const seenSet = new Set((views || []).map(v => `${v.user_id}|${v.training_id}`));
+
+  // Pour chaque user (sauf admin), pour chaque training où son rôle matche → affiche statut
+  const targetUsers = (profiles || []).filter(p => p.role !== 'admin');
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Suivi formations</div>
+        <div class="page-subtitle">Qui a vu quoi (toi seul vois cet écran)</div>
+      </div>
+    </div>
+
+    ${trainings.length === 0 ? `
+      <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucune formation</div></div>
+    ` : targetUsers.length === 0 ? `
+      <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun utilisateur non-admin</div></div>
+    ` : `
+      <div class="tracking-grid">
+        <table class="tracking-table">
+          <thead>
+            <tr>
+              <th class="user-col">Utilisateur</th>
+              ${trainings.map(t => `<th title="${escapeHtml(t.training_categories?.name || '')}">${escapeHtml(t.title.length > 18 ? t.title.slice(0, 18) + '…' : t.title)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${targetUsers.map(u => `
+              <tr>
+                <td class="user-col">
+                  <div style="font-weight:600">${escapeHtml(u.full_name || u.email)}</div>
+                  <div style="font-size:11px;color:var(--text-dim)">${escapeHtml(u.email)} · <span class="formation-role-chip ${u.role}">${(u.role || '').replace('_', ' ')}</span></div>
+                </td>
+                ${trainings.map(t => {
+                  const applies = Array.isArray(t.roles) && t.roles.includes(u.role);
+                  if (!applies) return '<td style="color:var(--text-mute)">—</td>';
+                  const seen = seenSet.has(`${u.id}|${t.id}`);
+                  return seen
+                    ? '<td class="seen">✓</td>'
+                    : '<td class="unseen">○</td>';
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `}
+  `;
+}
+
+/* ===== CRUD modals ===== */
+
+async function createCategoryFlow() {
+  const r = await modal(`
+    <div class="modal-title">Nouvelle catégorie</div>
+    <div class="input-group">
+      <label class="input-label">Nom</label>
+      <input class="input" data-field="name" placeholder="Ex: Validation Ads" autofocus>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Position (ordre d'affichage)</label>
+      <input class="input" type="number" data-field="position" value="0">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Créer</button>
+    </div>
+  `);
+  if (!r) return;
+  const name = (r.name || '').trim();
+  if (!name) { toast('Nom requis', 'error'); return; }
+  const { error } = await sb.from('training_categories').insert({ name, position: parseInt(r.position) || 0 });
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast('Catégorie créée', 'success');
+  render();
+}
+
+async function editCategoryFlow(catId) {
+  const { data: c } = await sb.from('training_categories').select('*').eq('id', catId).single();
+  if (!c) return;
+  const r = await modal(`
+    <div class="modal-title">Renommer la catégorie</div>
+    <div class="input-group">
+      <label class="input-label">Nom</label>
+      <input class="input" data-field="name" value="${escapeHtml(c.name)}" autofocus>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Position</label>
+      <input class="input" type="number" data-field="position" value="${c.position}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `);
+  if (!r) return;
+  await sb.from('training_categories').update({ name: r.name.trim(), position: parseInt(r.position) || 0 }).eq('id', catId);
+  toast('Catégorie mise à jour', 'success');
+  render();
+}
+
+async function deleteCategoryFlow(catId) {
+  const { data: c } = await sb.from('training_categories').select('name').eq('id', catId).single();
+  const ok = await modal(`
+    <div class="modal-title" style="color:var(--red)">Supprimer cette catégorie ?</div>
+    <div class="text-sm text-dim mb-md">"${escapeHtml(c?.name || '')}" — les formations dedans deviendront "Sans catégorie".</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Supprimer</button>
+    </div>
+  `);
+  if (!ok) return;
+  await sb.from('training_categories').delete().eq('id', catId);
+  toast('Catégorie supprimée', 'success');
+  render();
+}
+
+async function editTrainingFlow(existing) {
+  const { data: cats } = await sb.from('training_categories').select('*').order('position').order('name');
+  const t = existing || { title: '', description: '', video_url: '', content: '', category_id: '', roles: [], position: 0 };
+  const catOptions = (cats || []).map(c =>
+    `<option value="${c.id}" ${c.id === t.category_id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
+  ).join('');
+  const rolesHtml = ALL_ROLES.map(r => `
+    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:var(--bg-input);border:1px solid var(--border);text-transform:capitalize">
+      <input type="checkbox" data-role="${r}" ${(t.roles || []).includes(r) ? 'checked' : ''} style="accent-color:var(--gold)">
+      ${r.replace('_', ' ')}
+    </label>
+  `).join('');
+
+  const r = await modal(`
+    <div class="modal-title">${existing ? 'Éditer la formation' : 'Nouvelle formation'}</div>
+    <div class="input-group">
+      <label class="input-label">Titre *</label>
+      <input class="input" data-field="title" value="${escapeHtml(t.title)}" placeholder="Ex: Comment uploader des vidéos finies" autofocus>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Description courte</label>
+      <input class="input" data-field="description" value="${escapeHtml(t.description || '')}" placeholder="Une phrase pour résumer">
+    </div>
+    <div class="input-group">
+      <label class="input-label">URL vidéo (YouTube / Loom / Drive / Vimeo)</label>
+      <input class="input" data-field="video_url" value="${escapeHtml(t.video_url || '')}" placeholder="https://...">
+    </div>
+    <div class="input-group">
+      <label class="input-label">Catégorie</label>
+      <select class="select" data-field="category_id">
+        <option value="">— Sans catégorie —</option>
+        ${catOptions}
+      </select>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Rôles cibles (qui peut voir cette formation)</label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${rolesHtml}</div>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Contenu / checklist (markdown supporté : **gras**, *italique*, # titre, - liste)</label>
+      <textarea class="input" data-field="content" style="min-height:200px;font-family:'JetBrains Mono',monospace;font-size:12px" placeholder="## Étape 1
+- Faire ceci
+- Puis cela
+
+## Étape 2
+...">${escapeHtml(t.content || '')}</textarea>
+    </div>
+    <div class="input-group">
+      <label class="input-label">Position (ordre)</label>
+      <input class="input" type="number" data-field="position" value="${t.position || 0}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>${existing ? 'Enregistrer' : 'Créer'}</button>
+    </div>
+  `);
+  if (!r) return;
+
+  const title = (r.title || '').trim();
+  if (!title) { toast('Titre requis', 'error'); return; }
+
+  // Récupère les rôles cochés
+  const checkedRoles = Array.from(document.querySelectorAll('[data-role]:checked')).map(el => el.dataset.role);
+  if (checkedRoles.length === 0) { toast('Au moins un rôle doit être coché', 'error'); return; }
+
+  const payload = {
+    title,
+    description: (r.description || '').trim() || null,
+    video_url: (r.video_url || '').trim() || null,
+    content: (r.content || '').trim() || null,
+    category_id: r.category_id || null,
+    roles: checkedRoles,
+    position: parseInt(r.position) || 0,
+    updated_at: new Date().toISOString()
+  };
+
+  if (existing) {
+    const { error } = await sb.from('trainings').update(payload).eq('id', existing.id);
+    if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+    toast('Formation mise à jour', 'success');
+  } else {
+    payload.created_by = currentUser.id;
+    const { error } = await sb.from('trainings').insert(payload);
+    if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+    toast('Formation créée', 'success');
+  }
+  render();
+}
+
+async function deleteTrainingFlow(t) {
+  const ok = await modal(`
+    <div class="modal-title" style="color:var(--red)">Supprimer cette formation ?</div>
+    <div class="text-sm text-dim mb-md">"${escapeHtml(t.title)}" — supprimé définitivement, ainsi que tout l'historique de visionnage.</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Supprimer</button>
+    </div>
+  `);
+  if (!ok) return;
+  await sb.from('trainings').delete().eq('id', t.id);
+  toast('Formation supprimée', 'success');
+  navigate('formations');
 }
 
 /* ============================================================
