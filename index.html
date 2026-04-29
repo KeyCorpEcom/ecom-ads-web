@@ -1351,13 +1351,27 @@ async function renderProduit(el, productId) {
           <input type="file" multiple style="display:none" data-file-input="master" accept="video/*,image/*">
         </div>
       </div>
-      <div style="margin-top:14px">
-        <button id="btn-upload-finished" class="btn btn-secondary" style="width:100%;padding:14px" ${!driveState.connected || !canEdit() ? 'disabled' : ''}>
-          Uploader vidéos finies (à valider) →  <span class="mono">_a_valider/</span>
-        </button>
-        <div class="text-sm text-dim" style="margin-top:6px;text-align:center">L'admin doit valider avant que ce soit officiel</div>
-      </div>
       ${!driveState.connected ? '<div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)"> Connecte-toi à Google Drive (sidebar ) pour activer l\'upload auto.</div>' : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Vidéos finies (à valider)</div>
+        <span class="text-sm text-dim">Drag les fichiers (Ad 1.mp4, Ad 2.mp4...) sur le pays cible</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+        ${countries.filter(c => !(product.cut_countries || []).includes(c.id)).map(c => `
+          <div class="dropzone-finished" data-finished-country="${c.id}" style="padding:18px 12px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
+            <div style="font-size:20px;margin-bottom:6px">${flagImg(c.id)}</div>
+            <div style="font-weight:600;font-size:13px">${c.id}</div>
+            <div class="text-sm text-dim" style="font-size:11px;margin-top:4px">${escapeHtml(c.name)}</div>
+            <input type="file" multiple style="display:none" data-finished-input="${c.id}" accept="video/*">
+          </div>
+        `).join('')}
+      </div>
+      <div class="text-sm text-dim" style="margin-top:10px;padding:8px 10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--orange);line-height:1.5">
+        Les vidéos vont dans <span class="mono">_a_valider/{pays}/</span>. Un admin doit valider pour qu'elles passent dans <span class="mono">{pays}/</span> et que la case Trad coche en vert.
+      </div>
     </div>
 
     <div class="card">
@@ -1488,8 +1502,29 @@ async function renderProduit(el, productId) {
     });
   });
 
-  // 3ème dropzone "Vidéos finies"
-  el.querySelector('#btn-upload-finished')?.addEventListener('click', () => uploadFinishedFlow(productId));
+  // Dropzones "Vidéos finies" par pays (drag & drop ou click)
+  el.querySelectorAll('.dropzone-finished').forEach(dz => {
+    const country = dz.dataset.finishedCountry;
+    const input = dz.querySelector(`[data-finished-input="${country}"]`);
+    const handle = async (files) => {
+      if (!files || !files.length) return;
+      if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+      if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+      await uploadFinishedVideos(productId, country, Array.from(files));
+    };
+    dz.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      input?.click();
+    });
+    input?.addEventListener('change', (e) => { handle(Array.from(e.target.files)); e.target.value = ''; });
+    dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.style.borderColor = 'var(--gold)'; dz.style.background = 'rgba(200,165,90,0.1)'; });
+    dz.addEventListener('dragleave', () => { dz.style.borderColor = ''; dz.style.background = ''; });
+    dz.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dz.style.borderColor = ''; dz.style.background = '';
+      handle(Array.from(e.dataTransfer.files));
+    });
+  });
 }
 
 async function uploadFinishedFlow(productId) {
