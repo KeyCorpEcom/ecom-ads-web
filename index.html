@@ -4168,33 +4168,42 @@ async function syncDriveProduit(p, adsAll) {
   const enabled = (p.enabled_countries?.length ? p.enabled_countries : countries.map(c => c.id));
   const now = new Date().toISOString();
 
-  // 1. Scanner 00_Master_Ads → auto-créer les ads manquantes
+  // 1. Scanner 00_Master_Ads → LINK uniquement le master_file_id aux ads existantes
+  // (ne crée JAMAIS de nouvelles ads — celles-ci viennent uniquement de 00_Ads_Concurrent)
   const masterFolder = subfolders.find(f => f.mimeType === 'application/vnd.google-apps.folder' && f.name === MASTER_FOLDER_NAME);
   if (masterFolder) {
     const masterFiles = await driveListFolderContent(masterFolder.id);
-    const adsToCreate = [];
+    const updatesByAdId = new Map(); // ad_id → file.id
+    const orphanFiles = []; // fichiers sans ad correspondante
     for (const file of masterFiles) {
       if (file.mimeType === 'application/vnd.google-apps.folder') continue;
       const m = file.name.match(/Ad\s*(\d+)/i);
       if (!m) continue;
       const adNum = parseInt(m[1], 10);
       const adName = 'Ad ' + adNum;
-      if (!pAds.find(a => a.name.toLowerCase() === adName.toLowerCase())) {
-        adsToCreate.push({ product_id: p.id, name: adName, position: adNum, master_file_id: file.id, workspace_id: currentWorkspaceId });
+      const existingAd = pAds.find(a => a.name.toLowerCase() === adName.toLowerCase());
+      if (existingAd) {
+        // Ne re-update que si le master_file_id a changé (évite spam de logs)
+        if (existingAd.master_file_id !== file.id) {
+          updatesByAdId.set(existingAd.id, file.id);
+        }
+      } else {
+        orphanFiles.push(file.name);
       }
     }
-    if (adsToCreate.length > 0) {
-      const { data: inserted } = await sb.from('ads').insert(adsToCreate).select();
-      if (inserted && inserted.length > 0) {
-        // Créer les ad_countries pour chaque
-        const acToInsert = [];
-        inserted.forEach(ad => enabled.forEach(cId => acToInsert.push({ ad_id: ad.id, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId })));
-        await sb.from('ad_countries').insert(acToInsert);
-        await logSync(` ${p.id} : ${inserted.length} ad(s) auto-créée(s) depuis Masters`, 'success');
-        // Recharge les ads locales
-        pAds = [...pAds, ...inserted];
-        found += inserted.length;
-      }
+    let masterLinked = 0;
+    for (const [adId, fileId] of updatesByAdId.entries()) {
+      await sb.from('ads').update({ master_file_id: fileId }).eq('id', adId);
+      // Met à jour la liste locale aussi
+      const ad = pAds.find(a => a.id === adId);
+      if (ad) ad.master_file_id = fileId;
+      masterLinked++;
+    }
+    if (masterLinked > 0) {
+      await logSync(`${p.id} : ${masterLinked} master(s) lié(s) aux ads existantes`, 'info');
+    }
+    if (orphanFiles.length > 0) {
+      await logSync(`${p.id} : ${orphanFiles.length} fichier(s) master sans ad correspondante (${orphanFiles.slice(0, 3).join(', ')}${orphanFiles.length > 3 ? '...' : ''}). Crée d'abord l'ad via 00_Ads_Concurrent.`, 'warn');
     }
   }
 
