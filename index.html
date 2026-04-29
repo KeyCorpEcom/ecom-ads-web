@@ -757,6 +757,27 @@ async function initApp(user) {
     if (!allowedRoutes.has(currentRoute)) location.hash = '#pages';
   }
 
+  // Editor (ads translator) : cache tout sauf Ads + Drive + Formations
+  if (profile.role === 'editor') {
+    const allowedRoutes = new Set(['ads', 'drive', 'formations']);
+    document.querySelectorAll('.nav-item').forEach(el => {
+      // Garde le bouton Recherche (Ctrl+K)
+      if (el.id === 'btn-open-cmdk') return;
+      const route = el.dataset.route;
+      // Cache les routes non-autorisées + tous les liens externes (P&L, SAV)
+      if (!route || !allowedRoutes.has(route)) {
+        el.style.display = 'none';
+      }
+    });
+    // Cache aussi le label "Admin" (déjà caché par défaut, mais sécurité)
+    const adminLabel = document.getElementById('nav-admin-label');
+    if (adminLabel) adminLabel.style.display = 'none';
+    // Force navigation vers Ads si l'user arrive sur une route interdite
+    const allowedFull = new Set(['ads', 'drive', 'formations', 'formation', 'produit']);
+    const currentRoute = location.hash.slice(1).split('/')[0] || 'dashboard';
+    if (!allowedFull.has(currentRoute)) location.hash = '#ads';
+  }
+
   // Tentative reconnexion auto Drive (si déjà configuré)
   tryAutoReconnectDrive();
   // Afficher les menus admin
@@ -789,6 +810,11 @@ async function render() {
   // Si page_builder : restriction à Pages + Formations
   if (currentProfile?.role === 'page_builder' && !['pages', 'formations', 'formation'].includes(page)) {
     navigate('pages');
+    return;
+  }
+  // Si editor (ads translator) : restriction à Ads + Drive + Formations + détail produit
+  if (currentProfile?.role === 'editor' && !['ads', 'drive', 'formations', 'formation', 'produit'].includes(page)) {
+    navigate('ads');
     return;
   }
 
