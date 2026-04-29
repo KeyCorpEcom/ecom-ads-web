@@ -3661,6 +3661,35 @@ function formatAdCopyAsHtml(adName, sourceUrl, perCountryCopies) {
 }
 
 // Sync ad copy → Google Doc dans 00_Ads_Concurrent
+// Supprime le Google Doc "Ad copy X" du dossier 00_Ads_Concurrent (mis à la corbeille)
+async function deleteAdCopyDocFromDrive(adId) {
+  if (!driveState.connected) return { skipped: true, reason: 'not_connected' };
+  try {
+    const { data: ad } = await sb.from('ads').select('*, products(drive_folder_id)').eq('id', adId).single();
+    if (!ad) return { skipped: true, reason: 'ad_not_found' };
+    const driveFolderId = ad.products?.drive_folder_id;
+    if (!driveFolderId) return { skipped: true, reason: 'no_drive_folder' };
+
+    const concurrentFolder = await driveFindFolder(CONCURRENT_FOLDER_NAME, driveFolderId);
+    if (!concurrentFolder) return { skipped: true, reason: 'concurrent_folder_missing' };
+
+    const adNumber = ad.position || (parseInt((ad.name.match(/\d+/) || [0])[0], 10)) || 1;
+    const docName = `Ad copy ${adNumber}`;
+    const existing = await driveFindFile(docName, concurrentFolder.id, 'application/vnd.google-apps.document');
+    if (!existing) return { skipped: true, reason: 'doc_not_found' };
+
+    // Met le doc à la corbeille (récupérable 30 jours)
+    await gapi.client.drive.files.update({
+      fileId: existing.id,
+      resource: { trashed: true }
+    });
+    return { ok: true, action: 'trashed', docId: existing.id, docName };
+  } catch (e) {
+    console.error('[AD COPY DELETE FROM DRIVE]', e);
+    return { ok: false, error: e.message };
+  }
+}
+
 async function syncAdCopyToDrive(adId) {
   if (!driveState.connected) return { skipped: true, reason: 'not_connected' };
   try {
@@ -4591,6 +4620,7 @@ async function editAdCopyFlow(adId) {
 
   // === Action : VIDER TOUT ===
   if (r.action === 'clear') {
+    // 1. Vide en DB
     await sb.from('ads').update({ ad_copy: { url: '' } }).eq('id', adId);
     for (const c of countries) {
       const existing = (acRows || []).find(ac => ac.country_id === c.id);
@@ -4598,7 +4628,21 @@ async function editAdCopyFlow(adId) {
         await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', adId).eq('country_id', c.id);
       }
     }
-    toast('Copy vidé', 'success');
+    toast('Copy vidé en base', 'success');
+
+    // 2. Supprime le Google Doc sur Drive (best-effort)
+    if (driveState.connected) {
+      try {
+        const driveRes = await deleteAdCopyDocFromDrive(adId);
+        if (driveRes?.ok) {
+          toast(`Doc Drive supprimé : ${driveRes.docName}`, 'success', 4000);
+        } else if (driveRes?.skipped) {
+          // Pas de doc à supprimer (jamais sync) — silencieux
+        } else if (driveRes?.error) {
+          toast('Drive : ' + driveRes.error, 'warn', 5000);
+        }
+      } catch (e) { console.warn('[CLEAR copy drive]', e); }
+    }
     render();
     return;
   }
