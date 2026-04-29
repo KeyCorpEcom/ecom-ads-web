@@ -5236,7 +5236,7 @@ async function renderFormationDetail(el, trainingId) {
         ` : ''}
       </div>
 
-      ${embed ? `<div class="formation-video-wrap"><iframe src="${escapeHtml(embed)}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture"></iframe></div>` : ''}
+      ${t.video_url ? `<div class="formation-video-wrap"><video controls preload="metadata" src="${escapeHtml(t.video_url)}" style="width:100%;height:100%;background:#000"></video></div>` : ''}
 
       ${t.content ? `<div class="formation-content">${lightMdToHtml(t.content)}</div>` : ''}
 
@@ -5384,7 +5384,7 @@ async function deleteCategoryFlow(catId) {
 
 async function editTrainingFlow(existing, defaultCatId) {
   const { data: cats } = await sb.from('training_categories').select('*').order('position').order('name');
-  const t = existing || { title: '', description: '', video_url: '', content: '', category_id: defaultCatId || '', roles: [], position: 0 };
+  const t = existing || { title: '', description: '', video_url: '', video_path: '', content: '', category_id: defaultCatId || '', roles: [], position: 0 };
   const catOptions = (cats || []).map(c =>
     `<option value="${c.id}" ${c.id === t.category_id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`
   ).join('');
@@ -5395,92 +5395,208 @@ async function editTrainingFlow(existing, defaultCatId) {
     </label>
   `).join('');
 
-  const r = await modal(`
-    <div class="modal-title">${existing ? 'Éditer la formation' : 'Nouvelle formation'}</div>
-    <div class="input-group">
-      <label class="input-label">Titre *</label>
-      <input class="input" data-field="title" value="${escapeHtml(t.title)}" placeholder="Ex: Comment uploader des vidéos finies" autofocus>
-    </div>
-    <div class="input-group">
-      <label class="input-label">Description courte</label>
-      <input class="input" data-field="description" value="${escapeHtml(t.description || '')}" placeholder="Une phrase pour résumer">
-    </div>
-    <div class="input-group">
-      <label class="input-label">URL vidéo (YouTube / Loom / Drive / Vimeo)</label>
-      <input class="input" data-field="video_url" value="${escapeHtml(t.video_url || '')}" placeholder="https://...">
-    </div>
-    <div class="input-group">
-      <label class="input-label">Catégorie</label>
-      <select class="select" data-field="category_id">
-        <option value="">— Sans catégorie —</option>
-        ${catOptions}
-      </select>
-    </div>
-    <div class="input-group">
-      <label class="input-label">Rôles cibles (qui peut voir cette formation)</label>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">${rolesHtml}</div>
-    </div>
-    <div class="input-group">
-      <label class="input-label">Contenu / checklist (markdown supporté : **gras**, *italique*, # titre, - liste)</label>
-      <textarea class="input" data-field="content" style="min-height:200px;font-family:'JetBrains Mono',monospace;font-size:12px" placeholder="## Étape 1
-- Faire ceci
-- Puis cela
+  // Custom Promise modal pour gérer upload fichier + capture des valeurs avant fermeture
+  const r = await new Promise((resolve) => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `
+      <div class="modal" style="max-width:680px">
+        <div class="modal-title">${existing ? 'Éditer la formation' : 'Nouvelle formation'}</div>
+        <div class="input-group">
+          <label class="input-label">Titre *</label>
+          <input class="input" data-field="title" value="${escapeHtml(t.title)}" placeholder="Ex: Comment uploader des vidéos finies" autofocus>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Description courte</label>
+          <input class="input" data-field="description" value="${escapeHtml(t.description || '')}" placeholder="Une phrase pour résumer">
+        </div>
 
-## Étape 2
-...">${escapeHtml(t.content || '')}</textarea>
-    </div>
-    <div class="input-group">
-      <label class="input-label">Position (ordre)</label>
-      <input class="input" type="number" data-field="position" value="${t.position || 0}">
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>${existing ? 'Enregistrer' : 'Créer'}</button>
-    </div>
-  `);
+        <div class="input-group">
+          <label class="input-label">Vidéo de la formation</label>
+          <div id="training-video-section">
+            ${t.video_url ? `
+              <div style="padding:12px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:8px;margin-bottom:8px">
+                <div style="font-size:12px;color:var(--green);font-weight:600;margin-bottom:6px">Vidéo actuelle uploadée</div>
+                <video controls preload="metadata" src="${escapeHtml(t.video_url)}" style="width:100%;max-height:200px;border-radius:6px;background:#000"></video>
+                <button type="button" class="btn btn-ghost btn-sm" data-action="remove-video" style="margin-top:8px;color:var(--red)">Supprimer la vidéo actuelle</button>
+              </div>
+            ` : ''}
+            <input type="file" id="training-video-input" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" style="display:block;width:100%">
+            <div class="input-hint" style="margin-top:6px">MP4 / MOV / WebM / MKV — Max 100 MB. Compresse depuis CapCut ("Recommandé" suffit).</div>
+            <div id="training-upload-progress" style="display:none;margin-top:8px">
+              <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+                <div id="training-upload-bar" style="width:0%;height:100%;background:var(--gold);transition:width 0.2s"></div>
+              </div>
+              <div id="training-upload-label" style="font-size:11px;color:var(--text-dim);margin-top:4px">Upload...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label">Catégorie</label>
+          <select class="select" data-field="category_id">
+            <option value="">— Sans catégorie —</option>
+            ${catOptions}
+          </select>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Rôles cibles (qui peut voir cette formation)</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">${rolesHtml}</div>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Contenu / checklist (markdown supporté)</label>
+          <textarea class="input" data-field="content" style="min-height:160px;font-family:'JetBrains Mono',monospace;font-size:12px" placeholder="## Étape 1
+- Faire ceci
+- Puis cela">${escapeHtml(t.content || '')}</textarea>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Position (ordre)</label>
+          <input class="input" type="number" data-field="position" value="${t.position || 0}">
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-action="cancel">Annuler</button>
+          <button class="btn" data-action="save">${existing ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+      </div>
+    `;
+    container.appendChild(bd);
+
+    // Set selected option for category dropdown (since selected attribute alone won't trigger value)
+    const catSel = bd.querySelector('[data-field="category_id"]');
+    if (catSel && t.category_id) catSel.value = t.category_id;
+
+    let removeCurrentVideo = false; // flag : supprimer la vidéo existante au save
+
+    const close = (result) => { if (bd.parentNode) bd.remove(); resolve(result); };
+
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
+    bd.querySelector('[data-action="remove-video"]')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (!confirm('Supprimer la vidéo actuelle ? Tu pourras en uploader une nouvelle.')) return;
+      removeCurrentVideo = true;
+      // Visually hide the existing video block
+      const block = bd.querySelector('[data-action="remove-video"]')?.closest('div[style*="background"]');
+      if (block) block.remove();
+      toast('Vidéo marquée à supprimer (sera effective au save)', 'info', 3000);
+    });
+
+    bd.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const title = (bd.querySelector('[data-field="title"]')?.value || '').trim();
+      if (!title) { toast('Titre requis', 'error'); return; }
+      const checkedRoles = Array.from(bd.querySelectorAll('[data-role]:checked')).map(el => el.dataset.role);
+      if (checkedRoles.length === 0) { toast('Au moins un rôle doit être coché', 'error'); return; }
+      const fileInput = bd.querySelector('#training-video-input');
+      const file = fileInput?.files?.[0] || null;
+      // Validation taille (100 MB max)
+      if (file && file.size > 100 * 1024 * 1024) {
+        toast('Fichier trop gros (max 100 MB). Compresse depuis CapCut.', 'error', 6000);
+        return;
+      }
+      close({
+        title,
+        description: (bd.querySelector('[data-field="description"]')?.value || '').trim() || null,
+        category_id: bd.querySelector('[data-field="category_id"]')?.value || null,
+        content: (bd.querySelector('[data-field="content"]')?.value || '').trim() || null,
+        position: parseInt(bd.querySelector('[data-field="position"]')?.value) || 0,
+        roles: checkedRoles,
+        file,
+        removeCurrentVideo
+      });
+    });
+  });
+
   if (!r) return;
 
-  const title = (r.title || '').trim();
-  if (!title) { toast('Titre requis', 'error'); return; }
-
-  // Récupère les rôles cochés
-  const checkedRoles = Array.from(document.querySelectorAll('[data-role]:checked')).map(el => el.dataset.role);
-  if (checkedRoles.length === 0) { toast('Au moins un rôle doit être coché', 'error'); return; }
-
+  // === Build payload (sans la vidéo pour l'instant) ===
   const payload = {
-    title,
-    description: (r.description || '').trim() || null,
-    video_url: (r.video_url || '').trim() || null,
-    content: (r.content || '').trim() || null,
+    title: r.title,
+    description: r.description,
     category_id: r.category_id || null,
-    roles: checkedRoles,
-    position: parseInt(r.position) || 0,
+    content: r.content,
+    roles: r.roles,
+    position: r.position,
     updated_at: new Date().toISOString()
   };
 
-  if (existing) {
-    const { error } = await sb.from('trainings').update(payload).eq('id', existing.id);
-    if (error) { toast('Erreur : ' + error.message, 'error'); return; }
-    toast('Formation mise à jour', 'success');
-  } else {
+  // === Étape 1 : Insert/Update la formation pour avoir un ID ===
+  let trainingId = existing?.id;
+  if (!existing) {
     payload.created_by = currentUser.id;
-    const { error } = await sb.from('trainings').insert(payload);
-    if (error) { toast('Erreur : ' + error.message, 'error'); return; }
-    toast('Formation créée', 'success');
+    const { data: inserted, error } = await sb.from('trainings').insert(payload).select().single();
+    if (error) { toast('Erreur création : ' + error.message, 'error'); return; }
+    trainingId = inserted.id;
+  } else {
+    const { error } = await sb.from('trainings').update(payload).eq('id', existing.id);
+    if (error) { toast('Erreur sauvegarde : ' + error.message, 'error'); return; }
   }
+
+  // === Étape 2 : Gestion de la vidéo (delete old / upload new) ===
+  const shouldDeleteOld = (r.removeCurrentVideo || r.file) && existing?.video_path;
+  if (shouldDeleteOld) {
+    try {
+      await sb.storage.from('training-videos').remove([existing.video_path]);
+    } catch (e) { console.warn('[TRAINING delete old video]', e); }
+  }
+
+  if (r.removeCurrentVideo && !r.file) {
+    // L'admin a juste retiré la vidéo sans en uploader une nouvelle
+    await sb.from('trainings').update({ video_url: null, video_path: null }).eq('id', trainingId);
+  }
+
+  if (r.file) {
+    // Upload de la nouvelle vidéo
+    const ext = (r.file.name.split('.').pop() || 'mp4').toLowerCase();
+    const safeTitle = r.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
+    const path = `${trainingId}/${Date.now()}_${safeTitle}.${ext}`;
+
+    // Affiche le toast de progress (manuel — Supabase JS SDK n'expose pas onProgress simple)
+    toast('Upload de la vidéo en cours...', 'info', 3000);
+
+    const { error: upErr } = await sb.storage.from('training-videos').upload(path, r.file, {
+      cacheControl: '3600',
+      upsert: false,
+      contentType: r.file.type || 'video/mp4'
+    });
+    if (upErr) {
+      console.error('[TRAINING upload]', upErr);
+      toast('Erreur upload vidéo : ' + upErr.message, 'error', 8000);
+      // La formation existe quand même, juste sans vidéo
+      render();
+      return;
+    }
+
+    // Récupère l'URL publique
+    const { data: urlData } = sb.storage.from('training-videos').getPublicUrl(path);
+    const publicUrl = urlData.publicUrl;
+
+    await sb.from('trainings').update({ video_url: publicUrl, video_path: path }).eq('id', trainingId);
+    toast(existing ? 'Formation + vidéo mises à jour' : 'Formation créée avec vidéo', 'success', 4000);
+  } else {
+    toast(existing ? 'Formation mise à jour' : 'Formation créée', 'success');
+  }
+
   render();
 }
 
 async function deleteTrainingFlow(t) {
   const ok = await modal(`
     <div class="modal-title" style="color:var(--red)">Supprimer cette formation ?</div>
-    <div class="text-sm text-dim mb-md">"${escapeHtml(t.title)}" — supprimé définitivement, ainsi que tout l'historique de visionnage.</div>
+    <div class="text-sm text-dim mb-md">"${escapeHtml(t.title)}" — supprimé définitivement (vidéo + historique de visionnage inclus).</div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
       <button class="btn btn-danger" data-modal-ok>Supprimer</button>
     </div>
   `);
   if (!ok) return;
+  // Récupère le video_path pour pouvoir supprimer le fichier du Storage
+  const { data: full } = await sb.from('trainings').select('video_path').eq('id', t.id).single();
+  if (full?.video_path) {
+    try {
+      await sb.storage.from('training-videos').remove([full.video_path]);
+    } catch (e) { console.warn('[DELETE training video]', e); }
+  }
   await sb.from('trainings').delete().eq('id', t.id);
   toast('Formation supprimée', 'success');
   navigate('formations');
