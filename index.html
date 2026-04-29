@@ -625,6 +625,13 @@ function renderWorkspaceSwitcher() {
   const nameEl = document.getElementById('workspace-name');
   const arrowEl = document.getElementById('workspace-arrow');
   if (!switcher || !currentWorkspace) return;
+
+  // Réservé aux admins : un page_builder / editor ne voit pas le nom du workspace
+  if (currentProfile?.role !== 'admin') {
+    switcher.style.display = 'none';
+    return;
+  }
+
   switcher.style.display = 'flex';
   nameEl.textContent = currentWorkspace.name;
   // Si plusieurs workspaces : afficher la flèche pour switcher
