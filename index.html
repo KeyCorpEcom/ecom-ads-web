@@ -207,9 +207,10 @@ a{color:var(--gold);text-decoration:none}
 .check-cell.batch-selected{background:rgba(96,165,250,0.2)!important;box-shadow:inset 0 0 0 2px var(--blue)}
 
 /* Ad Copy icon */
-.ad-copy-icon{display:inline-block;margin-left:8px;cursor:pointer;font-size:14px;color:var(--text-mute);transition:all 0.15s;user-select:none}
-.ad-copy-icon:hover{color:var(--gold);transform:scale(1.1)}
-.ad-copy-icon.filled{color:var(--gold)}
+.ad-copy-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:8px;cursor:pointer;color:var(--text-mute);transition:all 0.15s;user-select:none;vertical-align:middle;border-radius:5px;border:1px solid var(--border-soft)}
+.ad-copy-icon:hover{color:var(--gold);background:var(--bg-input);border-color:var(--gold)}
+.ad-copy-icon.filled{color:var(--gold);border-color:var(--gold);background:rgba(200,165,90,0.08)}
+.ad-copy-icon svg{width:13px;height:13px;display:block}
 .ad-link-icon{display:inline-block;margin-left:6px;cursor:pointer;font-size:13px;text-decoration:none}
 .ad-link-icon:hover{transform:scale(1.15)}
 
@@ -1413,7 +1414,7 @@ async function renderProduit(el, productId) {
               <tr>
                 <td class="ad-col">
                   ${escapeHtml(ad.name)}
-                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="Éditer Ad Copy"></span>
+                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? 'Voir / Éditer Ad Copy' : 'Ajouter Ad Copy (titre, description)'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                 </td>
                 <td class="check-cell auto" style="border-left:2px solid var(--border-soft)" title="Master ${ad.master_file_id ? 'uploadé' : 'non uploadé'}">
