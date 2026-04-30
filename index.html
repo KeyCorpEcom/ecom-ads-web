@@ -3218,8 +3218,11 @@ async function renderPageProduct(el, productId) {
               ` : ''}
 
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                ${canEditPages() && status !== 'approved' ? `
-                  <button class="btn btn-sm" data-mark-built="${c.id}" style="background:var(--orange);color:#000"> Marquer "En review"</button>
+                ${canEditPages() && status === 'built' ? `
+                  <button class="btn btn-sm" disabled style="background:var(--orange);color:#000;opacity:0.55;cursor:default">En cours de review…</button>
+                ` : ''}
+                ${canEditPages() && (status === 'pending' || status === 'rejected') ? `
+                  <button class="btn btn-sm" data-mark-built="${c.id}" style="background:var(--orange);color:#000">${status === 'rejected' ? 'Re-soumettre en review' : 'Marquer "En review"'}</button>
                 ` : ''}
                 ${isAdmin() && status === 'built' ? `
                   <button class="btn btn-sm" data-validate="${c.id}" style="background:var(--green);color:#000"> Valider</button>
