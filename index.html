@@ -1039,7 +1039,7 @@ async function renderAds(el) {
             <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
-                ${priority !== 'normal' ? priorityBadge(priority) : ''}
+                ${priorityBadge(priority)}
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
@@ -1130,7 +1130,7 @@ async function renderProduits(el) {
             <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
-                ${priority !== 'normal' ? priorityBadge(priority) : ''}
+                ${priorityBadge(priority)}
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
@@ -1222,12 +1222,11 @@ async function newProductFlow() {
     <div class="input-group">
       <label class="input-label"> Priorité</label>
       <select class="select" data-field="priority">
-        <option value="urgent"> URGENT</option>
-        <option value="high"> HAUTE</option>
-        <option value="normal" selected> NORMALE</option>
-        <option value="low"> BASSE</option>
+        <option value="urgent">URGENT</option>
+        <option value="normal" selected>NORMAL</option>
+        <option value="low">FAIBLE</option>
       </select>
-      <div class="input-hint">Les produits à priorité haute remontent en haut de Product Page et Ads.</div>
+      <div class="input-hint">Les produits URGENT remontent en haut de Product Page et Ads.</div>
     </div>
     <div class="input-group">
       <label class="input-label"> URL Concurrent (référence pour page builder)</label>
@@ -2180,10 +2179,9 @@ async function editProductFlow(productId) {
     <div class="input-group">
       <label class="input-label"> Priorité</label>
       <select class="select" data-field="priority">
-        <option value="urgent" ${product.priority === 'urgent' ? 'selected' : ''}> URGENT</option>
-        <option value="high" ${product.priority === 'high' ? 'selected' : ''}> HAUTE</option>
-        <option value="normal" ${(!product.priority || product.priority === 'normal') ? 'selected' : ''}> NORMALE</option>
-        <option value="low" ${product.priority === 'low' ? 'selected' : ''}> BASSE</option>
+        <option value="urgent" ${(product.priority === 'urgent' || product.priority === 'high') ? 'selected' : ''}>URGENT</option>
+        <option value="normal" ${(!product.priority || product.priority === 'normal') ? 'selected' : ''}>NORMAL</option>
+        <option value="low" ${product.priority === 'low' ? 'selected' : ''}>FAIBLE</option>
       </select>
     </div>
     <div class="input-group">
@@ -2968,10 +2966,11 @@ function normalizeUrl(url) {
    ============================================================ */
 
 const PRIORITY_META = {
-  urgent: { label: 'URGENT',   emoji: '', color: '#f87171', weight: 4 },
-  high:   { label: 'HAUTE',    emoji: '', color: '#fb923c', weight: 3 },
-  normal: { label: 'NORMALE',  emoji: '', color: '#60a5fa', weight: 2 },
-  low:    { label: 'BASSE',    emoji: '', color: '#94a3b8', weight: 1 }
+  urgent: { label: 'URGENT',  emoji: '', color: '#f87171', weight: 3 }, // rouge
+  normal: { label: 'NORMAL',  emoji: '', color: '#fb923c', weight: 2 }, // orange
+  low:    { label: 'FAIBLE',  emoji: '', color: '#a78bfa', weight: 1 }, // mauve
+  // Alias pour rétro-compatibilité avec les anciennes valeurs DB
+  high:   { label: 'URGENT',  emoji: '', color: '#f87171', weight: 3 }
 };
 
 const STATUS_META = {
@@ -3074,7 +3073,7 @@ async function renderPagesHome(el) {
             <div style="background:var(--bg-card);border:1px solid var(--border);border-left:4px solid ${priorityBar};border-radius:10px;padding:14px 16px;cursor:pointer;transition:all 0.15s" data-open-product="${escapeHtml(p.id)}" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background='var(--bg-card)'">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px">
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-                  ${r.priority !== 'normal' ? priorityBadge(r.priority) : ''}
+                  ${priorityBadge(r.priority)}
                   <span class="mono" style="color:var(--gold);font-weight:700;font-size:15px">${escapeHtml(p.id)}</span>
                   <span style="color:var(--text-dim)">·</span>
                   <span style="color:var(--text);font-weight:500">${escapeHtml(p.name || '')}</span>
