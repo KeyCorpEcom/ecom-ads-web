@@ -212,6 +212,9 @@ a{color:var(--gold);text-decoration:none}
 .ad-copy-icon:hover{color:var(--gold);background:var(--bg-input);border-color:var(--gold)}
 .ad-copy-icon.filled{color:var(--gold);border-color:var(--gold);background:rgba(200,165,90,0.08)}
 .ad-copy-icon svg{width:13px;height:13px;display:block}
+.ad-delete-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:6px;cursor:pointer;color:var(--text-mute);transition:all 0.15s;user-select:none;vertical-align:middle;border-radius:5px;border:1px solid var(--border-soft);opacity:0.55}
+.ad-delete-icon:hover{color:var(--red);background:rgba(248,113,113,0.1);border-color:var(--red);opacity:1}
+.ad-delete-icon svg{width:11px;height:11px;display:block}
 .ad-link-icon{display:inline-block;margin-left:6px;cursor:pointer;font-size:13px;text-decoration:none}
 .ad-link-icon:hover{transform:scale(1.15)}
 
@@ -1486,6 +1489,7 @@ async function renderProduit(el, productId) {
                   ${escapeHtml(ad.name)}
                   <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? 'Voir / Éditer Ad Copy' : 'Ajouter Ad Copy (titre, description)'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
+                  ${isAdmin() ? `<span class="ad-delete-icon" data-delete-ad="${ad.id}" title="Supprimer cette ad et tous ses fichiers Drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : ''}
                 </td>
                 <td class="check-cell auto" style="border-left:2px solid var(--border-soft)" title="Master ${ad.master_file_id ? 'uploadé' : 'non uploadé'}">
                   <span class="check-icon master ${ad.master_file_id ? 'checked' : ''}"></span>
@@ -1725,6 +1729,15 @@ async function renderProduit(el, productId) {
       e.stopPropagation();
       if (!canEdit()) { toast('Permission refusée', 'error'); return; }
       editAdCopyFlow(icon.dataset.adCopy);
+    });
+  });
+
+  // Delete Ad icons (admin only)
+  el.querySelectorAll('[data-delete-ad]').forEach(icon => {
+    icon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!isAdmin()) { toast('Action réservée aux admins', 'error'); return; }
+      deleteAdFlow(icon.dataset.deleteAd);
     });
   });
 
@@ -4746,6 +4759,87 @@ async function editAdCopyFlow(adId) {
     } catch (e) { console.warn('[AD COPY drive sync]', e); }
   }
 
+  render();
+}
+
+// Supprime une Ad : DB + tous les fichiers Drive associés
+async function deleteAdFlow(adId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  // 1. Charge l'ad complète + ses ad_countries + pending_validations
+  const [{ data: ad }, { data: acRows }, { data: pvRows }] = await Promise.all([
+    sb.from('ads').select('*, products(drive_folder_id)').eq('id', adId).maybeSingle(),
+    sb.from('ad_countries').select('*').eq('ad_id', adId),
+    sb.from('pending_validations').select('*').eq('ad_id', adId)
+  ]);
+  if (!ad) { toast('Ad introuvable', 'error'); return; }
+
+  // 2. Compte les fichiers Drive concernés (pour la confirmation)
+  const driveFiles = [];
+  if (ad.concurrent_file_id) driveFiles.push({ id: ad.concurrent_file_id, label: 'concurrent' });
+  if (ad.master_file_id) driveFiles.push({ id: ad.master_file_id, label: 'master' });
+  (acRows || []).forEach(ac => {
+    if (ac.drive_file_id) driveFiles.push({ id: ac.drive_file_id, label: `trad ${ac.country_id}` });
+  });
+  (pvRows || []).forEach(pv => {
+    if (pv.drive_file_id) driveFiles.push({ id: pv.drive_file_id, label: `pending ${pv.country_id}` });
+  });
+
+  // 3. Modal de confirmation
+  const ok = await modal(`
+    <div class="modal-title" style="color:var(--red)">Supprimer ${escapeHtml(ad.name)} ?</div>
+    <div class="text-sm text-dim mb-md">Cette action est <strong>définitive</strong> et supprime :</div>
+    <ul style="margin:0 0 14px 18px;font-size:13px;line-height:1.7;color:var(--text)">
+      <li>L'ad <strong>${escapeHtml(ad.name)}</strong> de la base de données</li>
+      <li>Toutes les lignes <span class="mono">ad_countries</span> associées (${(acRows || []).length})</li>
+      <li>Toutes les <span class="mono">pending_validations</span> associées (${(pvRows || []).length})</li>
+      <li>${driveFiles.length} fichier${driveFiles.length > 1 ? 's' : ''} Drive (mis à la corbeille, récupérable 30 jours)</li>
+      <li>L'Ad Copy (Google Doc dans <span class="mono">00_Ads_Concurrent</span>)</li>
+    </ul>
+    <div style="padding:10px 12px;background:rgba(248,113,113,0.08);border-left:3px solid var(--red);border-radius:6px;font-size:12px;line-height:1.5">
+      Les vidéos validées et concurrent dans Drive seront mises à la corbeille. Tu pourras les récupérer pendant 30 jours si erreur.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Supprimer définitivement</button>
+    </div>
+  `);
+  if (!ok) return;
+
+  toast(`Suppression de ${ad.name}...`, 'info');
+
+  // 4. Trash les fichiers Drive (best-effort, on continue même si certains échouent)
+  if (driveState.connected && driveFiles.length > 0) {
+    let trashed = 0, failed = 0;
+    for (const f of driveFiles) {
+      try {
+        await gapi.client.drive.files.update({ fileId: f.id, resource: { trashed: true } });
+        trashed++;
+      } catch (e) {
+        console.warn(`[DELETE AD drive] ${f.label} (${f.id}):`, e);
+        failed++;
+      }
+    }
+    if (failed > 0) {
+      console.warn(`[DELETE AD] ${failed} fichier(s) Drive non supprimé(s)`);
+    }
+  }
+
+  // 5. Trash le Google Doc Ad Copy s'il existe
+  try {
+    await deleteAdCopyDocFromDrive(adId);
+  } catch (e) { console.warn('[DELETE AD copy doc]', e); }
+
+  // 6. Delete des rows DB (ordre important : enfants avant parent)
+  await sb.from('pending_validations').delete().eq('ad_id', adId);
+  await sb.from('ad_countries').delete().eq('ad_id', adId);
+  const { error: errAd } = await sb.from('ads').delete().eq('id', adId);
+  if (errAd) {
+    toast('Erreur DB : ' + errAd.message, 'error', 7000);
+    return;
+  }
+
+  toast(`${ad.name} supprimée`, 'success');
   render();
 }
 
