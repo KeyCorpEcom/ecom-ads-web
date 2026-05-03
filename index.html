@@ -5734,7 +5734,7 @@ async function editTrainingFlow(existing, defaultCatId) {
               </div>
             ` : ''}
             <input type="file" id="training-video-input" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" style="display:block;width:100%">
-            <div class="input-hint" style="margin-top:6px">MP4 / MOV / WebM / MKV — Max 100 MB. Compresse depuis CapCut ("Recommandé" suffit).</div>
+            <div class="input-hint" style="margin-top:6px">MP4 / MOV / WebM / MKV — Max 500 MB. Pour réduire : 720p + bitrate "Recommandé" sur CapCut suffit pour des SOPs.</div>
             <div id="training-upload-progress" style="display:none;margin-top:8px">
               <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
                 <div id="training-upload-bar" style="width:0%;height:100%;background:var(--gold);transition:width 0.2s"></div>
@@ -5800,9 +5800,10 @@ async function editTrainingFlow(existing, defaultCatId) {
       if (checkedRoles.length === 0) { toast('Au moins un rôle doit être coché', 'error'); return; }
       const fileInput = bd.querySelector('#training-video-input');
       const file = fileInput?.files?.[0] || null;
-      // Validation taille (100 MB max)
-      if (file && file.size > 100 * 1024 * 1024) {
-        toast('Fichier trop gros (max 100 MB). Compresse depuis CapCut.', 'error', 6000);
+      // Validation taille (500 MB max)
+      if (file && file.size > 500 * 1024 * 1024) {
+        const sizeMb = Math.round(file.size / 1024 / 1024);
+        toast(`Fichier trop gros (${sizeMb} MB, max 500 MB). Compresse depuis CapCut.`, 'error', 6000);
         return;
       }
       close({
