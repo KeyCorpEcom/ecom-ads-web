@@ -6114,11 +6114,16 @@ async function editTrainingFlow(existing, defaultCatId) {
       const sub = subdomain || 'customer-rv8esxzo0o5opuy7.cloudflarestream.com'; // fallback
       const iframeUrl = `https://${sub}/${uid}/iframe`;
 
-      // 4. Sauve en DB
-      await sb.from('trainings').update({
+      // 4. Sauve en DB — vérifie le retour pour ne pas laisser un échec silencieux
+      const { error: dbErr } = await sb.from('trainings').update({
         video_url: iframeUrl,
         video_path: 'cf:' + uid
       }).eq('id', trainingId);
+      if (dbErr) {
+        console.error('[TRAINING CF DB error]', dbErr);
+        toast(`Vidéo uploadée sur Cloudflare ✓ mais erreur DB : ${dbErr.message}. UID = ${uid} (sauve-le)`, 'error', 15000);
+        return;
+      }
       console.log('[TRAINING CF] DB updated:', iframeUrl);
       toast(existing ? 'Formation + vidéo Cloudflare mises à jour' : 'Formation créée avec vidéo sur Cloudflare', 'success', 4000);
     } catch (e) {
