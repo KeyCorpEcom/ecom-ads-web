@@ -5547,7 +5547,11 @@ async function renderFormationDetail(el, trainingId) {
         ` : ''}
       </div>
 
-      ${t.video_url ? `<div class="formation-video-wrap"><video controls preload="metadata" src="${escapeHtml(t.video_url)}" style="width:100%;height:100%;background:#000"></video></div>` : ''}
+      ${t.video_url ? (
+        /drive\.google\.com/.test(t.video_url)
+          ? `<div class="formation-video-wrap"><iframe src="${escapeHtml(t.video_url)}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" style="width:100%;height:100%;border:0;background:#000"></iframe></div>`
+          : `<div class="formation-video-wrap"><video controls preload="metadata" src="${escapeHtml(t.video_url)}" style="width:100%;height:100%;background:#000"></video></div>`
+      ) : ''}
 
       ${t.content ? `<div class="formation-content">${lightMdToHtml(t.content)}</div>` : ''}
 
@@ -5734,7 +5738,7 @@ async function editTrainingFlow(existing, defaultCatId) {
               </div>
             ` : ''}
             <input type="file" id="training-video-input" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" style="display:block;width:100%">
-            <div class="input-hint" style="margin-top:6px">MP4 / MOV / WebM / MKV — Max 500 MB. Pour réduire : 720p + bitrate "Recommandé" sur CapCut suffit pour des SOPs.</div>
+            <div class="input-hint" style="margin-top:6px">MP4 / MOV / WebM / MKV — uploadé sur ton Google Drive (pas de limite de taille). Drive doit être connecté.</div>
             <div id="training-upload-progress" style="display:none;margin-top:8px">
               <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
                 <div id="training-upload-bar" style="width:0%;height:100%;background:var(--gold);transition:width 0.2s"></div>
@@ -5800,11 +5804,11 @@ async function editTrainingFlow(existing, defaultCatId) {
       if (checkedRoles.length === 0) { toast('Au moins un rôle doit être coché', 'error'); return; }
       const fileInput = bd.querySelector('#training-video-input');
       const file = fileInput?.files?.[0] || null;
-      // Validation taille (500 MB max)
-      if (file && file.size > 500 * 1024 * 1024) {
+      // Pas de limite de taille — Drive accepte jusqu'à 5 TB par fichier
+      // (mais on warn si > 2 GB pour donner une idée du temps d'upload)
+      if (file && file.size > 2 * 1024 * 1024 * 1024) {
         const sizeMb = Math.round(file.size / 1024 / 1024);
-        toast(`Fichier trop gros (${sizeMb} MB, max 500 MB). Compresse depuis CapCut.`, 'error', 6000);
-        return;
+        toast(`Fichier très gros (${sizeMb} MB) — l'upload peut prendre plusieurs minutes.`, 'info', 6000);
       }
       close({
         title,
@@ -5845,46 +5849,72 @@ async function editTrainingFlow(existing, defaultCatId) {
   }
 
   // === Étape 2 : Gestion de la vidéo (delete old / upload new) ===
-  const shouldDeleteOld = (r.removeCurrentVideo || r.file) && existing?.video_path;
+  // On supporte 2 formats de stockage :
+  //   - Drive (nouveau) : video_path = "drive:fileId", video_url = embed URL
+  //   - Supabase Storage (legacy) : video_path = bucket path
+  const oldPath = existing?.video_path || '';
+  const shouldDeleteOld = (r.removeCurrentVideo || r.file) && oldPath;
   if (shouldDeleteOld) {
     try {
-      await sb.storage.from('training-videos').remove([existing.video_path]);
+      if (oldPath.startsWith('drive:')) {
+        const oldFileId = oldPath.slice(6);
+        if (driveState.connected) {
+          await gapi.client.drive.files.update({ fileId: oldFileId, resource: { trashed: true } });
+        }
+      } else {
+        await sb.storage.from('training-videos').remove([oldPath]);
+      }
     } catch (e) { console.warn('[TRAINING delete old video]', e); }
   }
 
   if (r.removeCurrentVideo && !r.file) {
-    // L'admin a juste retiré la vidéo sans en uploader une nouvelle
     await sb.from('trainings').update({ video_url: null, video_path: null }).eq('id', trainingId);
   }
 
   if (r.file) {
-    // Upload de la nouvelle vidéo
-    const ext = (r.file.name.split('.').pop() || 'mp4').toLowerCase();
-    const safeTitle = r.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
-    const path = `${trainingId}/${Date.now()}_${safeTitle}.${ext}`;
-
-    // Affiche le toast de progress (manuel — Supabase JS SDK n'expose pas onProgress simple)
-    toast('Upload de la vidéo en cours...', 'info', 3000);
-
-    const { error: upErr } = await sb.storage.from('training-videos').upload(path, r.file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: r.file.type || 'video/mp4'
-    });
-    if (upErr) {
-      console.error('[TRAINING upload]', upErr);
-      toast('Erreur upload vidéo : ' + upErr.message, 'error', 8000);
-      // La formation existe quand même, juste sans vidéo
+    // === Upload sur Google Drive (plus de limite de taille) ===
+    if (!driveState.connected) {
+      toast('Connecte-toi à Drive d\'abord pour uploader la vidéo', 'error', 6000);
       render();
       return;
     }
 
-    // Récupère l'URL publique
-    const { data: urlData } = sb.storage.from('training-videos').getPublicUrl(path);
-    const publicUrl = urlData.publicUrl;
+    toast(`Upload de "${r.file.name}" sur Drive...`, 'info', 4000);
 
-    await sb.from('trainings').update({ video_url: publicUrl, video_path: path }).eq('id', trainingId);
-    toast(existing ? 'Formation + vidéo mises à jour' : 'Formation créée avec vidéo', 'success', 4000);
+    try {
+      // 1. Trouve / crée le dossier "00_Trainings_KeyCorp" à la racine de My Drive
+      const trainingsFolder = await driveEnsureFolder('00_Trainings_KeyCorp', null);
+      // 2. Nom propre pour le fichier
+      const ext = (r.file.name.split('.').pop() || 'mp4').toLowerCase();
+      const safeTitle = r.title.replace(/[^a-zA-Z0-9 \-_]/g, '').slice(0, 50).trim() || 'Formation';
+      const fileName = `${safeTitle}.${ext}`;
+      // 3. Upload via gapi (multipart, pas de limite hard)
+      const uploaded = await driveUploadFile(r.file, trainingsFolder.id, fileName);
+      if (!uploaded?.id) throw new Error('Upload Drive échoué');
+      // 4. Rends le fichier accessible "anyone with link can view" pour que l'iframe marche pour tous
+      try {
+        await gapi.client.drive.permissions.create({
+          fileId: uploaded.id,
+          resource: { role: 'reader', type: 'anyone' }
+        });
+      } catch (permErr) {
+        console.warn('[TRAINING permissions]', permErr);
+        // Pas bloquant — peut-être que l'admin a désactivé les liens publics
+      }
+      // 5. Construit l'URL embed Drive
+      const embedUrl = `https://drive.google.com/file/d/${uploaded.id}/preview`;
+      // 6. Sauve en DB (video_path = "drive:<fileId>" pour distinguer du legacy Supabase)
+      await sb.from('trainings').update({
+        video_url: embedUrl,
+        video_path: 'drive:' + uploaded.id
+      }).eq('id', trainingId);
+      toast(existing ? 'Formation + vidéo Drive mises à jour' : 'Formation créée avec vidéo sur Drive', 'success', 4000);
+    } catch (e) {
+      console.error('[TRAINING drive upload]', e);
+      toast('Erreur upload Drive : ' + (e?.message || JSON.stringify(e)), 'error', 8000);
+      render();
+      return;
+    }
   } else {
     toast(existing ? 'Formation mise à jour' : 'Formation créée', 'success');
   }
@@ -5902,11 +5932,19 @@ async function deleteTrainingFlow(t) {
     </div>
   `);
   if (!ok) return;
-  // Récupère le video_path pour pouvoir supprimer le fichier du Storage
+  // Récupère le video_path pour pouvoir supprimer le fichier (Drive ou Supabase Storage)
   const { data: full } = await sb.from('trainings').select('video_path').eq('id', t.id).single();
-  if (full?.video_path) {
+  const path = full?.video_path || '';
+  if (path) {
     try {
-      await sb.storage.from('training-videos').remove([full.video_path]);
+      if (path.startsWith('drive:')) {
+        const fileId = path.slice(6);
+        if (driveState.connected) {
+          await gapi.client.drive.files.update({ fileId, resource: { trashed: true } });
+        }
+      } else {
+        await sb.storage.from('training-videos').remove([path]);
+      }
     } catch (e) { console.warn('[DELETE training video]', e); }
   }
   await sb.from('trainings').delete().eq('id', t.id);
