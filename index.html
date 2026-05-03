@@ -3811,8 +3811,10 @@ function driveProductFolderName(p) {
 }
 
 async function driveCreateFolder(name, parentId) {
+  // 'root' est l'alias Drive pour My Drive racine quand parentId est null/undefined
+  const parent = parentId || 'root';
   const r = await gapi.client.drive.files.create({
-    resource: { name, mimeType: 'application/vnd.google-apps.folder', parents: parentId ? [parentId] : undefined },
+    resource: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] },
     fields: 'id, name'
   });
   return r.result;
@@ -3820,8 +3822,10 @@ async function driveCreateFolder(name, parentId) {
 
 async function driveFindFolder(name, parentId) {
   const safeName = name.replace(/'/g, "\\'");
+  // 'root' = My Drive racine quand parentId est null/undefined
+  const parent = parentId || 'root';
   const r = await gapi.client.drive.files.list({
-    q: `'${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}' and trashed = false`,
+    q: `'${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}' and trashed = false`,
     fields: 'files(id, name)',
     pageSize: 1
   });
