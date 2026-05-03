@@ -93,14 +93,14 @@ export default async function handler(req, res) {
     body: JSON.stringify({ role, full_name: full_name || null })
   });
 
-  // Ajoute le nouveau user au workspace choisi
+  // Ajoute le nouveau user au workspace choisi (upsert : merge si déjà membre)
   const addToWs = await fetch(`${SUPABASE_URL}/rest/v1/workspace_members`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'apikey': SERVICE_KEY,
       'Authorization': `Bearer ${SERVICE_KEY}`,
-      'Prefer': 'return=minimal'
+      'Prefer': 'return=minimal,resolution=merge-duplicates'
     },
     body: JSON.stringify({
       workspace_id,
@@ -111,6 +111,16 @@ export default async function handler(req, res) {
   });
   if (!addToWs.ok) {
     const errText = await addToWs.text();
+    // Tolère le cas où l'user est déjà membre (duplicate key) — pas une erreur fatale
+    if (errText.includes('23505') || errText.includes('duplicate key')) {
+      return res.status(200).json({
+        ok: true,
+        user_id: newUserId,
+        email,
+        workspace_id,
+        note: 'User déjà membre du workspace, profil mis à jour'
+      });
+    }
     return res.status(500).json({ error: 'User créé mais ajout au workspace échoué : ' + errText, user_id: newUserId });
   }
 
