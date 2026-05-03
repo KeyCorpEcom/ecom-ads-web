@@ -2079,7 +2079,7 @@ async function driveUploadFile(file, parentId, displayName) {
     arrayBuffer,
     `\r\n--${boundary}--`
   ]);
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name', {
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name&supportsAllDrives=true', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body
@@ -3820,24 +3820,28 @@ function driveProductFolderName(p) {
 }
 
 async function driveCreateFolder(name, parentId) {
-  // Si pas de parentId, on omet 'parents' → Drive crée à la racine du My Drive par défaut
   const resource = { name, mimeType: 'application/vnd.google-apps.folder' };
   if (parentId) resource.parents = [parentId];
   console.log('[DRIVE createFolder]', { name, parentId, resource });
-  const r = await gapi.client.drive.files.create({ resource, fields: 'id, name' });
+  const r = await gapi.client.drive.files.create({
+    resource,
+    fields: 'id, name',
+    supportsAllDrives: true
+  });
   console.log('[DRIVE createFolder OK]', r.result);
   return r.result;
 }
 
 async function driveFindFolder(name, parentId) {
   const safeName = name.replace(/'/g, "\\'");
-  // 'root' est l'alias Drive valide pour My Drive racine quand parentId est null/undefined
   const parent = parentId || 'root';
   console.log('[DRIVE findFolder]', { name, parentId, parent });
   const r = await gapi.client.drive.files.list({
     q: `'${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}' and trashed = false`,
     fields: 'files(id, name)',
-    pageSize: 1
+    pageSize: 1,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
   });
   console.log('[DRIVE findFolder result]', r.result);
   return (r.result.files || [])[0] || null;
@@ -3850,13 +3854,14 @@ async function driveEnsureFolder(name, parentId) {
 }
 
 async function driveRenameFile(fileId, newName) {
-  return await gapi.client.drive.files.update({ fileId, resource: { name: newName } });
+  return await gapi.client.drive.files.update({ fileId, resource: { name: newName }, supportsAllDrives: true });
 }
 
 async function driveTrashFolder(folderId) {
   // Met le dossier à la corbeille Drive (récupérable 30 jours)
   return await gapi.client.drive.files.update({
     fileId: folderId,
+    supportsAllDrives: true,
     resource: { trashed: true }
   });
 }
@@ -3870,7 +3875,9 @@ async function driveFindFile(name, parentId, mimeType) {
   const r = await gapi.client.drive.files.list({
     q: `'${parentId}' in parents and name = '${safeName}'${mimeQuery} and trashed = false`,
     fields: 'files(id, name, mimeType)',
-    pageSize: 1
+    pageSize: 1,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
   });
   return (r.result.files || [])[0] || null;
 }
@@ -3973,6 +3980,7 @@ async function deleteAdCopyDocFromDrive(adId) {
     // Met le doc à la corbeille (récupérable 30 jours)
     await gapi.client.drive.files.update({
       fileId: existing.id,
+      supportsAllDrives: true,
       resource: { trashed: true }
     });
     return { ok: true, action: 'trashed', docId: existing.id, docName };
@@ -4033,7 +4041,8 @@ const DRIVE_COLOR_CUT    = '#f83a22';   // rouge
 async function driveSetFolderColor(fileId, colorRgb) {
   return await gapi.client.drive.files.update({
     fileId,
-    resource: { folderColorRgb: colorRgb }
+    resource: { folderColorRgb: colorRgb },
+    supportsAllDrives: true
   });
 }
 
@@ -4419,7 +4428,9 @@ async function driveListFolderContent(folderId) {
   const r = await gapi.client.drive.files.list({
     q: `'${folderId}' in parents and trashed = false`,
     fields: 'files(id, name, mimeType)',
-    pageSize: 1000
+    pageSize: 1000,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true
   });
   return r.result.files || [];
 }
@@ -5136,7 +5147,7 @@ async function deleteAdFlow(adId) {
     let trashed = 0, failed = 0;
     for (const f of driveFiles) {
       try {
-        await gapi.client.drive.files.update({ fileId: f.id, resource: { trashed: true } });
+        await gapi.client.drive.files.update({ fileId: f.id, resource: { trashed: true }, supportsAllDrives: true });
         trashed++;
       } catch (e) {
         console.warn(`[DELETE AD drive] ${f.label} (${f.id}):`, e);
@@ -6002,7 +6013,7 @@ async function editTrainingFlow(existing, defaultCatId) {
       if (oldPath.startsWith('drive:')) {
         const oldFileId = oldPath.slice(6);
         if (driveState.connected) {
-          await gapi.client.drive.files.update({ fileId: oldFileId, resource: { trashed: true } });
+          await gapi.client.drive.files.update({ fileId: oldFileId, resource: { trashed: true }, supportsAllDrives: true });
         }
       } else {
         await sb.storage.from('training-videos').remove([oldPath]);
@@ -6108,7 +6119,7 @@ async function deleteTrainingFlow(t) {
       if (path.startsWith('drive:')) {
         const fileId = path.slice(6);
         if (driveState.connected) {
-          await gapi.client.drive.files.update({ fileId, resource: { trashed: true } });
+          await gapi.client.drive.files.update({ fileId, resource: { trashed: true }, supportsAllDrives: true });
         }
       } else {
         await sb.storage.from('training-videos').remove([path]);
