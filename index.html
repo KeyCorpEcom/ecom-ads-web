@@ -1499,11 +1499,13 @@ async function renderProduit(el, productId) {
                   <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? 'Voir / Éditer Ad Copy' : 'Ajouter Ad Copy (titre, description)'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                   ${(() => {
-                    // Logique download : master si dispo, sinon concurrent (admin only), sinon disabled
-                    const downloadFileId = ad.master_file_id || (isAdmin() && ad.concurrent_file_id) || null;
+                    // Workflow : Admin upload concurrent → Editor télécharge concurrent → nettoie → upload master
+                    // Donc on télécharge en priorité le master (= version nettoyée s'il existe),
+                    // sinon le concurrent (= source à nettoyer pour l'editor)
+                    const downloadFileId = ad.master_file_id || ad.concurrent_file_id || null;
                     const downloadLabel = ad.master_file_id
-                      ? 'Télécharger le master'
-                      : (isAdmin() && ad.concurrent_file_id ? 'Télécharger le concurrent (master non dispo)' : 'Aucune vidéo disponible');
+                      ? 'Télécharger le master (nettoyé)'
+                      : (ad.concurrent_file_id ? 'Télécharger le concurrent (à nettoyer)' : 'Aucune vidéo disponible');
                     return `<span class="ad-download-icon ${downloadFileId ? '' : 'disabled'}" ${downloadFileId ? `data-download-master="${downloadFileId}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${downloadLabel}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>`;
                   })()}
                   ${isAdmin() ? `<span class="ad-delete-icon" data-delete-ad="${ad.id}" title="Supprimer cette ad et tous ses fichiers Drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : ''}
@@ -4329,7 +4331,19 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     for (const u of adsToUpdate) {
       await sb.from('ads').update({ concurrent_file_id: u.concurrent_file_id }).eq('id', u.id);
     }
-    if (createdCount > 0) await logSync(` ${product.id} : ${createdCount} ad(s) créée(s) depuis Concurrent`, 'success');
+    // Auto-share : "anyone with link can view" sur tous les concurrents uploadés
+    // Workflow : editor doit pouvoir télécharger le concurrent pour le nettoyer
+    for (const r of okResults) {
+      if (r.file?.id) {
+        try {
+          await gapi.client.drive.permissions.create({
+            fileId: r.file.id,
+            resource: { role: 'reader', type: 'anyone' }
+          });
+        } catch (e) { console.warn('[CONCURRENT auto-share]', e); }
+      }
+    }
+    if (createdCount > 0) await logSync(` ${product.id} : ${createdCount} ad(s) créée(s) depuis Concurrent (partagés)`, 'success');
   }
 
   // Si upload dans 00_Master_Ads → LIER aux ads existantes (pas de création)
@@ -4464,13 +4478,12 @@ async function shareAllMastersPublicly() {
     return;
   }
 
-  // Collecte tous les fichiers à partager (master + concurrent — concurrent reste utile pour admin re-uploads)
+  // Workflow : editor télécharge le concurrent pour le nettoyer + master si dispo
+  // Donc on partage les DEUX (concurrent + master) pour que les editors puissent télécharger
   const fileIds = new Set();
   (ads || []).forEach(a => {
     if (a.master_file_id) fileIds.add(a.master_file_id);
-    // Note : on partage aussi les concurrents (admin a déjà accès, mais ça simplifie le re-share par éditeur via lien direct)
-    // si tu veux pas, retire la ligne ci-dessous
-    // if (a.concurrent_file_id) fileIds.add(a.concurrent_file_id);
+    if (a.concurrent_file_id) fileIds.add(a.concurrent_file_id);
   });
 
   if (fileIds.size === 0) {
@@ -4662,10 +4675,10 @@ async function renderDrive(el) {
     <div class="card">
       <div class="card-head"><div class="card-title">Partage des fichiers</div></div>
       <div class="text-sm text-dim" style="margin-bottom:10px;line-height:1.6">
-        Si tes editors / page builders ne peuvent pas télécharger les masters, leurs fichiers Drive sont peut-être privés.<br>
-        Ce bouton met <strong>tous les masters existants</strong> en partage "anyone with link can view" pour qu'ils soient téléchargeables par tout le monde dans l'équipe.
+        Si tes editors ne peuvent pas télécharger les vidéos (concurrent / master), leurs fichiers Drive sont privés à ton compte Google.<br>
+        Ce bouton met <strong>tous les concurrents + masters existants</strong> en partage "anyone with link can view" — accessible à toute ton équipe.
       </div>
-      <button class="btn" id="btn-share-all-masters" ${!driveState.connected ? 'disabled' : ''}>Rendre tous les masters partagés</button>
+      <button class="btn" id="btn-share-all-masters" ${!driveState.connected ? 'disabled' : ''}>Partager tous les fichiers Drive</button>
     </div>
     ` : ''}
 
