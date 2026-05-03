@@ -4354,8 +4354,18 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     for (const u of adsToUpdate) {
       await sb.from('ads').update({ master_file_id: u.master_file_id }).eq('id', u.id);
       updatedCount++;
+      // Auto-share : "anyone with link can view" pour que les editors puissent télécharger
+      // sans passer par un partage manuel du dossier
+      if (u.master_file_id) {
+        try {
+          await gapi.client.drive.permissions.create({
+            fileId: u.master_file_id,
+            resource: { role: 'reader', type: 'anyone' }
+          });
+        } catch (e) { console.warn('[MASTER auto-share]', e); }
+      }
     }
-    if (updatedCount > 0) await logSync(`${product.id} : ${updatedCount} master(s) lié(s) aux ads existantes`, 'info');
+    if (updatedCount > 0) await logSync(`${product.id} : ${updatedCount} master(s) lié(s) aux ads existantes (partagés)`, 'info');
     if (adsNotFound.length > 0) {
       await logSync(`${product.id} : ${adsNotFound.length} fichier(s) ignoré(s) — ad inexistante (${adsNotFound.join(', ')})`, 'warn');
       toast(`${adsNotFound.length} fichier(s) sans ad existante : ${adsNotFound.join(', ')}. Crée-les d'abord via 00_Ads_Concurrent.`, 'warn', 8000);
@@ -4433,6 +4443,40 @@ async function syncDriveAll() {
     if (btn) { btn.disabled = false; btn.textContent = ' Sync maintenant'; }
     render();
   }
+}
+
+// Met en partage "anyone with link" tous les masters de tous les produits du workspace
+// Utile pour fixer les fichiers uploadés AVANT l'ajout du auto-share
+async function shareAllMastersPublicly() {
+  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  toast('Partage des masters en cours...', 'info', 5000);
+  const { data: ads } = await sb.from('ads')
+    .select('id, name, master_file_id, product_id')
+    .eq('workspace_id', currentWorkspaceId)
+    .not('master_file_id', 'is', null);
+
+  if (!ads || ads.length === 0) {
+    toast('Aucun master à partager', 'warn');
+    return;
+  }
+
+  let ok = 0, fail = 0;
+  for (const a of ads) {
+    try {
+      await gapi.client.drive.permissions.create({
+        fileId: a.master_file_id,
+        resource: { role: 'reader', type: 'anyone' }
+      });
+      ok++;
+    } catch (e) {
+      console.warn(`[SHARE] ${a.product_id} ${a.name}:`, e);
+      fail++;
+    }
+  }
+  await logSync(`Partage masters : ${ok} OK${fail > 0 ? `, ${fail} échecs` : ''}`, fail > 0 ? 'warn' : 'success');
+  toast(`${ok}/${ads.length} masters partagés${fail > 0 ? ` (${fail} en échec)` : ''}`, fail > 0 ? 'warn' : 'success', 6000);
 }
 
 async function syncDriveProduit(p, adsAll) {
@@ -4598,6 +4642,17 @@ async function renderDrive(el) {
       </div>
     </div>
 
+    ${isAdmin() ? `
+    <div class="card">
+      <div class="card-head"><div class="card-title">Partage des fichiers</div></div>
+      <div class="text-sm text-dim" style="margin-bottom:10px;line-height:1.6">
+        Si tes editors / page builders ne peuvent pas télécharger les masters, leurs fichiers Drive sont peut-être privés.<br>
+        Ce bouton met <strong>tous les masters existants</strong> en partage "anyone with link can view" pour qu'ils soient téléchargeables par tout le monde dans l'équipe.
+      </div>
+      <button class="btn" id="btn-share-all-masters" ${!driveState.connected ? 'disabled' : ''}>Rendre tous les masters partagés</button>
+    </div>
+    ` : ''}
+
     <div class="card">
       <div class="card-head">
         <div class="card-title"> Journal de synchronisation</div>
@@ -4634,6 +4689,7 @@ async function renderDrive(el) {
   document.getElementById('btn-drive-connect')?.addEventListener('click', () => driveConnect());
   document.getElementById('btn-drive-disconnect')?.addEventListener('click', driveDisconnect);
   document.getElementById('btn-sync-now')?.addEventListener('click', syncDriveAll);
+  document.getElementById('btn-share-all-masters')?.addEventListener('click', shareAllMastersPublicly);
   document.getElementById('btn-clear-log')?.addEventListener('click', async () => {
     if (!await confirmDialog('Vider le journal', 'Tous les logs seront supprimés.')) return;
     await sb.from('sync_log').delete().neq('id', '00000000-0000-0000-0000-000000000000');
