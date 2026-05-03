@@ -6290,6 +6290,30 @@ async function getWorkspaceAdmins() {
   // Détecte si l'user vient d'un lien d'invitation ou de reset password
   const hash = window.location.hash;
   const isInviteOrReset = hash.includes('type=invite') || hash.includes('type=recovery');
+
+  // Détecte les erreurs de lien expiré / invalide (otp_expired, access_denied)
+  if (hash.includes('error=access_denied') || hash.includes('error_code=otp_expired')) {
+    // Affiche un écran clair plutôt que le hash brut
+    const url = new URL('http://x' + hash.replace('#', '?'));
+    const errDesc = url.searchParams.get('error_description') || 'Lien invalide ou expiré';
+    document.body.innerHTML = `
+      <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0a0a14;color:#e4e4e7;font-family:Outfit,system-ui,sans-serif">
+        <div style="max-width:480px;text-align:center;background:#15151f;border:1px solid #27272f;border-radius:14px;padding:40px 32px;box-shadow:0 12px 40px rgba(0,0,0,0.5)">
+          <div style="font-size:18px;font-weight:700;color:#f87171;margin-bottom:14px">Lien expiré</div>
+          <div style="font-size:14px;line-height:1.6;color:#a8a8b8;margin-bottom:22px">
+            ${decodeURIComponent(errDesc.replace(/\+/g, ' '))}<br><br>
+            Le lien d'invitation a expiré (durée de vie ≈ 1h) ou a déjà été utilisé.
+            Demande à ton admin de t'en envoyer un nouveau.
+          </div>
+          <a href="/" style="display:inline-block;padding:10px 20px;background:#c8a55a;color:#000;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Retour login</a>
+        </div>
+      </div>
+    `;
+    // Nettoie l'URL pour pas que le hash reste
+    history.replaceState(null, '', '/');
+    return; // empêche la suite d'init de tourner
+  }
+
   // Check Shopify callback flag (si on revient d'une connexion OAuth)
   checkShopifyCallbackFlag();
 
