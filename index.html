@@ -1971,44 +1971,64 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
 }
 
 // Helper : télécharge un fichier depuis Drive (utilisé pour les masters)
+// Tente l'API Drive en priorité (meilleure UX, nom de fichier correct).
+// Si ça plante, bascule sur le lien Drive direct (ouverture dans nouvel onglet).
 async function downloadDriveFile(fileId, suggestedName) {
-  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
   if (!fileId) { toast('Pas de fichier disponible', 'warn'); return; }
-  toast('Téléchargement en cours...', 'info', 3000);
-  try {
-    const accessToken = driveState.accessToken;
-    // Récupère d'abord les métadonnées (nom + mimeType) pour avoir le vrai nom de fichier
-    let realName = suggestedName || 'download.mp4';
+  console.log('[DOWNLOAD] Start', { fileId, suggestedName, driveConnected: driveState.connected, hasToken: !!driveState.accessToken });
+
+  // === Méthode 1 : API Drive (download direct + nom correct) ===
+  if (driveState.connected && driveState.accessToken) {
+    toast('Téléchargement en cours...', 'info', 3000);
     try {
-      const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType`, {
+      const accessToken = driveState.accessToken;
+      // Récupère le vrai nom du fichier
+      let realName = suggestedName || 'download.mp4';
+      try {
+        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,size`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        if (metaRes.ok) {
+          const meta = await metaRes.json();
+          if (meta.name) realName = meta.name;
+          console.log('[DOWNLOAD] Meta:', meta);
+        } else {
+          console.warn('[DOWNLOAD] Meta failed:', metaRes.status);
+        }
+      } catch (e) { console.warn('[DOWNLOAD] Meta error:', e); }
+
+      // Récupère le contenu binaire
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      if (metaRes.ok) {
-        const meta = await metaRes.json();
-        if (meta.name) realName = meta.name;
-      }
-    } catch (e) { /* on garde le nom suggéré */ }
+      if (!res.ok) throw new Error(`Drive API HTTP ${res.status}`);
+      const blob = await res.blob();
+      console.log('[DOWNLOAD] Blob size:', blob.size, 'bytes');
 
-    // Récupère le contenu binaire
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-      headers: { 'Authorization': `Bearer ${accessToken}` }
-    });
-    if (!res.ok) throw new Error(`Drive API: HTTP ${res.status}`);
-    const blob = await res.blob();
-    // Déclenche le download côté navigateur
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = realName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toast(`Téléchargé : ${realName}`, 'success', 4000);
-  } catch (e) {
-    console.error('[DOWNLOAD]', e);
-    toast('Erreur téléchargement : ' + (e.message || e), 'error', 6000);
+      // Déclenche le download
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = realName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast(`Téléchargé : ${realName}`, 'success', 4000);
+      return;
+    } catch (e) {
+      console.error('[DOWNLOAD] API method failed, falling back to direct URL:', e);
+      // On continue sur le fallback ci-dessous
+    }
+  } else {
+    console.warn('[DOWNLOAD] Drive non connecté, fallback direct URL');
   }
+
+  // === Méthode 2 : Fallback — ouvre le lien Drive dans un nouvel onglet ===
+  // Marche tant que l'user est loggé à Google (cookies). Pour les fichiers <100MB.
+  const directUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+  window.open(directUrl, '_blank', 'noopener,noreferrer');
+  toast('Lien Drive ouvert dans un nouvel onglet', 'info', 5000);
 }
 
 // Helper : upload un fichier sur Drive (multipart)
