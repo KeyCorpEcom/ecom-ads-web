@@ -3811,24 +3811,26 @@ function driveProductFolderName(p) {
 }
 
 async function driveCreateFolder(name, parentId) {
-  // 'root' est l'alias Drive pour My Drive racine quand parentId est null/undefined
-  const parent = parentId || 'root';
-  const r = await gapi.client.drive.files.create({
-    resource: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parent] },
-    fields: 'id, name'
-  });
+  // Si pas de parentId, on omet 'parents' → Drive crée à la racine du My Drive par défaut
+  const resource = { name, mimeType: 'application/vnd.google-apps.folder' };
+  if (parentId) resource.parents = [parentId];
+  console.log('[DRIVE createFolder]', { name, parentId, resource });
+  const r = await gapi.client.drive.files.create({ resource, fields: 'id, name' });
+  console.log('[DRIVE createFolder OK]', r.result);
   return r.result;
 }
 
 async function driveFindFolder(name, parentId) {
   const safeName = name.replace(/'/g, "\\'");
-  // 'root' = My Drive racine quand parentId est null/undefined
+  // 'root' est l'alias Drive valide pour My Drive racine quand parentId est null/undefined
   const parent = parentId || 'root';
+  console.log('[DRIVE findFolder]', { name, parentId, parent });
   const r = await gapi.client.drive.files.list({
     q: `'${parent}' in parents and mimeType = 'application/vnd.google-apps.folder' and name = '${safeName}' and trashed = false`,
     fields: 'files(id, name)',
     pageSize: 1
   });
+  console.log('[DRIVE findFolder result]', r.result);
   return (r.result.files || [])[0] || null;
 }
 
