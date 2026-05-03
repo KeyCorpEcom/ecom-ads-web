@@ -3533,8 +3533,19 @@ let driveRefreshTimer = null;
 // expiresIn: durée de validité en secondes (par défaut 3600 = 1h)
 function scheduleDriveTokenRefresh(expiresIn) {
   if (driveRefreshTimer) { clearTimeout(driveRefreshTimer); driveRefreshTimer = null; }
-  // Refresh 5 min avant expiration, minimum 60s
-  const refreshInSec = Math.max(60, (expiresIn || 3600) - 300);
+  const exp = expiresIn || 3600;
+  // Si moins de 5 min restantes, refresh quasi-immédiatement
+  if (exp < 300) {
+    console.log('[DRIVE] Token quasi-expiré (' + exp + 's), refresh dans 1s');
+    driveRefreshTimer = setTimeout(() => {
+      console.log('[DRIVE] Silent token refresh (token quasi-expiré)');
+      driveConnect({ silent: true });
+    }, 1000);
+    return;
+  }
+  // Sinon refresh 5 min avant expiration, minimum 60s
+  const refreshInSec = Math.max(60, exp - 300);
+  console.log('[DRIVE] Refresh programmé dans ' + refreshInSec + 's');
   driveRefreshTimer = setTimeout(() => {
     if (driveState.connected) {
       console.log('[DRIVE] Silent token refresh (expiration approche)');
@@ -3588,7 +3599,9 @@ function getStoredToken() {
     const wsId = currentWorkspaceId;
     const token = localStorage.getItem(_tokenKey(wsId));
     const exp = parseInt(localStorage.getItem(_tokenExpKey(wsId)), 10);
-    if (!token || !exp || exp < Date.now() + 60000) { clearStoredToken(); return null; }
+    // Ne clear que si le token est complètement expiré.
+    // S'il reste < 5 min, on le retourne quand même — le scheduler va re-refresh tout de suite.
+    if (!token || !exp || exp < Date.now()) { clearStoredToken(); return null; }
     return token;
   } catch (e) { return null; }
 }
@@ -3729,27 +3742,43 @@ async function upsertDriveConfig(patch) {
 }
 
 async function tryAutoReconnectDrive() {
+  console.log('[DRIVE] tryAutoReconnect start, ws:', currentWorkspaceId);
   const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).maybeSingle();
-  if (!cfg?.client_id || !cfg?.api_key) return;
-  const storedToken = getStoredToken();
-  if (storedToken) {
-    try {
-      await initGapiClient(cfg.api_key);
-      driveState.accessToken = storedToken;
-      driveState.connected = true;
-      gapi.client.setToken({ access_token: storedToken });
-      // Programme un refresh basé sur l'expiration restante du token stocké
-      try {
-        const expKey = _tokenExpKey(currentWorkspaceId);
-        const exp = parseInt(localStorage.getItem(expKey), 10);
-        const remainingSec = exp ? Math.max(60, Math.floor((exp - Date.now()) / 1000)) : 3000;
-        scheduleDriveTokenRefresh(remainingSec);
-      } catch (e) { scheduleDriveTokenRefresh(3000); }
-      await logSync('Reconnecté via token stocké', 'info');
-      setupAutoSync();
-      return;
-    } catch (e) { clearStoredToken(); }
+  if (!cfg?.client_id || !cfg?.api_key) {
+    console.log('[DRIVE] No config for this workspace');
+    return;
   }
+
+  const storedToken = getStoredToken();
+  console.log('[DRIVE] Stored token:', storedToken ? 'présent' : 'absent');
+
+  // Init gapi en parallèle (n'efface pas le token si ça échoue)
+  initGapiClient(cfg.api_key).catch(e => console.warn('[DRIVE] gapi init failed:', e));
+
+  if (storedToken) {
+    // Restaure l'état IMMÉDIATEMENT à partir du token stocké
+    // On n'attend pas gapi pour marquer Drive comme connecté côté UI
+    driveState.accessToken = storedToken;
+    driveState.connected = true;
+    // Set le token sur gapi.client si disponible (sinon ça sera fait au moment de l'appel API)
+    if (window.gapi?.client) {
+      try { gapi.client.setToken({ access_token: storedToken }); } catch (e) { console.warn(e); }
+    }
+    // Programme un refresh basé sur l'expiration restante du token stocké
+    try {
+      const expKey = _tokenExpKey(currentWorkspaceId);
+      const exp = parseInt(localStorage.getItem(expKey), 10);
+      const remainingSec = exp ? Math.max(60, Math.floor((exp - Date.now()) / 1000)) : 3000;
+      scheduleDriveTokenRefresh(remainingSec);
+      console.log('[DRIVE] Token restauré, refresh programmé dans', remainingSec - 300, 's');
+    } catch (e) { scheduleDriveTokenRefresh(3000); }
+    await logSync('Reconnecté via token stocké', 'info').catch(() => {});
+    setupAutoSync();
+    return;
+  }
+
+  // Pas de token stocké → silent reconnect (laisse 1500ms à gapi pour init)
+  console.log('[DRIVE] Pas de token, tentative silent reconnect dans 1.5s');
   setTimeout(() => driveConnect({ silent: true }), 1500);
 }
 
