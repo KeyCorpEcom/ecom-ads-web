@@ -2063,7 +2063,10 @@ async function downloadDriveFile(fileId, suggestedName) {
 async function driveUploadFile(file, parentId, displayName) {
   const accessToken = driveState.accessToken;
   if (!accessToken) throw new Error('Drive non connecté');
-  const metadata = { name: displayName, parents: [parentId] };
+  // Si parentId null/undefined → on omet 'parents' → upload à la racine My Drive
+  const metadata = { name: displayName };
+  if (parentId) metadata.parents = [parentId];
+  console.log('[DRIVE upload]', { name: displayName, parentId, fileSize: file.size, fileType: file.type });
   const boundary = '-------keycorp-' + Math.random().toString(36).slice(2);
   const reader = new FileReader();
   const arrayBuffer = await new Promise((resolve, reject) => {
@@ -2081,8 +2084,14 @@ async function driveUploadFile(file, parentId, displayName) {
     headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
     body
   });
-  if (!res.ok) throw new Error('Drive upload: HTTP ' + res.status);
-  return await res.json();
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('[DRIVE upload error]', res.status, errText);
+    throw new Error(`Drive upload HTTP ${res.status}: ${errText.slice(0, 300)}`);
+  }
+  const result = await res.json();
+  console.log('[DRIVE upload OK]', result);
+  return result;
 }
 
 async function openValidateTradModal(productId, adId, countryId, state) {
@@ -6002,36 +6011,39 @@ async function editTrainingFlow(existing, defaultCatId) {
     toast(`Upload de "${r.file.name}" sur Drive...`, 'info', 4000);
 
     try {
-      // 1. Trouve / crée le dossier "00_Trainings_KeyCorp" à la racine de My Drive
-      const trainingsFolder = await driveEnsureFolder('00_Trainings_KeyCorp', null);
-      // 2. Nom propre pour le fichier
+      // Upload direct à la racine My Drive (pas de création de dossier — plus simple, plus fiable)
       const ext = (r.file.name.split('.').pop() || 'mp4').toLowerCase();
       const safeTitle = r.title.replace(/[^a-zA-Z0-9 \-_]/g, '').slice(0, 50).trim() || 'Formation';
-      const fileName = `${safeTitle}.${ext}`;
-      // 3. Upload via gapi (multipart, pas de limite hard)
-      const uploaded = await driveUploadFile(r.file, trainingsFolder.id, fileName);
-      if (!uploaded?.id) throw new Error('Upload Drive échoué');
-      // 4. Rends le fichier accessible "anyone with link can view" pour que l'iframe marche pour tous
+      const fileName = `KeyCorp_Formation_${safeTitle}.${ext}`;
+      console.log('[TRAINING] Starting upload:', fileName);
+
+      const uploaded = await driveUploadFile(r.file, null, fileName);
+      if (!uploaded?.id) throw new Error('Upload Drive: pas d\'id retourné');
+      console.log('[TRAINING] Upload OK, fileId:', uploaded.id);
+
+      // Rends le fichier public (anyone with link can view) — best-effort, non bloquant
       try {
         await gapi.client.drive.permissions.create({
           fileId: uploaded.id,
           resource: { role: 'reader', type: 'anyone' }
         });
+        console.log('[TRAINING] Public share OK');
       } catch (permErr) {
         console.warn('[TRAINING permissions]', permErr);
-        // Pas bloquant — peut-être que l'admin a désactivé les liens publics
       }
-      // 5. Construit l'URL embed Drive
+
+      // Sauve en DB
       const embedUrl = `https://drive.google.com/file/d/${uploaded.id}/preview`;
-      // 6. Sauve en DB (video_path = "drive:<fileId>" pour distinguer du legacy Supabase)
       await sb.from('trainings').update({
         video_url: embedUrl,
         video_path: 'drive:' + uploaded.id
       }).eq('id', trainingId);
+      console.log('[TRAINING] DB updated with embedUrl:', embedUrl);
       toast(existing ? 'Formation + vidéo Drive mises à jour' : 'Formation créée avec vidéo sur Drive', 'success', 4000);
     } catch (e) {
       console.error('[TRAINING drive upload]', e);
-      toast('Erreur upload Drive : ' + (e?.message || JSON.stringify(e)), 'error', 8000);
+      const errMsg = e?.message || e?.result?.error?.message || JSON.stringify(e).slice(0, 500);
+      toast('Erreur upload Drive : ' + errMsg, 'error', 10000);
       render();
       return;
     }
