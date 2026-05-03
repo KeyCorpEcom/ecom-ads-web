@@ -215,6 +215,12 @@ a{color:var(--gold);text-decoration:none}
 .ad-delete-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:6px;cursor:pointer;color:var(--text-mute);transition:all 0.15s;user-select:none;vertical-align:middle;border-radius:5px;border:1px solid var(--border-soft);opacity:0.55}
 .ad-delete-icon:hover{color:var(--red);background:rgba(248,113,113,0.1);border-color:var(--red);opacity:1}
 .ad-delete-icon svg{width:11px;height:11px;display:block}
+.ad-download-icon{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:6px;cursor:pointer;color:var(--text-mute);transition:all 0.15s;user-select:none;vertical-align:middle;border-radius:5px;border:1px solid var(--border-soft)}
+.ad-download-icon:hover{color:var(--gold);background:rgba(200,165,90,0.08);border-color:var(--gold)}
+.ad-download-icon.disabled{opacity:0.25;cursor:not-allowed;pointer-events:none}
+.ad-download-icon svg{width:12px;height:12px;display:block}
+.check-cell.master.clickable{cursor:pointer}
+.check-cell.master.clickable:hover .check-icon.master.checked{transform:scale(1.08);box-shadow:0 0 0 2px rgba(200,165,90,0.4)}
 .ad-link-icon{display:inline-block;margin-left:6px;cursor:pointer;font-size:13px;text-decoration:none}
 .ad-link-icon:hover{transform:scale(1.15)}
 
@@ -1489,9 +1495,10 @@ async function renderProduit(el, productId) {
                   ${escapeHtml(ad.name)}
                   <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? 'Voir / Éditer Ad Copy' : 'Ajouter Ad Copy (titre, description)'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
+                  <span class="ad-download-icon ${ad.master_file_id ? '' : 'disabled'}" ${ad.master_file_id ? `data-download-master="${ad.master_file_id}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${ad.master_file_id ? 'Télécharger la vidéo master' : 'Pas de master uploadé'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
                   ${isAdmin() ? `<span class="ad-delete-icon" data-delete-ad="${ad.id}" title="Supprimer cette ad et tous ses fichiers Drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : ''}
                 </td>
-                <td class="check-cell auto" style="border-left:2px solid var(--border-soft)" title="Master ${ad.master_file_id ? 'uploadé' : 'non uploadé'}">
+                <td class="check-cell auto master ${ad.master_file_id ? 'clickable' : ''}" style="border-left:2px solid var(--border-soft)" ${ad.master_file_id ? `data-download-master="${ad.master_file_id}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${ad.master_file_id ? 'Cliquer pour télécharger le master' : 'Master non uploadé'}">
                   <span class="check-icon master ${ad.master_file_id ? 'checked' : ''}"></span>
                 </td>
                 ${countries.map(c => {
@@ -1580,13 +1587,15 @@ async function renderProduit(el, productId) {
         <div class="card-title"> Upload rapide</div>
         <span class="text-sm text-dim">${driveState.connected ? 'Glisse des fichiers depuis ton PC' : ' Connecte-toi à Drive d\'abord'}</span>
       </div>
-      <div class="grid-2">
-        <div class="dropzone" data-upload-target="concurrent" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
-          <div style="font-size:24px;margin-bottom:8px"></div>
-          <div style="font-weight:600;margin-bottom:4px">Videos concurrent</div>
-          <div class="text-sm text-dim">Raw, avec sous-titres → <span class="mono">${CONCURRENT_FOLDER_NAME}/</span></div>
-          <input type="file" multiple style="display:none" data-file-input="concurrent" accept="video/*,image/*">
-        </div>
+      <div class="${isAdmin() ? 'grid-2' : ''}">
+        ${isAdmin() ? `
+          <div class="dropzone" data-upload-target="concurrent" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
+            <div style="font-size:24px;margin-bottom:8px"></div>
+            <div style="font-weight:600;margin-bottom:4px">Videos concurrent</div>
+            <div class="text-sm text-dim">Raw, avec sous-titres → <span class="mono">${CONCURRENT_FOLDER_NAME}/</span></div>
+            <input type="file" multiple style="display:none" data-file-input="concurrent" accept="video/*,image/*">
+          </div>
+        ` : ''}
         <div class="dropzone" data-upload-target="master" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected || !canEdit() ? 'opacity:0.5;cursor:not-allowed' : ''}">
           <div style="font-size:24px;margin-bottom:8px"></div>
           <div style="font-weight:600;margin-bottom:4px">Masters (nettoyés)</div>
@@ -1738,6 +1747,16 @@ async function renderProduit(el, productId) {
       e.stopPropagation();
       if (!isAdmin()) { toast('Action réservée aux admins', 'error'); return; }
       deleteAdFlow(icon.dataset.deleteAd);
+    });
+  });
+
+  // Download Master video (icône télécharger + clic sur cellule Master)
+  el.querySelectorAll('[data-download-master]').forEach(node => {
+    node.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const fileId = node.dataset.downloadMaster;
+      const adName = node.dataset.adName || 'Ad';
+      downloadDriveFile(fileId, `${adName} - Master.mp4`);
     });
   });
 
@@ -1941,6 +1960,47 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
     }
   }
   render();
+}
+
+// Helper : télécharge un fichier depuis Drive (utilisé pour les masters)
+async function downloadDriveFile(fileId, suggestedName) {
+  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+  if (!fileId) { toast('Pas de fichier disponible', 'warn'); return; }
+  toast('Téléchargement en cours...', 'info', 3000);
+  try {
+    const accessToken = driveState.accessToken;
+    // Récupère d'abord les métadonnées (nom + mimeType) pour avoir le vrai nom de fichier
+    let realName = suggestedName || 'download.mp4';
+    try {
+      const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (metaRes.ok) {
+        const meta = await metaRes.json();
+        if (meta.name) realName = meta.name;
+      }
+    } catch (e) { /* on garde le nom suggéré */ }
+
+    // Récupère le contenu binaire
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!res.ok) throw new Error(`Drive API: HTTP ${res.status}`);
+    const blob = await res.blob();
+    // Déclenche le download côté navigateur
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = realName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`Téléchargé : ${realName}`, 'success', 4000);
+  } catch (e) {
+    console.error('[DOWNLOAD]', e);
+    toast('Erreur téléchargement : ' + (e.message || e), 'error', 6000);
+  }
 }
 
 // Helper : upload un fichier sur Drive (multipart)
