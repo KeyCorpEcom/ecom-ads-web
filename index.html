@@ -5679,8 +5679,13 @@ async function renderFormationDetail(el, trainingId) {
       ${t.video_url ? (() => {
         // URLs supportées en iframe : YouTube, Loom, Drive, Vimeo, et tout ce que toEmbedUrl gère
         const isEmbedUrl = /youtube\.com|youtu\.be|loom\.com|drive\.google\.com|vimeo\.com|player\.vimeo\.com/.test(t.video_url);
+        const isDrive = /drive\.google\.com/.test(t.video_url);
+        // Pour Drive : si la vidéo iframe rame, l'user peut cliquer "Ouvrir sur Drive" qui force l'ouverture dans un nouvel onglet
+        const openOnDriveBtn = isDrive ? `
+          <a href="${escapeHtml(t.video_url.replace('/preview', '/view'))}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="margin-top:10px">Ouvrir sur Google Drive (nouvel onglet) ↗</a>
+        ` : '';
         if (isEmbedUrl) {
-          return `<div class="formation-video-wrap"><iframe src="${escapeHtml(t.video_url)}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" style="width:100%;height:100%;border:0;background:#000"></iframe></div>`;
+          return `<div class="formation-video-wrap"><iframe src="${escapeHtml(t.video_url)}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" style="width:100%;height:100%;border:0;background:#000"></iframe></div>${openOnDriveBtn}`;
         }
         // Sinon, video tag HTML5 (legacy Supabase Storage URLs ou autre)
         return `<div class="formation-video-wrap"><video controls preload="metadata" src="${escapeHtml(t.video_url)}" style="width:100%;height:100%;background:#000"></video></div>`;
