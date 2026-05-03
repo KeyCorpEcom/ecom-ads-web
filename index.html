@@ -2439,9 +2439,33 @@ async function inviteUserFlow() {
     }
     // Différencie selon que le user était nouveau ou déjà existant
     if (data.action === 'magic_link') {
-      toast(`User existait déjà — nouveau lien envoyé à ${r.email}`, 'success', 6000);
+      toast(`User existait déjà — nouveau lien envoyé à ${r.email}`, 'success', 5000);
     } else {
       toast(`Invitation envoyée à ${r.email}`, 'success', 5000);
+    }
+    // Si on a un lien manuel (backup), affiche-le dans un modal copiable
+    if (data.manual_link) {
+      await modal(`
+        <div class="modal-title">Lien de connexion direct (backup)</div>
+        <div class="text-sm text-dim mb-md">Si <strong>${escapeHtml(r.email)}</strong> ne reçoit pas l'email (rate-limit, spam...), copie ce lien et envoie-le-lui directement par Slack / WhatsApp / SMS. Valide ~1h.</div>
+        <div style="padding:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;margin-bottom:12px;word-break:break-all;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5">${escapeHtml(data.manual_link)}</div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-modal-close>Fermer</button>
+          <button class="btn" id="btn-copy-magic-link">Copier le lien</button>
+        </div>
+      `);
+      // Wire up the copy button (modal helper doesn't auto-bind it)
+      const copyBtn = document.getElementById('btn-copy-magic-link');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(data.manual_link);
+            toast('Lien copié — colle-le dans un message à ' + r.email, 'success', 4000);
+          } catch (e) {
+            toast('Erreur copie : ' + e.message, 'error');
+          }
+        });
+      }
     }
     render();
   } catch (e) {

@@ -132,32 +132,49 @@ export default async function handler(req, res) {
     action = 'magic_link';
   }
 
-  // === Étape 3 : Si action = magic_link, on génère le lien ET on envoie l'email ===
+  // === Étape 3 : Génère un magic link pour les users existants ===
+  // On veut DEUX choses :
+  //   (1) Tenter d'envoyer un email (via OTP, qui le déclenche automatiquement)
+  //   (2) Récupérer le lien d'action pour pouvoir le retourner à l'admin
+  //       en backup au cas où le mail soit rate-limité ou en spam
+  let manualLink = null;
   if (action === 'magic_link') {
-    // /admin/generate_link type=magiclink → génère ET envoie l'email automatiquement
-    // si le SMTP Supabase est configuré (le défaut)
-    const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SERVICE_KEY,
-        'Authorization': `Bearer ${SERVICE_KEY}`
-      },
-      body: JSON.stringify({
-        type: 'magiclink',
-        email,
-        options: {
-          redirect_to: redirectTo
-        }
-      })
-    });
-    if (!linkRes.ok) {
-      const errText = await linkRes.text();
-      return res.status(500).json({
-        error: 'Impossible de générer un nouveau lien : ' + errText,
-        user_id: newUserId
+    // (1) Tente d'envoyer un magic link par email via OTP public
+    try {
+      await fetch(`${SUPABASE_URL}/auth/v1/otp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SERVICE_KEY
+        },
+        body: JSON.stringify({
+          email,
+          create_user: false,
+          options: { email_redirect_to: redirectTo }
+        })
       });
-    }
+    } catch (e) { /* peu importe si l'email échoue, on a le backup ci-dessous */ }
+
+    // (2) Récupère le lien d'action (action_link) à donner à l'admin en backup
+    try {
+      const linkRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SERVICE_KEY,
+          'Authorization': `Bearer ${SERVICE_KEY}`
+        },
+        body: JSON.stringify({
+          type: 'magiclink',
+          email,
+          options: { redirect_to: redirectTo }
+        })
+      });
+      if (linkRes.ok) {
+        const linkJson = await linkRes.json();
+        manualLink = linkJson.action_link || linkJson.properties?.action_link || null;
+      }
+    } catch (e) { /* idem */ }
   }
 
   // === Étape 4 : Met à jour le profil (role + full_name) ===
@@ -201,12 +218,14 @@ export default async function handler(req, res) {
         email,
         workspace_id,
         action,
+        manual_link: manualLink,
         note: 'Déjà membre du workspace, profil mis à jour, lien envoyé.'
       });
     }
     return res.status(500).json({
       error: 'User OK mais ajout au workspace échoué : ' + errText,
-      user_id: newUserId
+      user_id: newUserId,
+      manual_link: manualLink
     });
   }
 
@@ -215,6 +234,7 @@ export default async function handler(req, res) {
     user_id: newUserId,
     email,
     workspace_id,
-    action  // 'invited' (mail invitation) | 'magic_link' (mail lien magique pour user existant)
+    action,           // 'invited' (mail invitation) | 'magic_link' (mail lien magique pour user existant)
+    manual_link: manualLink  // backup : lien à copier-coller si le mail n'arrive pas
   });
 }
