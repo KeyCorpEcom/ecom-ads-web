@@ -820,6 +820,8 @@ async function initApp(user) {
 
   // Tentative reconnexion auto Drive (si déjà configuré)
   tryAutoReconnectDrive();
+  // Listener qui re-check Drive quand l'user revient sur l'onglet après longue absence
+  installDriveVisibilityListener();
   // Afficher les menus admin
   if (profile.role === 'admin') {
     document.getElementById('nav-admin-label').style.display = '';
@@ -1593,7 +1595,7 @@ async function renderProduit(el, productId) {
     <div class="card">
       <div class="card-head">
         <div class="card-title"> Upload rapide</div>
-        <span class="text-sm text-dim">${driveState.connected ? 'Glisse des fichiers depuis ton PC' : ' Connecte-toi à Drive d\'abord'}</span>
+        <span class="text-sm text-dim">${driveState.connected ? 'Glisse des fichiers depuis ton PC' : `<button class="btn btn-sm" id="btn-inline-drive-connect-1" style="background:var(--blue);color:#000;font-weight:600">Connecter Drive</button>`}</span>
       </div>
       <div class="${isAdmin() ? 'grid-2' : ''}">
         ${isAdmin() ? `
@@ -1611,7 +1613,10 @@ async function renderProduit(el, productId) {
           <input type="file" multiple style="display:none" data-file-input="master" accept="video/*,image/*">
         </div>
       </div>
-      ${!driveState.connected ? '<div class="text-sm text-dim" style="margin-top:12px;padding:10px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue)"> Connecte-toi à Google Drive (sidebar ) pour activer l\'upload auto.</div>' : ''}
+      ${!driveState.connected ? `<div style="margin-top:12px;padding:14px 16px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--blue);display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+        <div class="text-sm" style="line-height:1.5;flex:1;min-width:200px">Drive non connecté — clique sur le bouton ci-contre pour activer les uploads/downloads.</div>
+        <button class="btn btn-sm" id="btn-inline-drive-connect-2" style="background:var(--blue);color:#000;font-weight:600;flex-shrink:0">Connecter Drive</button>
+      </div>` : ''}
     </div>
 
     <div class="card">
@@ -1767,6 +1772,27 @@ async function renderProduit(el, productId) {
       downloadDriveFile(fileId, `${adName} - Master.mp4`);
     });
   });
+
+  // Boutons "Connecter Drive" inline (visibles quand Drive déconnecté)
+  document.getElementById('btn-inline-drive-connect-1')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    driveConnect();
+  });
+  document.getElementById('btn-inline-drive-connect-2')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    driveConnect();
+  });
+
+  // Auto-tente une reconnexion silencieuse si Drive déconnecté en arrivant sur la page
+  // (couvre le cas où setTimeout de refresh a été tué par Chrome après tab idle)
+  if (!driveState.connected) {
+    setTimeout(() => {
+      if (!driveState.connected) {
+        console.log('[DRIVE] Auto silent reconnect on Ads/Produit page');
+        driveConnect({ silent: true });
+      }
+    }, 800);
+  }
 
   // Drag Excel-style + simple click sur Meta cells
   setupMetaDragSelect(el);
@@ -3519,6 +3545,28 @@ function scheduleDriveTokenRefresh(expiresIn) {
 
 function clearDriveTokenRefresh() {
   if (driveRefreshTimer) { clearTimeout(driveRefreshTimer); driveRefreshTimer = null; }
+}
+
+// Quand l'user revient sur l'onglet après absence prolongée, Chrome a peut-être tué
+// le setTimeout. On re-check l'état du token et on relance silent si nécessaire.
+let _driveVisibilityListenerInstalled = false;
+function installDriveVisibilityListener() {
+  if (_driveVisibilityListenerInstalled) return;
+  _driveVisibilityListenerInstalled = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!currentUser || !currentWorkspaceId) return;
+    // Si Drive état "connected" mais le token stocké est expiré → silent refresh
+    const stored = getStoredToken();
+    if (driveState.connected && !stored) {
+      console.log('[DRIVE] Token expired pendant tab idle, silent refresh');
+      driveConnect({ silent: true });
+    } else if (!driveState.connected) {
+      // Pas connecté du tout — tente une reconnexion silencieuse
+      console.log('[DRIVE] Tab visible et non-connecté, tentative silent reconnect');
+      tryAutoReconnectDrive();
+    }
+  });
 }
 let autoSyncTimer = null;
 let isSyncing = false;
