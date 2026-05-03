@@ -737,6 +737,7 @@ async function switchWorkspace(workspaceId) {
     driveState.connected = false;
     if (window.gapi?.client) gapi.client.setToken(null);
     clearInterval(autoSyncTimer);
+    clearDriveTokenRefresh();
   }
 
   // 2. Switch
@@ -3480,6 +3481,25 @@ async function upsertPagePartial(productId, countryId, patch) {
    PAGE: GOOGLE DRIVE
    ============================================================ */
 let driveState = { gapiReady: false, tokenClient: null, accessToken: null, connected: false };
+let driveRefreshTimer = null;
+
+// Programme un refresh silencieux du token Drive avant son expiration
+// expiresIn: durée de validité en secondes (par défaut 3600 = 1h)
+function scheduleDriveTokenRefresh(expiresIn) {
+  if (driveRefreshTimer) { clearTimeout(driveRefreshTimer); driveRefreshTimer = null; }
+  // Refresh 5 min avant expiration, minimum 60s
+  const refreshInSec = Math.max(60, (expiresIn || 3600) - 300);
+  driveRefreshTimer = setTimeout(() => {
+    if (driveState.connected) {
+      console.log('[DRIVE] Silent token refresh (expiration approche)');
+      driveConnect({ silent: true });
+    }
+  }, refreshInSec * 1000);
+}
+
+function clearDriveTokenRefresh() {
+  if (driveRefreshTimer) { clearTimeout(driveRefreshTimer); driveRefreshTimer = null; }
+}
 let autoSyncTimer = null;
 let isSyncing = false;
 
@@ -3582,6 +3602,8 @@ async function driveConnect(options = {}) {
           driveState.connected = true;
           gapi.client.setToken({ access_token: resp.access_token });
           saveTokenToStorage(resp.access_token, resp.expires_in);
+          // Programme le refresh silencieux avant expiration (typique : 1h, on refresh à 55min)
+          scheduleDriveTokenRefresh(resp.expires_in);
           if (!silent) {
             await logSync('Connecté à Google Drive', 'success');
             toast(' Connecté à Drive', 'success');
@@ -3648,6 +3670,13 @@ async function tryAutoReconnectDrive() {
       driveState.accessToken = storedToken;
       driveState.connected = true;
       gapi.client.setToken({ access_token: storedToken });
+      // Programme un refresh basé sur l'expiration restante du token stocké
+      try {
+        const expKey = _tokenExpKey(currentWorkspaceId);
+        const exp = parseInt(localStorage.getItem(expKey), 10);
+        const remainingSec = exp ? Math.max(60, Math.floor((exp - Date.now()) / 1000)) : 3000;
+        scheduleDriveTokenRefresh(remainingSec);
+      } catch (e) { scheduleDriveTokenRefresh(3000); }
       await logSync('Reconnecté via token stocké', 'info');
       setupAutoSync();
       return;
@@ -3663,6 +3692,7 @@ function driveDisconnect() {
   driveState.connected = false;
   if (window.gapi?.client) gapi.client.setToken(null);
   clearInterval(autoSyncTimer);
+  clearDriveTokenRefresh();
   logSync('Déconnecté de Drive', 'info');
   toast('Déconnecté', 'info');
   render();
