@@ -4445,38 +4445,54 @@ async function syncDriveAll() {
   }
 }
 
-// Met en partage "anyone with link" tous les masters de tous les produits du workspace
+// Met en partage "anyone with link" tous les masters auxquels l'admin a accès via RLS
 // Utile pour fixer les fichiers uploadés AVANT l'ajout du auto-share
 async function shareAllMastersPublicly() {
   if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
 
   toast('Partage des masters en cours...', 'info', 5000);
-  const { data: ads } = await sb.from('ads')
-    .select('id, name, master_file_id, product_id')
-    .eq('workspace_id', currentWorkspaceId)
-    .not('master_file_id', 'is', null);
+  // RLS filtre déjà par workspace_member, donc on peut récupérer toutes les ads
+  // visibles par cet admin sans filtrer côté client
+  const { data: ads, error } = await sb.from('ads')
+    .select('id, name, master_file_id, product_id, concurrent_file_id, workspace_id')
+    .or('master_file_id.not.is.null,concurrent_file_id.not.is.null');
 
-  if (!ads || ads.length === 0) {
-    toast('Aucun master à partager', 'warn');
+  if (error) {
+    console.error('[SHARE]', error);
+    toast('Erreur récup ads : ' + error.message, 'error', 6000);
+    return;
+  }
+
+  // Collecte tous les fichiers à partager (master + concurrent — concurrent reste utile pour admin re-uploads)
+  const fileIds = new Set();
+  (ads || []).forEach(a => {
+    if (a.master_file_id) fileIds.add(a.master_file_id);
+    // Note : on partage aussi les concurrents (admin a déjà accès, mais ça simplifie le re-share par éditeur via lien direct)
+    // si tu veux pas, retire la ligne ci-dessous
+    // if (a.concurrent_file_id) fileIds.add(a.concurrent_file_id);
+  });
+
+  if (fileIds.size === 0) {
+    toast(`Aucun master à partager (${ads?.length || 0} ads scannées)`, 'warn');
     return;
   }
 
   let ok = 0, fail = 0;
-  for (const a of ads) {
+  for (const fileId of fileIds) {
     try {
       await gapi.client.drive.permissions.create({
-        fileId: a.master_file_id,
+        fileId,
         resource: { role: 'reader', type: 'anyone' }
       });
       ok++;
     } catch (e) {
-      console.warn(`[SHARE] ${a.product_id} ${a.name}:`, e);
+      console.warn(`[SHARE] ${fileId}:`, e);
       fail++;
     }
   }
   await logSync(`Partage masters : ${ok} OK${fail > 0 ? `, ${fail} échecs` : ''}`, fail > 0 ? 'warn' : 'success');
-  toast(`${ok}/${ads.length} masters partagés${fail > 0 ? ` (${fail} en échec)` : ''}`, fail > 0 ? 'warn' : 'success', 6000);
+  toast(`${ok}/${fileIds.size} masters partagés${fail > 0 ? ` (${fail} en échec)` : ''}`, fail > 0 ? 'warn' : 'success', 6000);
 }
 
 async function syncDriveProduit(p, adsAll) {
