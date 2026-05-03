@@ -5640,8 +5640,15 @@ async function moveTrainingPosition(trainingId, list, delta) {
 
 function getVideoThumbnail(url) {
   if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]{6,})/);
+  // YouTube
+  let m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([\w-]{6,})/);
   if (m) return `https://i.ytimg.com/vi/${m[1]}/hqdefault.jpg`;
+  // Cloudflare Stream — pattern: /<uid>/iframe → /<uid>/thumbnails/thumbnail.jpg
+  m = url.match(/cloudflarestream\.com\/([a-f0-9]{32})/);
+  if (m) {
+    const baseMatch = url.match(/(https:\/\/customer-[^/]+\.cloudflarestream\.com)/);
+    if (baseMatch) return `${baseMatch[1]}/${m[1]}/thumbnails/thumbnail.jpg?time=2s&height=480`;
+  }
   return null;
 }
 
