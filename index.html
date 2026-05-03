@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js" async defer></script>
 <style>
@@ -5688,15 +5689,17 @@ async function renderFormationDetail(el, trainingId) {
       </div>
 
       ${t.video_url ? (() => {
-        // URLs supportées en iframe : YouTube, Loom, Drive, Vimeo, et tout ce que toEmbedUrl gère
-        const isEmbedUrl = /youtube\.com|youtu\.be|loom\.com|drive\.google\.com|vimeo\.com|player\.vimeo\.com/.test(t.video_url);
+        // URLs supportées en iframe : Cloudflare Stream, YouTube, Loom, Drive, Vimeo
+        const isCloudflare = /cloudflarestream\.com/.test(t.video_url);
         const isDrive = /drive\.google\.com/.test(t.video_url);
-        // Pour Drive : si la vidéo iframe rame, l'user peut cliquer "Ouvrir sur Drive" qui force l'ouverture dans un nouvel onglet
+        const isOtherEmbed = /youtube\.com|youtu\.be|loom\.com|vimeo\.com|player\.vimeo\.com/.test(t.video_url);
+        const isEmbedUrl = isCloudflare || isDrive || isOtherEmbed;
+        // Bouton fallback "Ouvrir sur Drive" uniquement pour les anciennes vidéos Drive
         const openOnDriveBtn = isDrive ? `
           <a href="${escapeHtml(t.video_url.replace('/preview', '/view'))}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" style="margin-top:10px">Ouvrir sur Google Drive (nouvel onglet) ↗</a>
         ` : '';
         if (isEmbedUrl) {
-          return `<div class="formation-video-wrap"><iframe src="${escapeHtml(t.video_url)}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture" style="width:100%;height:100%;border:0;background:#000"></iframe></div>${openOnDriveBtn}`;
+          return `<div class="formation-video-wrap"><iframe src="${escapeHtml(t.video_url)}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture; fullscreen" style="width:100%;height:100%;border:0;background:#000"></iframe></div>${openOnDriveBtn}`;
         }
         // Sinon, video tag HTML5 (legacy Supabase Storage URLs ou autre)
         return `<div class="formation-video-wrap"><video controls preload="metadata" src="${escapeHtml(t.video_url)}" style="width:100%;height:100%;background:#000"></video></div>`;
@@ -5894,9 +5897,9 @@ async function editTrainingFlow(existing, defaultCatId) {
             </div>
 
             <div style="padding:12px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:8px">
-              <div style="font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:8px;letter-spacing:0.5px">OPTION 2 — UPLOAD FICHIER (DRIVE)</div>
+              <div style="font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:8px;letter-spacing:0.5px">OPTION 2 — UPLOAD FICHIER (CLOUDFLARE STREAM)</div>
               <input type="file" id="training-video-input" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" style="display:block;width:100%;margin-bottom:6px">
-              <div class="input-hint" style="font-size:11px">MP4 / MOV — uploadé sur ton Google Drive. Drive doit être connecté. Le transcoding peut prendre plusieurs minutes pour les gros fichiers.</div>
+              <div class="input-hint" style="font-size:11px">MP4 / MOV / WebM / MKV — uploadé sur Cloudflare Stream. Streaming pro instantané, pas de limite de taille, pas de transcoding lent.</div>
             </div>
           </div>
         </div>
@@ -6003,14 +6006,25 @@ async function editTrainingFlow(existing, defaultCatId) {
   }
 
   // === Étape 2 : Gestion de la vidéo (delete old / upload new) ===
-  // On supporte 2 formats de stockage :
-  //   - Drive (nouveau) : video_path = "drive:fileId", video_url = embed URL
+  // On supporte 3 formats de stockage :
+  //   - Cloudflare Stream (nouveau) : video_path = "cf:uid", video_url = iframe URL
+  //   - Drive (legacy) : video_path = "drive:fileId", video_url = embed URL
   //   - Supabase Storage (legacy) : video_path = bucket path
   const oldPath = existing?.video_path || '';
   const shouldDeleteOld = (r.removeCurrentVideo || r.file) && oldPath;
   if (shouldDeleteOld) {
     try {
-      if (oldPath.startsWith('drive:')) {
+      if (oldPath.startsWith('cf:')) {
+        const oldUid = oldPath.slice(3);
+        const { data: { session } } = await sb.auth.getSession();
+        if (session) {
+          await fetch('/api/cf-stream-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ uid: oldUid })
+          }).catch(e => console.warn('[CF delete old]', e));
+        }
+      } else if (oldPath.startsWith('drive:')) {
         const oldFileId = oldPath.slice(6);
         if (driveState.connected) {
           await gapi.client.drive.files.update({ fileId: oldFileId, resource: { trashed: true }, supportsAllDrives: true });
@@ -6038,59 +6052,79 @@ async function editTrainingFlow(existing, defaultCatId) {
   }
 
   if (r.file) {
-    // === Upload sur Google Drive (plus de limite de taille) ===
-    if (!driveState.connected) {
-      toast('Connecte-toi à Drive d\'abord pour uploader la vidéo', 'error', 6000);
+    // === Upload sur Cloudflare Stream (rapide, illimité, streaming pro) ===
+    if (typeof window.tus === 'undefined') {
+      toast('tus-js-client pas chargé — recharge la page', 'error', 6000);
       render();
       return;
     }
 
-    toast(`Upload de "${r.file.name}" sur Drive...`, 'info', 4000);
+    toast(`Upload de "${r.file.name}" sur Cloudflare Stream...`, 'info', 5000);
 
     try {
-      // Upload direct à la racine My Drive (pas de création de dossier — plus simple, plus fiable)
-      const ext = (r.file.name.split('.').pop() || 'mp4').toLowerCase();
-      const safeTitle = r.title.replace(/[^a-zA-Z0-9 \-_]/g, '').slice(0, 50).trim() || 'Formation';
-      const fileName = `KeyCorp_Formation_${safeTitle}.${ext}`;
-      console.log('[TRAINING] Starting upload:', fileName);
+      // 1. Récupère une URL d'upload one-time depuis notre API Vercel (qui contient le token CF)
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session) throw new Error('Session expirée — re-loggue-toi');
 
-      const uploaded = await driveUploadFile(r.file, null, fileName);
-      if (!uploaded?.id) throw new Error('Upload Drive: pas d\'id retourné');
-      console.log('[TRAINING] Upload OK, fileId:', uploaded.id);
-
-      // Rends le fichier public (anyone with link can view) — best-effort, non bloquant
-      // Utilise raw fetch (gapi.client.drive.permissions.create renvoie parfois 401)
-      try {
-        const permRes = await fetch(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${driveState.accessToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ role: 'reader', type: 'anyone' })
-        });
-        if (permRes.ok) {
-          console.log('[TRAINING] Public share OK');
-        } else {
-          const errText = await permRes.text();
-          console.warn('[TRAINING] Public share failed:', permRes.status, errText);
-        }
-      } catch (permErr) {
-        console.warn('[TRAINING permissions]', permErr);
+      const urlRes = await fetch('/api/cf-stream-upload-url', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          fileSize: r.file.size,
+          fileName: r.file.name
+        })
+      });
+      if (!urlRes.ok) {
+        const errData = await urlRes.json();
+        throw new Error(errData.error || `HTTP ${urlRes.status}`);
       }
+      const { uploadURL, uid, subdomain } = await urlRes.json();
+      console.log('[TRAINING CF] Got uploadURL:', uploadURL.slice(0, 80) + '...', 'uid:', uid);
 
-      // Sauve en DB
-      const embedUrl = `https://drive.google.com/file/d/${uploaded.id}/preview`;
+      // 2. Upload via TUS (résumable, supporte gros fichiers)
+      await new Promise((resolve, reject) => {
+        const upload = new tus.Upload(r.file, {
+          uploadUrl: uploadURL,  // utilise uploadUrl (déjà créée) au lieu d'endpoint
+          chunkSize: 50 * 1024 * 1024,  // 50 MB chunks
+          retryDelays: [0, 3000, 5000, 10000, 20000],
+          metadata: {
+            name: r.file.name,
+            type: r.file.type
+          },
+          onError: (error) => {
+            console.error('[TRAINING CF tus error]', error);
+            reject(error);
+          },
+          onProgress: (bytesUploaded, bytesTotal) => {
+            const pct = Math.round((bytesUploaded / bytesTotal) * 100);
+            console.log(`[TRAINING CF] ${pct}% (${(bytesUploaded/1048576).toFixed(1)} / ${(bytesTotal/1048576).toFixed(1)} MB)`);
+          },
+          onSuccess: () => {
+            console.log('[TRAINING CF] Upload complete');
+            resolve();
+          }
+        });
+        upload.start();
+      });
+
+      // 3. Construit l'URL iframe Cloudflare Stream
+      const sub = subdomain || 'customer-rv8esxzo0o5opuy7.cloudflarestream.com'; // fallback
+      const iframeUrl = `https://${sub}/${uid}/iframe`;
+
+      // 4. Sauve en DB
       await sb.from('trainings').update({
-        video_url: embedUrl,
-        video_path: 'drive:' + uploaded.id
+        video_url: iframeUrl,
+        video_path: 'cf:' + uid
       }).eq('id', trainingId);
-      console.log('[TRAINING] DB updated with embedUrl:', embedUrl);
-      toast(existing ? 'Formation + vidéo Drive mises à jour' : 'Formation créée avec vidéo sur Drive', 'success', 4000);
+      console.log('[TRAINING CF] DB updated:', iframeUrl);
+      toast(existing ? 'Formation + vidéo Cloudflare mises à jour' : 'Formation créée avec vidéo sur Cloudflare', 'success', 4000);
     } catch (e) {
-      console.error('[TRAINING drive upload]', e);
-      const errMsg = e?.message || e?.result?.error?.message || JSON.stringify(e).slice(0, 500);
-      toast('Erreur upload Drive : ' + errMsg, 'error', 10000);
+      console.error('[TRAINING CF upload]', e);
+      const errMsg = e?.message || JSON.stringify(e).slice(0, 500);
+      toast('Erreur upload Cloudflare : ' + errMsg, 'error', 10000);
       render();
       return;
     }
@@ -6111,12 +6145,22 @@ async function deleteTrainingFlow(t) {
     </div>
   `);
   if (!ok) return;
-  // Récupère le video_path pour pouvoir supprimer le fichier (Drive ou Supabase Storage)
+  // Récupère le video_path pour pouvoir supprimer le fichier (Cloudflare / Drive / Supabase)
   const { data: full } = await sb.from('trainings').select('video_path').eq('id', t.id).single();
   const path = full?.video_path || '';
   if (path) {
     try {
-      if (path.startsWith('drive:')) {
+      if (path.startsWith('cf:')) {
+        const uid = path.slice(3);
+        const { data: { session } } = await sb.auth.getSession();
+        if (session) {
+          await fetch('/api/cf-stream-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ uid })
+          });
+        }
+      } else if (path.startsWith('drive:')) {
         const fileId = path.slice(6);
         if (driveState.connected) {
           await gapi.client.drive.files.update({ fileId, resource: { trashed: true }, supportsAllDrives: true });
