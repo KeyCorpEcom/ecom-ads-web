@@ -6022,12 +6022,22 @@ async function editTrainingFlow(existing, defaultCatId) {
       console.log('[TRAINING] Upload OK, fileId:', uploaded.id);
 
       // Rends le fichier public (anyone with link can view) — best-effort, non bloquant
+      // Utilise raw fetch (gapi.client.drive.permissions.create renvoie parfois 401)
       try {
-        await gapi.client.drive.permissions.create({
-          fileId: uploaded.id,
-          resource: { role: 'reader', type: 'anyone' }
+        const permRes = await fetch(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${driveState.accessToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ role: 'reader', type: 'anyone' })
         });
-        console.log('[TRAINING] Public share OK');
+        if (permRes.ok) {
+          console.log('[TRAINING] Public share OK');
+        } else {
+          const errText = await permRes.text();
+          console.warn('[TRAINING] Public share failed:', permRes.status, errText);
+        }
       } catch (permErr) {
         console.warn('[TRAINING permissions]', permErr);
       }
