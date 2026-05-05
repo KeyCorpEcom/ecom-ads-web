@@ -1027,44 +1027,73 @@ async function renderAds(el) {
     acByAd[ac.ad_id][ac.country_id] = ac;
   });
 
-  // Tri : priorité DESC puis date DESC
-  const sorted = [...products].sort((a, b) => {
-    const pa = PRIORITY_META[a.priority]?.weight || 2;
-    const pb = PRIORITY_META[b.priority]?.weight || 2;
-    if (pa !== pb) return pb - pa;
-    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+  // Pré-calcul des stats par produit (pour pouvoir filtrer les "100% finis")
+  const productStats = products.map(p => {
+    const pAds = adsByProduct[p.id] || [];
+    const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
+    const cuts = p.cut_countries || [];
+    const activeCs = enabled.filter(cId => !cuts.includes(cId));
+    const total = pAds.length * activeCs.length;
+    let trad = 0;
+    pAds.forEach(ad => {
+      activeCs.forEach(cId => {
+        const ac = (acByAd[ad.id] || {})[cId];
+        if (ac?.trad) trad++;
+      });
+    });
+    const masterDone = pAds.filter(a => a.master_file_id).length;
+    // 100% fini = master uploadé pour TOUTES les ads ET trad faite pour TOUTES les ads × pays actifs
+    const allDone = pAds.length > 0 && masterDone === pAds.length && total > 0 && trad === total;
+    return { product: p, pAds, activeCs, total, trad, masterDone, allDone };
   });
+
+  // Tri : priorité DESC puis date DESC
+  productStats.sort((a, b) => {
+    const pa = PRIORITY_META[a.product.priority]?.weight || 2;
+    const pb = PRIORITY_META[b.product.priority]?.weight || 2;
+    if (pa !== pb) return pb - pa;
+    return new Date(b.product.created_at || 0).getTime() - new Date(a.product.created_at || 0).getTime();
+  });
+
+  // Filtre : par défaut on masque les produits 100% finis (master + trad)
+  const hideAllDone = localStorage.getItem('ads_hide_all_done') !== 'false';
+  const visibleStats = hideAllDone ? productStats.filter(s => !s.allDone) : productStats;
+  const finishedCount = productStats.filter(s => s.allDone).length;
 
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title"> Ads</div>
-        <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
+        <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} 100% fini${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
       </div>
-      ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+      <div style="display:flex;align-items:center;gap:14px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
+          <input type="checkbox" id="toggle-hide-all-done" ${hideAllDone ? 'checked' : ''} style="accent-color:var(--gold)">
+          <span>Masquer les produits 100% finis</span>
+        </label>
+        ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+      </div>
     </div>
     ${products.length === 0 ? `
       <div class="empty">
         <div class="empty-icon"></div>
         <div class="empty-title">Aucun produit</div>
       </div>
+    ` : visibleStats.length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-title">Tout est 100% fini !</div>
+        <div class="empty-text">Décoche le filtre pour voir les ${finishedCount} produit${finishedCount > 1 ? 's' : ''} déjà terminé${finishedCount > 1 ? 's' : ''}.</div>
+      </div>
     ` : `
       <div class="product-grid">
-        ${sorted.map(p => {
-          const pAds = adsByProduct[p.id] || [];
-          const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
-          const cuts = p.cut_countries || [];
-          const activeCs = enabled.filter(cId => !cuts.includes(cId));
-          const total = pAds.length * activeCs.length;
-          let trad = 0;
-          pAds.forEach(ad => {
-            activeCs.forEach(cId => {
-              const ac = (acByAd[ad.id] || {})[cId];
-              if (ac?.trad) trad++;
-            });
-          });
+        ${visibleStats.map(s => {
+          const p = s.product;
+          const pAds = s.pAds;
+          const activeCs = s.activeCs;
+          const total = s.total;
+          const trad = s.trad;
+          const masterDone = s.masterDone;
           const tradPct = pct(trad, total);
-          const masterDone = pAds.filter(a => a.master_file_id).length;
           const masterPct = pct(masterDone, pAds.length);
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
@@ -1102,6 +1131,10 @@ async function renderAds(el) {
 
   el.querySelectorAll('[data-goto]').forEach(c => c.addEventListener('click', () => navigate('produit/' + c.dataset.goto)));
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+  document.getElementById('toggle-hide-all-done')?.addEventListener('change', (e) => {
+    localStorage.setItem('ads_hide_all_done', e.target.checked ? 'true' : 'false');
+    render();
+  });
 }
 
 async function renderProduits(el) {
