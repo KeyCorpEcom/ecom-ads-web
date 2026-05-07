@@ -1,0 +1,25 @@
+# Claude Code local settings (per-user, not shared)
+.claude/settings.local.json
+
+# Local environment
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+
+# Node
+node_modules/
+.npm
+.yarn-cache/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
