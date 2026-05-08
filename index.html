@@ -1219,10 +1219,17 @@ async function renderProduits(el) {
                 </div>
                 <div>
                   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">Pages landing</span>
+                    <span style="color:var(--text-dim)">Landing Pages</span>
                     <span class="mono" style="color:var(--blue);font-weight:600">${pagesApproved}/${activeCs.length} · ${pagesPct}%</span>
                   </div>
                   <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${pagesPct}%;height:100%;background:var(--blue);transition:width 0.4s"></div></div>
+                </div>
+                <div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
+                    <span style="color:var(--text-dim)">Meta lancées</span>
+                    <span class="mono" style="color:var(--purple);font-weight:600">${meta}/${total} · ${metaPct}%</span>
+                  </div>
+                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${metaPct}%;height:100%;background:var(--purple);transition:width 0.4s"></div></div>
                 </div>
               </div>
             </div>
@@ -6662,7 +6669,7 @@ async function onNotifClick(notifId) {
   }
 }
 
-async function markAllNotifsRead(opts = {}) {
+async function markAllNotifsRead() {
   if (notifState.unreadCount === 0) return;
   const ids = notifState.items.filter(x => !x.read).map(x => x.id);
   if (ids.length === 0) return;
@@ -6671,21 +6678,13 @@ async function markAllNotifsRead(opts = {}) {
   notifState.unreadCount = 0;
   renderNotifBell();
   renderNotifList();
-  if (!opts.silent) toast('Toutes les notifications marquées comme lues', 'success');
+  toast('Toutes les notifications marquées comme lues', 'success');
 }
 
 function openNotifDropdown() {
   notifState.open = true;
   document.getElementById('notif-dropdown').classList.remove('hidden');
   renderNotifList();
-  // Auto-marque toutes les notifs comme lues à l'ouverture (sans toast)
-  // L'utilisateur voit brièvement les non-lues, puis elles sont marquées
-  if (notifState.unreadCount > 0) {
-    setTimeout(() => {
-      // Re-check au cas où l'utilisateur a fermé entre-temps
-      if (notifState.open) markAllNotifsRead({ silent: true });
-    }, 600);
-  }
 }
 function closeNotifDropdown() {
   notifState.open = false;
