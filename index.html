@@ -117,6 +117,8 @@ a{color:var(--gold);text-decoration:none}
 .product-card:hover{background:var(--bg-card-hover);border-color:var(--gold);transform:translateY(-2px)}
 .product-card-title{font-size:18px;font-weight:700;color:var(--gold);margin-bottom:4px;font-family:'JetBrains Mono',monospace}
 .product-card-sub{font-size:12px;color:var(--text-dim);margin-bottom:14px}
+.ready-to-launch-badge{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;background:linear-gradient(135deg,var(--gold),#e0c078);color:#0a0a0a;font-size:11px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;margin:6px 0 10px;box-shadow:0 0 0 0 rgba(200,165,90,0.5);animation:pulseLaunch 2s ease-in-out infinite}
+@keyframes pulseLaunch{0%,100%{box-shadow:0 0 0 0 rgba(200,165,90,0.5)}50%{box-shadow:0 0 0 8px rgba(200,165,90,0)}}
 
 /* Users table (admin) */
 .users-table{width:100%;border-collapse:collapse}
@@ -1154,46 +1156,73 @@ async function renderProduits(el) {
     pagesByProduct[p.product_id][p.country_id] = p.status;
   });
 
+  // Pré-calcul des stats par produit (pour pouvoir filtrer "prêts à lancer")
+  const productStats = products.map(p => {
+    const pAds = adsByProduct[p.id] || [];
+    const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
+    const cuts = p.cut_countries || [];
+    const activeCs = enabled.filter(cId => !cuts.includes(cId));
+    const total = pAds.length * activeCs.length;
+    let trad = 0, meta = 0;
+    pAds.forEach(ad => {
+      activeCs.forEach(cId => {
+        const ac = (acByAd[ad.id] || {})[cId];
+        if (ac?.trad) trad++;
+        if (ac?.meta) meta++;
+      });
+    });
+    const pgs = pagesByProduct[p.id] || {};
+    const pagesApproved = activeCs.filter(cId => pgs[cId] === 'approved').length;
+    const pagesPct = pct(pagesApproved, activeCs.length);
+    const tradPct = pct(trad, total);
+    const metaPct = pct(meta, total);
+    const masterDone = pAds.filter(a => a.master_file_id).length;
+    const masterPct = pct(masterDone, pAds.length);
+    const priority = p.priority || 'normal';
+    const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
+    // Prêt à lancer : Master + Trad + Landing Pages = 100% ET Meta < 100% ET au moins 1 ad
+    const readyToLaunch = pAds.length > 0
+      && masterDone === pAds.length
+      && total > 0 && trad === total
+      && activeCs.length > 0 && pagesApproved === activeCs.length
+      && meta < total;
+    return { p, pAds, activeCs, total, trad, meta, pagesApproved, pagesPct, tradPct, metaPct, masterDone, masterPct, priority, priorityMeta, readyToLaunch };
+  });
+
+  const onlyReady = localStorage.getItem('products_only_ready') === 'true';
+  const readyCount = productStats.filter(s => s.readyToLaunch).length;
+  const visibleStats = onlyReady ? productStats.filter(s => s.readyToLaunch) : productStats;
+
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title"> Produits</div>
-        <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads</div>
+        <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads${readyCount > 0 ? ` · <span style="color:var(--gold);font-weight:600">${readyCount} prêt${readyCount > 1 ? 's' : ''} à lancer</span>` : ''}</div>
       </div>
-      ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        ${readyCount > 0 || onlyReady ? `
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
+            <input type="checkbox" id="toggle-only-ready" ${onlyReady ? 'checked' : ''} style="accent-color:var(--gold)">
+            <span>Uniquement les produits prêts à lancer${readyCount > 0 ? ` (${readyCount})` : ''}</span>
+          </label>
+        ` : ''}
+        ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+      </div>
     </div>
     ${products.length === 0 ? `
       <div class="empty">
         <div class="empty-icon"></div>
         <div class="empty-title">Aucun produit</div>
       </div>
+    ` : visibleStats.length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-title">Aucun produit prêt à lancer pour l'instant</div>
+        <div class="empty-text">Décoche le filtre pour voir tous les produits.</div>
+      </div>
     ` : `
       <div class="product-grid">
-        ${products.map(p => {
-          const pAds = adsByProduct[p.id] || [];
-          const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
-          const cuts = p.cut_countries || [];
-          const activeCs = enabled.filter(cId => !cuts.includes(cId));
-          const total = pAds.length * activeCs.length;
-          let trad = 0, meta = 0;
-          pAds.forEach(ad => {
-            activeCs.forEach(cId => {
-              const ac = (acByAd[ad.id] || {})[cId];
-              if (ac?.trad) trad++;
-              if (ac?.meta) meta++;
-            });
-          });
-          // Progression Pages Landing
-          const pgs = pagesByProduct[p.id] || {};
-          const pagesApproved = activeCs.filter(cId => pgs[cId] === 'approved').length;
-          const pagesPct = pct(pagesApproved, activeCs.length);
-          const tradPct = pct(trad, total);
-          const metaPct = pct(meta, total);
-          const masterDone = pAds.filter(a => a.master_file_id).length;
-          const masterPct = pct(masterDone, pAds.length);
-          const priority = p.priority || 'normal';
-          const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
-
+        ${visibleStats.map(s => {
+          const { p, pAds, activeCs, total, trad, meta, pagesApproved, pagesPct, tradPct, metaPct, masterDone, masterPct, priority, priorityMeta, readyToLaunch } = s;
           return `
             <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
@@ -1201,6 +1230,8 @@ async function renderProduits(el) {
                 ${priorityBadge(priority)}
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
+
+              ${readyToLaunch ? `<div class="ready-to-launch-badge">🚀 À lancer sur Meta</div>` : ''}
 
               <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
                 <div>
@@ -1241,6 +1272,10 @@ async function renderProduits(el) {
 
   el.querySelectorAll('[data-goto]').forEach(c => c.addEventListener('click', () => navigate('produit/' + c.dataset.goto)));
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+  document.getElementById('toggle-only-ready')?.addEventListener('change', (e) => {
+    localStorage.setItem('products_only_ready', e.target.checked ? 'true' : 'false');
+    render();
+  });
 }
 
 function computeDefaultMaster(enabledCountries) {
