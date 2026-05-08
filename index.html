@@ -53,7 +53,8 @@ a{color:var(--gold);text-decoration:none}
 .user-name{font-size:13px;font-weight:600;color:var(--text)}
 .user-role{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px}
 .user-role.admin{color:var(--gold)}
-.user-role.editor{color:var(--green)}
+.user-role.ads_translator{color:var(--green)}
+.user-role.video_editor{color:var(--orange)}
 .user-role.viewer{color:var(--blue)}
 .user-role.page_builder{color:var(--purple)}
 .btn-logout{width:100%;margin-top:10px;background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit}
@@ -127,7 +128,8 @@ a{color:var(--gold);text-decoration:none}
 
 .badge{display:inline-block;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600}
 .badge.admin{background:rgba(200,165,90,0.15);color:var(--gold)}
-.badge.editor{background:rgba(52,211,153,0.15);color:var(--green)}
+.badge.ads_translator{background:rgba(52,211,153,0.15);color:var(--green)}
+.badge.video_editor{background:rgba(251,191,36,0.15);color:var(--orange)}
 .badge.viewer{background:rgba(96,165,250,0.15);color:var(--blue)}
 .badge.page_builder{background:rgba(192,132,252,0.15);color:var(--purple)}
 
@@ -309,7 +311,8 @@ a{color:var(--gold);text-decoration:none}
 .formation-role-chip{font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg-input);color:var(--text-dim);font-weight:500;text-transform:capitalize}
 .formation-role-chip.admin{background:rgba(200,165,90,0.15);color:var(--gold)}
 .formation-role-chip.media_buyer{background:rgba(96,165,250,0.15);color:var(--blue)}
-.formation-role-chip.editor{background:rgba(167,139,250,0.15);color:#a78bfa}
+.formation-role-chip.ads_translator{background:rgba(167,139,250,0.15);color:#a78bfa}
+.formation-role-chip.video_editor{background:rgba(251,191,36,0.15);color:var(--orange)}
 .formation-role-chip.page_builder{background:rgba(52,211,153,0.15);color:var(--green)}
 
 /* Detail */
@@ -387,6 +390,23 @@ a{color:var(--gold);text-decoration:none}
 .tool-detail-action{background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:5px 10px;border-radius:5px;cursor:pointer;font-size:11px;transition:all 0.15s;font-weight:600}
 .tool-detail-action:hover{background:var(--bg-card-hover, var(--bg-card));color:var(--gold);border-color:var(--gold)}
 
+/* ============ SCRIPTS PAGE ============ */
+.script-ad-row{padding:14px 16px;background:var(--bg-input);border-radius:10px;border-left:3px solid var(--border);margin-bottom:10px;transition:all 0.15s}
+.script-ad-row.done{opacity:0.55;border-left-color:var(--green)}
+.script-ad-row.todo{border-left-color:var(--orange)}
+.script-ad-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.script-ad-name{font-size:14px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace}
+.script-status{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px}
+.script-status.todo{background:rgba(251,191,36,0.15);color:var(--orange)}
+.script-status.done{background:rgba(52,211,153,0.15);color:var(--green)}
+.script-text{font-size:13px;line-height:1.6;color:var(--text);white-space:pre-wrap;background:var(--bg);padding:10px 12px;border-radius:6px;border:1px solid var(--border-soft);font-family:'JetBrains Mono',monospace}
+.script-text.empty{font-family:'Outfit',sans-serif;font-style:italic;color:var(--text-mute)}
+.broll-row{display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:6px;transition:all 0.15s}
+.broll-row:hover{border-color:var(--gold);background:var(--bg-card-hover, var(--bg-card))}
+.broll-icon{width:36px;height:36px;border-radius:8px;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--gold)}
+.broll-name{flex:1;min-width:0;font-size:13px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.broll-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+
 /* Ad Copy : tabs par pays */
 .copy-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--border-soft);padding-bottom:0}
 .copy-tab{display:inline-flex;align-items:center;padding:8px 14px;border-radius:8px 8px 0 0;background:transparent;border:1px solid transparent;border-bottom:none;color:var(--text-dim);cursor:pointer;font-size:13px;font-weight:500;transition:all 0.15s;margin-bottom:-1px}
@@ -463,6 +483,7 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" data-route="produits"><span class="nav-icon"></span>Produits<span class="nav-badge" id="nav-products"></span></a>
       <a class="nav-item" data-route="analytics"><span class="nav-icon"></span>Analytics</a>
       <a class="nav-item" data-route="pages"><span class="nav-icon"></span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
+      <a class="nav-item" data-route="scripts"><span class="nav-icon"></span>Scripts<span class="nav-badge" id="nav-scripts"></span></a>
       <a class="nav-item" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
       <a class="nav-item" href="https://www.keycorp-ecom.com/hub" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>P&amp;L<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
       <div class="nav-section-label">Apprentissage</div>
@@ -801,8 +822,8 @@ async function initApp(user) {
     if (!allowedRoutes.has(currentRoute) && currentRoute !== 'formation') location.hash = '#pages';
   }
 
-  // Editor (ads translator) : cache tout sauf Ads + Drive + Formations + Tools
-  if (profile.role === 'editor') {
+  // Ads Translator : cache tout sauf Ads + Drive + Formations + Tools
+  if (profile.role === 'ads_translator') {
     const allowedRoutes = new Set(['ads', 'drive', 'formations', 'tools']);
     document.querySelectorAll('.nav-item').forEach(el => {
       // Cache la recherche (donne accès à tout le reste de l'app)
@@ -820,6 +841,23 @@ async function initApp(user) {
     const allowedFull = new Set(['ads', 'drive', 'formations', 'formation', 'produit', 'tools']);
     const currentRoute = location.hash.slice(1).split('/')[0] || 'dashboard';
     if (!allowedFull.has(currentRoute)) location.hash = '#ads';
+  }
+
+  // Video Editor : cache tout sauf Scripts + Drive + Formations + Tools
+  if (profile.role === 'video_editor') {
+    const allowedRoutes = new Set(['scripts', 'drive', 'formations', 'tools']);
+    document.querySelectorAll('.nav-item').forEach(el => {
+      if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
+      const route = el.dataset.route;
+      if (!route || !allowedRoutes.has(route)) {
+        el.style.display = 'none';
+      }
+    });
+    const adminLabel = document.getElementById('nav-admin-label');
+    if (adminLabel) adminLabel.style.display = 'none';
+    const allowedFull = new Set(['scripts', 'drive', 'formations', 'formation', 'tools']);
+    const currentRoute = location.hash.slice(1).split('/')[0] || 'dashboard';
+    if (!allowedFull.has(currentRoute)) location.hash = '#scripts';
   }
 
   // Tentative reconnexion auto Drive (si déjà configuré)
@@ -858,9 +896,14 @@ async function render() {
     navigate('pages');
     return;
   }
-  // Si editor (ads translator) : restriction à Ads + Drive + Formations + détail produit + Tools
-  if (currentProfile?.role === 'editor' && !['ads', 'drive', 'formations', 'formation', 'produit', 'tools'].includes(page)) {
+  // Si ads_translator : restriction à Ads + Drive + Formations + détail produit + Tools
+  if (currentProfile?.role === 'ads_translator' && !['ads', 'drive', 'formations', 'formation', 'produit', 'tools'].includes(page)) {
     navigate('ads');
+    return;
+  }
+  // Si video_editor : restriction à Scripts + Drive + Formations + Tools
+  if (currentProfile?.role === 'video_editor' && !['scripts', 'drive', 'formations', 'formation', 'tools'].includes(page)) {
+    navigate('scripts');
     return;
   }
 
@@ -896,6 +939,10 @@ async function render() {
     else if (page === 'formation') await renderFormationDetail(el, params[0]);
     else if (page === 'formations-suivi') await renderFormationsSuivi(el);
     else if (page === 'tools') await renderTools(el);
+    else if (page === 'scripts') {
+      if (params[0]) await renderScriptDetail(el, params[0]);
+      else await renderScriptsList(el);
+    }
     else el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Page introuvable</div></div>';
   } catch (e) {
     console.error(e);
@@ -929,9 +976,9 @@ async function fetchAll() {
   };
 }
 
-function canEdit() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'editor'); }
+function canEdit() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'ads_translator'); }
 function isAdmin() { return currentProfile && currentProfile.role === 'admin'; }
-function canEditPages() { return currentProfile && ['admin', 'editor', 'page_builder'].includes(currentProfile.role); }
+function canEditPages() { return currentProfile && ['admin', 'ads_translator', 'page_builder'].includes(currentProfile.role); }
 function isPageBuilder() { return currentProfile && currentProfile.role === 'page_builder'; }
 
 /* ============================================================
@@ -2534,7 +2581,8 @@ async function renderUsers(el) {
               <td>
                 <select class="role-select" data-user-role="${p.id}" ${p.id === currentUser.id ? 'disabled' : ''}>
                   <option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Admin</option>
-                  <option value="editor" ${p.role === 'editor' ? 'selected' : ''}>Editor</option>
+                  <option value="ads_translator" ${p.role === 'ads_translator' ? 'selected' : ''}>Ads Translator</option>
+                  <option value="video_editor" ${p.role === 'video_editor' ? 'selected' : ''}>Video Editor</option>
                   <option value="page_builder" ${p.role === 'page_builder' ? 'selected' : ''}>Page Builder</option>
                   <option value="viewer" ${p.role === 'viewer' ? 'selected' : ''}>Viewer</option>
                 </select>
@@ -2606,7 +2654,8 @@ async function inviteUserFlow() {
     <div class="input-group">
       <label class="input-label">Rôle</label>
       <select class="select" data-field="role">
-        <option value="editor">Editor (créer/modifier produits et ads)</option>
+        <option value="ads_translator">Ads Translator (traduit les vidéos master par pays)</option>
+        <option value="video_editor">Video Editor (produit les vidéos master à partir des scripts)</option>
         <option value="page_builder">Page Builder (uniquement pages landing)</option>
         <option value="viewer">Viewer (lecture seule)</option>
         <option value="admin">Admin (tout)</option>
@@ -3890,6 +3939,7 @@ async function logSync(msg, type = 'info') {
 /* ===== Drive Helpers : Create/Find/Upload Folders & Files ===== */
 const CONCURRENT_FOLDER_NAME = '00_Ads_Concurrent';
 const MASTER_FOLDER_NAME = '00_Master_Ads';
+const B_ROLLS_FOLDER_NAME = '00_B_Rolls';
 
 function driveProductFolderName(p) {
   if (!p.name || p.name === p.id) return p.id;
@@ -4229,6 +4279,7 @@ async function createProductDriveStructure(product, countries) {
   }
   await driveEnsureFolder(CONCURRENT_FOLDER_NAME, productFolder.id);
   await driveEnsureFolder(MASTER_FOLDER_NAME, productFolder.id);
+  await driveEnsureFolder(B_ROLLS_FOLDER_NAME, productFolder.id);
   for (const c of countries) {
     await driveEnsureFolder(c.id, productFolder.id);
   }
@@ -5423,7 +5474,7 @@ async function toggleMetaCell(adId, cId) {
 /* ============================================================
    FORMATIONS
    ============================================================ */
-const ALL_ROLES = ['admin', 'media_buyer', 'editor', 'page_builder'];
+const ALL_ROLES = ['admin', 'media_buyer', 'ads_translator', 'video_editor', 'page_builder'];
 
 function escHtmlBasic(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
@@ -6570,6 +6621,308 @@ async function deleteToolFlow(t) {
   if (!ok) return;
   await sb.from('tools').delete().eq('id', t.id);
   toast('Tool supprimé', 'success');
+  render();
+}
+
+/* ============================================================
+   SCRIPTS — page video editor (briefs + B-rolls Drive)
+   ============================================================ */
+async function renderScriptsList(el) {
+  const userRole = currentProfile?.role || 'viewer';
+  const isAdminUser = userRole === 'admin';
+
+  const [{ data: products }, { data: ads }] = await Promise.all([
+    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).order('created_at', { ascending: false }),
+    sb.from('ads').select('id, product_id, name, master_file_id').eq('workspace_id', currentWorkspaceId)
+  ]);
+
+  // Stats par produit : combien d'ads à produire (master_file_id null)
+  const adsByProduct = {};
+  (ads || []).forEach(a => { (adsByProduct[a.product_id] = adsByProduct[a.product_id] || []).push(a); });
+
+  const productStats = (products || []).map(p => {
+    const pAds = adsByProduct[p.id] || [];
+    const todo = pAds.filter(a => !a.master_file_id).length;
+    const done = pAds.length - todo;
+    const priority = p.priority || 'normal';
+    const priorityWeight = PRIORITY_META[priority]?.weight || 2;
+    return { p, pAds, todo, done, priority, priorityWeight, allDone: pAds.length > 0 && todo === 0 };
+  });
+
+  // Tri : priorité DESC puis date DESC
+  productStats.sort((a, b) => {
+    if (a.priorityWeight !== b.priorityWeight) return b.priorityWeight - a.priorityWeight;
+    return new Date(b.p.created_at || 0).getTime() - new Date(a.p.created_at || 0).getTime();
+  });
+
+  // Filtre : par défaut on masque les produits 100% finis (tous les masters uploadés)
+  const hideDone = localStorage.getItem('scripts_hide_done') !== 'false';
+  const visibleStats = hideDone ? productStats.filter(s => !s.allDone) : productStats;
+  const totalTodo = productStats.reduce((acc, s) => acc + s.todo, 0);
+  const finishedCount = productStats.filter(s => s.allDone).length;
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Scripts</div>
+        <div class="page-subtitle">${totalTodo} ad(s) à produire au total · ${productStats.length} produit(s)${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} produit${finishedCount > 1 ? 's' : ''} 100% fini${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
+        <input type="checkbox" id="toggle-scripts-hide-done" ${hideDone ? 'checked' : ''} style="accent-color:var(--gold)">
+        <span>Masquer les produits 100% finis</span>
+      </label>
+    </div>
+
+    ${productStats.length === 0 ? `
+      <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun produit</div><div class="empty-text">L'admin doit d'abord créer un produit avec des ads.</div></div>
+    ` : visibleStats.length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-title">Tout est produit !</div>
+        <div class="empty-text">Décoche le filtre pour voir les ${finishedCount} produit${finishedCount > 1 ? 's' : ''} déjà finis.</div>
+      </div>
+    ` : `
+      <div class="product-grid">
+        ${visibleStats.map(s => {
+          const { p, pAds, todo, done, priority } = s;
+          const priorityMeta = PRIORITY_META[priority] || { color: '#60a5fa' };
+          const totalPct = pAds.length === 0 ? 0 : pct(done, pAds.length);
+          return `
+            <div class="product-card" data-goto-script="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
+                <div class="product-card-title">${escapeHtml(p.id)}</div>
+                ${priorityBadge(priority)}
+              </div>
+              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${pAds.length} ad${pAds.length > 1 ? 's' : ''}</div>
+              <div style="margin-top:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:11px">
+                  <span style="color:var(--text-dim)">Masters produits</span>
+                  <span class="mono" style="color:${todo === 0 ? 'var(--green)' : 'var(--orange)'};font-weight:600">${done}/${pAds.length} · ${totalPct}%</span>
+                </div>
+                <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${totalPct}%;height:100%;background:${todo === 0 ? 'var(--green)' : 'var(--orange)'};transition:width 0.4s"></div></div>
+                ${todo > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--orange);font-weight:600">${todo} à produire</div>` : `<div style="margin-top:8px;font-size:11px;color:var(--green);font-weight:600">Tous les masters sont uploadés</div>`}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-goto-script]').forEach(c => c.addEventListener('click', () => navigate('scripts/' + c.dataset.gotoScript)));
+  document.getElementById('toggle-scripts-hide-done')?.addEventListener('change', (e) => {
+    localStorage.setItem('scripts_hide_done', e.target.checked ? 'true' : 'false');
+    render();
+  });
+}
+
+async function renderScriptDetail(el, productId) {
+  const isAdminUser = isAdmin();
+
+  const [{ data: product }, { data: ads }] = await Promise.all([
+    sb.from('products').select('*').eq('id', productId).maybeSingle(),
+    sb.from('ads').select('*').eq('product_id', productId).order('position')
+  ]);
+
+  if (!product) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#scripts">← Retour</a></div>';
+    return;
+  }
+
+  const todoAds = (ads || []).filter(a => !a.master_file_id);
+  const doneAds = (ads || []).filter(a => a.master_file_id);
+  const priority = product.priority || 'normal';
+
+  // Tab actif (state local, sauvegardé en localStorage par produit)
+  const activeTabKey = 'scripts_tab_' + productId;
+  const activeTab = localStorage.getItem(activeTabKey) || 'scripts';
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <a class="btn btn-ghost btn-sm" href="#scripts" style="margin-bottom:8px">← Scripts</a>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}<span style="color:var(--text);font-family:'Outfit',sans-serif;font-size:18px;font-weight:500"> · ${escapeHtml(product.name || '')}</span></div>
+          ${priorityBadge(priority)}
+        </div>
+        <div class="page-subtitle">${todoAds.length} ad(s) à produire · ${doneAds.length} fait(es)</div>
+      </div>
+    </div>
+
+    <div class="copy-tabs">
+      <button type="button" class="copy-tab ${activeTab === 'scripts' ? 'active' : ''}" data-tab="scripts">Scripts (${ads?.length || 0})</button>
+      <button type="button" class="copy-tab ${activeTab === 'brolls' ? 'active' : ''}" data-tab="brolls">B-Rolls</button>
+    </div>
+
+    <div id="tab-scripts" class="${activeTab === 'scripts' ? '' : 'hidden'}">
+      ${(ads || []).length === 0 ? `
+        <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucune ad pour ce produit</div><div class="empty-text">${isAdminUser ? 'Crée d\'abord les ads via l\'onglet Produit.' : 'L\'admin doit d\'abord créer des ads.'}</div></div>
+      ` : ads.map(ad => {
+        const isDone = !!ad.master_file_id;
+        const script = ad.script || '';
+        return `
+          <div class="script-ad-row ${isDone ? 'done' : 'todo'}">
+            <div class="script-ad-head">
+              <div style="display:flex;align-items:center;gap:10px">
+                <span class="script-ad-name">${escapeHtml(ad.name)}</span>
+                <span class="script-status ${isDone ? 'done' : 'todo'}">${isDone ? '✓ Master uploadé' : 'À produire'}</span>
+              </div>
+              ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-edit-script="${ad.id}">${script ? 'Éditer' : '+ Ajouter script'}</button>` : ''}
+            </div>
+            ${script
+              ? `<div class="script-text">${escapeHtml(script)}</div>`
+              : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Ajouter script"' : 'Le script sera ajouté par l\'admin'}</div>`
+            }
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <div id="tab-brolls" class="${activeTab === 'brolls' ? '' : 'hidden'}">
+      <div id="brolls-loading" class="loading"><div class="spinner"></div></div>
+    </div>
+  `;
+
+  // Tab switch (no full re-render, juste toggle visibility)
+  el.querySelectorAll('[data-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const t = tab.dataset.tab;
+      localStorage.setItem(activeTabKey, t);
+      el.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('active', x === tab));
+      document.getElementById('tab-scripts').classList.toggle('hidden', t !== 'scripts');
+      document.getElementById('tab-brolls').classList.toggle('hidden', t !== 'brolls');
+      // Lazy-load B-rolls si on bascule dessus pour la 1ère fois
+      if (t === 'brolls') loadBRollsTab(product, isAdminUser);
+    });
+  });
+
+  // Edit script per-ad (admin only)
+  el.querySelectorAll('[data-edit-script]').forEach(btn => {
+    btn.addEventListener('click', () => editAdScriptFlow(btn.dataset.editScript));
+  });
+
+  // Charger B-rolls dès le départ si onglet actif
+  if (activeTab === 'brolls') loadBRollsTab(product, isAdminUser);
+}
+
+async function loadBRollsTab(product, isAdminUser) {
+  const wrap = document.getElementById('tab-brolls');
+  if (!wrap) return;
+
+  if (!product.drive_folder_id) {
+    wrap.innerHTML = `
+      <div class="empty" style="padding:40px 20px">
+        <div class="empty-title">Pas de dossier Drive pour ce produit</div>
+        <div class="empty-text">${isAdminUser ? 'Configure le dossier Drive du produit dans l\'onglet Produit.' : 'L\'admin doit configurer le dossier Drive du produit.'}</div>
+      </div>
+    `;
+    return;
+  }
+
+  if (!driveState.connected) {
+    wrap.innerHTML = `
+      <div class="empty" style="padding:40px 20px">
+        <div class="empty-title">Drive non connecté</div>
+        <div class="empty-text">Connecte-toi à Google Drive pour voir les B-Rolls.</div>
+        <button class="btn mt-md" id="btn-brolls-connect-drive">Connecter Drive</button>
+      </div>
+    `;
+    document.getElementById('btn-brolls-connect-drive')?.addEventListener('click', () => driveConnect());
+    return;
+  }
+
+  wrap.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    // Trouve / crée le sous-dossier B-Rolls
+    let bRollsFolder = await driveFindFolder(B_ROLLS_FOLDER_NAME, product.drive_folder_id);
+    if (!bRollsFolder && isAdminUser) {
+      bRollsFolder = await driveCreateFolder(B_ROLLS_FOLDER_NAME, product.drive_folder_id);
+      toast('Dossier B-Rolls créé sur Drive', 'success');
+    }
+    if (!bRollsFolder) {
+      wrap.innerHTML = `
+        <div class="empty" style="padding:40px 20px">
+          <div class="empty-title">Dossier B-Rolls introuvable</div>
+          <div class="empty-text">L'admin doit l'initialiser en visitant cette page.</div>
+        </div>
+      `;
+      return;
+    }
+    const folderUrl = `https://drive.google.com/drive/folders/${bRollsFolder.id}`;
+    const files = await driveListFolderContent(bRollsFolder.id);
+    const realFiles = files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
+
+    wrap.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
+        <div class="text-sm text-dim">${realFiles.length} fichier(s) dans <span class="mono">${escapeHtml(B_ROLLS_FOLDER_NAME)}</span></div>
+        <a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ouvrir le dossier dans Drive ↗</a>
+      </div>
+      ${realFiles.length === 0 ? `
+        <div class="empty" style="padding:40px 20px">
+          <div class="empty-title">Aucun B-Roll uploadé</div>
+          <div class="empty-text">Uploade tes fichiers vidéo / image directement dans le dossier Drive ci-dessus.</div>
+        </div>
+      ` : `
+        <div>
+          ${realFiles.map(f => {
+            const isVideo = (f.mimeType || '').startsWith('video/');
+            const isImage = (f.mimeType || '').startsWith('image/');
+            const icon = isVideo
+              ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`
+              : isImage
+                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+                : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+            const viewUrl = `https://drive.google.com/file/d/${f.id}/view`;
+            return `
+              <div class="broll-row">
+                <div class="broll-icon">${icon}</div>
+                <div class="broll-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+                <div class="broll-actions">
+                  <a href="${escapeHtml(viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir</a>
+                  <button class="btn btn-secondary btn-sm" data-download-broll="${f.id}" data-broll-name="${escapeHtml(f.name)}">Télécharger</button>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `}
+    `;
+
+    wrap.querySelectorAll('[data-download-broll]').forEach(btn => {
+      btn.addEventListener('click', () => downloadDriveFile(btn.dataset.downloadBroll, btn.dataset.brollName));
+    });
+  } catch (e) {
+    console.error('[BROLLS load]', e);
+    wrap.innerHTML = `
+      <div class="empty" style="padding:40px 20px">
+        <div class="empty-title">Erreur de chargement</div>
+        <div class="empty-text">${escapeHtml(e.message || 'Erreur Drive')}</div>
+      </div>
+    `;
+  }
+}
+
+async function editAdScriptFlow(adId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+  const { data: ad } = await sb.from('ads').select('*').eq('id', adId).single();
+  if (!ad) { toast('Ad introuvable', 'error'); return; }
+
+  const r = await modal(`
+    <div class="modal-title">Script — ${escapeHtml(ad.name)}</div>
+    <div class="text-sm text-dim mb-md">Le script que le video editor verra pour produire cette ad. Texte libre — angle, hook, copy, idées B-rolls, etc.</div>
+    <div class="input-group">
+      <textarea class="input" data-field="script" style="min-height:240px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ...">${escapeHtml(ad.script || '')}</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `);
+  if (!r) return;
+  const script = (r.script || '').trim() || null;
+  const { error } = await sb.from('ads').update({ script }).eq('id', adId);
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast('Script enregistré', 'success');
   render();
 }
 
