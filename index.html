@@ -6844,6 +6844,20 @@ async function renderScriptDetail(el, productId) {
   if (activeTab === 'brolls') loadBRollsTab(product, isAdminUser);
 }
 
+// Helper : s'assure que gapi.client.drive est initialisé (sinon les calls plantent)
+async function ensureDriveReady() {
+  if (window.gapi?.client?.drive) return true;
+  // Pas encore prêt — on lit la config et on init
+  const { data: cfg } = await sb.from('drive_config').select('api_key').eq('workspace_id', currentWorkspaceId).maybeSingle();
+  if (!cfg?.api_key) throw new Error('Drive non configuré (manque api_key)');
+  await initGapiClient(cfg.api_key);
+  if (driveState.accessToken) {
+    try { gapi.client.setToken({ access_token: driveState.accessToken }); } catch (e) {}
+  }
+  if (!window.gapi?.client?.drive) throw new Error('gapi.client.drive ne s\'est pas chargé');
+  return true;
+}
+
 async function loadBRollsTab(product, isAdminUser) {
   const wrap = document.getElementById('tab-brolls');
   if (!wrap) return;
@@ -6873,6 +6887,9 @@ async function loadBRollsTab(product, isAdminUser) {
   wrap.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
+    // Assure que gapi.client.drive est dispo (peut ne pas l'être si on vient de restaurer le token)
+    await ensureDriveReady();
+
     // Trouve / crée le sous-dossier B-Rolls
     let bRollsFolder = await driveFindFolder(B_ROLLS_FOLDER_NAME, product.drive_folder_id);
     if (!bRollsFolder && isAdminUser) {
@@ -6933,12 +6950,15 @@ async function loadBRollsTab(product, isAdminUser) {
     });
   } catch (e) {
     console.error('[BROLLS load]', e);
+    const msg = extractGapiError(e);
     wrap.innerHTML = `
       <div class="empty" style="padding:40px 20px">
         <div class="empty-title">Erreur de chargement</div>
-        <div class="empty-text">${escapeHtml(e.message || 'Erreur Drive')}</div>
+        <div class="empty-text">${escapeHtml(msg)}</div>
+        <button class="btn btn-secondary mt-md" id="btn-brolls-retry">Réessayer</button>
       </div>
     `;
+    document.getElementById('btn-brolls-retry')?.addEventListener('click', () => loadBRollsTab(product, isAdminUser));
   }
 }
 
@@ -7064,11 +7084,14 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
   toast(`Upload de "${file.name}" sur Drive...`, 'info', 5000);
 
   try {
+    // 0. S'assure que gapi.client.drive est dispo
+    await ensureDriveReady();
+
     // 1. Récupère le produit + ses pays pour les ad_countries
     const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
     if (!scriptAd) throw new Error('Script introuvable');
     const { data: product } = await sb.from('products').select('*').eq('id', scriptAd.product_id).single();
-    if (!product?.drive_folder_id) throw new Error('Pas de dossier Drive sur ce produit');
+    if (!product?.drive_folder_id) throw new Error('Pas de dossier Drive sur ce produit. Va dans l\'onglet Produit et configure-le ou laisse l\'auto-création se faire.');
     const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
     const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
 
@@ -7105,7 +7128,7 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
     render();
   } catch (e) {
     console.error('[UPLOAD SCRIPT MASTER]', e);
-    toast('Erreur upload : ' + (e.message || 'inconnue'), 'error', 7000);
+    toast('Erreur upload : ' + extractGapiError(e), 'error', 8000);
   }
 }
 
