@@ -6896,17 +6896,24 @@ async function renderScriptDetail(el, productId) {
   if (activeTab === 'brolls') loadBRollsTab(product, isAdminUser);
 }
 
-// Helper : s'assure que gapi.client.drive est initialisé (sinon les calls plantent)
+// Helper : s'assure que gapi.client.drive est initialisé ET que le token OAuth est bien set
 async function ensureDriveReady() {
-  if (window.gapi?.client?.drive) return true;
-  // Pas encore prêt — on lit la config et on init
-  const { data: cfg } = await sb.from('drive_config').select('api_key').eq('workspace_id', currentWorkspaceId).maybeSingle();
-  if (!cfg?.api_key) throw new Error('Drive non configuré (manque api_key)');
-  await initGapiClient(cfg.api_key);
-  if (driveState.accessToken) {
-    try { gapi.client.setToken({ access_token: driveState.accessToken }); } catch (e) {}
+  // 1. Init gapi.client.drive si pas encore chargé
+  if (!window.gapi?.client?.drive) {
+    const { data: cfg } = await sb.from('drive_config').select('api_key').eq('workspace_id', currentWorkspaceId).maybeSingle();
+    if (!cfg?.api_key) throw new Error('Drive non configuré (manque api_key)');
+    await initGapiClient(cfg.api_key);
+    if (!window.gapi?.client?.drive) throw new Error('gapi.client.drive ne s\'est pas chargé');
   }
-  if (!window.gapi?.client?.drive) throw new Error('gapi.client.drive ne s\'est pas chargé');
+  // 2. Toujours réappliquer le token OAuth — sans ça les calls partent avec juste l'API key
+  //    et Google répond "API keys are not supported by this API"
+  if (!driveState.accessToken) {
+    throw new Error('Pas connecté à Drive — clique "Connecter Drive" sur la page Drive d\'abord');
+  }
+  const current = gapi.client.getToken();
+  if (!current || current.access_token !== driveState.accessToken) {
+    try { gapi.client.setToken({ access_token: driveState.accessToken }); } catch (e) { console.warn('[setToken]', e); }
+  }
   return true;
 }
 
