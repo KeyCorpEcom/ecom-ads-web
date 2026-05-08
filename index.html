@@ -370,7 +370,8 @@ a{color:var(--gold);text-decoration:none}
 .tool-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:18px;cursor:pointer;transition:all 0.18s;display:flex;flex-direction:column;gap:8px;position:relative}
 .tool-card:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.3)}
 .tool-card-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
-.tool-card-initial{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--gold),#b89240);color:#000;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex-shrink:0;letter-spacing:-0.02em}
+.tool-card-initial{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,var(--gold),#b89240);color:#000;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;flex-shrink:0;letter-spacing:-0.02em;position:relative;overflow:hidden}
+.tool-card-icon-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff;border-radius:inherit;padding:6px;box-sizing:border-box}
 .tool-card-name{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-0.01em}
 .tool-card-login{font-size:12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;word-break:break-all}
 .tool-card-roles{display:flex;flex-wrap:wrap;gap:4px;margin-top:auto}
@@ -6223,6 +6224,29 @@ async function deleteTrainingFlow(t) {
 /* ============================================================
    TOOLS (comptes / credentials des outils par rôle)
    ============================================================ */
+// Génère l'URL favicon Google pour un domaine donné (fallback auto si pas d'icon_url custom)
+function faviconFor(url) {
+  if (!url) return null;
+  try {
+    const u = new URL(url.startsWith('http') ? url : 'https://' + url);
+    return `https://www.google.com/s2/favicons?domain=${u.hostname}&sz=128`;
+  } catch { return null; }
+}
+
+// Génère le HTML de l'icône d'un tool : icon_url custom → favicon auto → lettre fallback
+function toolIconHtml(t, opts = {}) {
+  const cls = opts.className || 'tool-card-initial';
+  const inline = opts.style || '';
+  const initial = (t.name || '?').trim().charAt(0).toUpperCase();
+  const iconUrl = (t.icon_url && t.icon_url.trim()) || faviconFor(t.url);
+  return `
+    <div class="${cls}" style="${inline}">
+      ${iconUrl ? `<img class="tool-card-icon-img" src="${escapeHtml(iconUrl)}" alt="" onerror="this.style.display='none'">` : ''}
+      <span>${escapeHtml(initial)}</span>
+    </div>
+  `;
+}
+
 async function renderTools(el) {
   const userRole = currentProfile?.role || 'media_buyer';
   const isAdminUser = userRole === 'admin';
@@ -6255,11 +6279,10 @@ async function renderTools(el) {
     ` : `
       <div class="tools-grid">
         ${visible.map(t => {
-          const initial = (t.name || '?').trim().charAt(0).toUpperCase();
           return `
             <div class="tool-card" data-tool="${t.id}">
               <div class="tool-card-head">
-                <div class="tool-card-initial">${escapeHtml(initial)}</div>
+                ${toolIconHtml(t)}
                 <div style="flex:1;min-width:0">
                   <div class="tool-card-name">${escapeHtml(t.name)}</div>
                   ${t.login ? `<div class="tool-card-login">${escapeHtml(t.login)}</div>` : ''}
@@ -6309,8 +6332,6 @@ async function openToolDetail(toolId) {
   const { data: t } = await sb.from('tools').select('*').eq('id', toolId).maybeSingle();
   if (!t) return;
 
-  const initial = (t.name || '?').trim().charAt(0).toUpperCase();
-
   // Modal Promise pour gérer le toggle password
   await new Promise((resolve) => {
     const container = document.getElementById('modal-container');
@@ -6319,7 +6340,7 @@ async function openToolDetail(toolId) {
     bd.innerHTML = `
       <div class="modal" style="max-width:560px">
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
-          <div class="tool-card-initial" style="width:48px;height:48px;font-size:20px">${escapeHtml(initial)}</div>
+          ${toolIconHtml(t, { style: 'width:48px;height:48px;font-size:20px' })}
           <div>
             <div class="modal-title" style="margin:0">${escapeHtml(t.name)}</div>
             ${t.url ? `<div style="font-size:12px;color:var(--text-dim);margin-top:2px"><a href="${escapeHtml(t.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:underline">${escapeHtml(t.url)}</a></div>` : ''}
@@ -6402,7 +6423,7 @@ async function openToolDetail(toolId) {
 }
 
 async function editToolFlow(existing) {
-  const t = existing || { name: '', url: '', login: '', password: '', notes: '', roles: [], position: 0 };
+  const t = existing || { name: '', url: '', icon_url: '', login: '', password: '', notes: '', roles: [], position: 0 };
   const rolesHtml = ALL_ROLES.map(r => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:var(--bg-input);border:1px solid var(--border);text-transform:capitalize">
       <input type="checkbox" data-role="${r}" ${(t.roles || []).includes(r) ? 'checked' : ''} style="accent-color:var(--gold)">
@@ -6424,6 +6445,11 @@ async function editToolFlow(existing) {
         <div class="input-group">
           <label class="input-label">URL</label>
           <input class="input" data-field="url" value="${escapeHtml(t.url || '')}" placeholder="https://...">
+        </div>
+        <div class="input-group">
+          <label class="input-label">URL de l'icône (optionnel)</label>
+          <input class="input" data-field="icon_url" value="${escapeHtml(t.icon_url || '')}" placeholder="https://... (laisse vide pour favicon auto)">
+          <div class="input-hint">Si vide → favicon Google généré depuis l'URL ci-dessus. Pour une icône custom : URL d'un PNG/SVG (ex: <span class="mono">https://cdn.simpleicons.org/heygen</span>).</div>
         </div>
         <div class="input-group">
           <label class="input-label">Login (email / username)</label>
@@ -6466,6 +6492,7 @@ async function editToolFlow(existing) {
       close({
         name,
         url: (bd.querySelector('[data-field="url"]')?.value || '').trim() || null,
+        icon_url: (bd.querySelector('[data-field="icon_url"]')?.value || '').trim() || null,
         login: (bd.querySelector('[data-field="login"]')?.value || '').trim() || null,
         password: (bd.querySelector('[data-field="password"]')?.value || '').trim() || null,
         notes: (bd.querySelector('[data-field="notes"]')?.value || '').trim() || null,
