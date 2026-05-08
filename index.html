@@ -1628,6 +1628,7 @@ async function renderProduit(el, productId) {
               <tr>
                 <td class="ad-col">
                   ${escapeHtml(ad.name)}
+                  ${ad.source === 'script' ? `<span title="Cette ad vient d'un script original" style="display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;background:rgba(192,132,252,0.15);color:var(--purple);font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle">S</span>` : ''}
                   <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? 'Voir / Éditer Ad Copy' : 'Ajouter Ad Copy (titre, description)'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                   ${(() => {
@@ -7048,11 +7049,12 @@ async function editAdScriptFlow(adId) {
 // Crée un nouveau script (= ad source='script') pour un produit. Admin only.
 async function createScriptFlow(productId) {
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
-  // Calcule le prochain numéro de script (basé sur les scripts existants pour ce produit)
-  const { data: existing } = await sb.from('ads').select('name, position').eq('product_id', productId).eq('source', 'script');
+  // Calcule le prochain numéro de script — on regarde uniquement les noms "Script N"
+  // (les scripts validés ont été renommés en "Ad N", on les ignore)
+  const { data: existing } = await sb.from('ads').select('name').eq('product_id', productId).eq('source', 'script');
   const maxN = (existing || []).reduce((m, a) => {
-    const n = parseInt((a.name.match(/\d+/) || [0])[0], 10) || 0;
-    return Math.max(m, n);
+    const m2 = a.name && a.name.match(/^Script\s*(\d+)/i);
+    return m2 ? Math.max(m, parseInt(m2[1], 10)) : m;
   }, 0);
   const nextN = maxN + 1;
   const newName = `Script ${nextN}`;
@@ -7232,23 +7234,51 @@ async function approveScriptMasterFlow(scriptId) {
     const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
     const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
 
-    // 1. Déplacer le fichier de 01_Scripts/_a_valider/ vers 01_Scripts/
+    // 1. Calcule le prochain "Ad N" libre — MAX(position) de toutes les ads du produit + 1
+    const { data: allAds } = await sb.from('ads').select('position, name').eq('product_id', scriptAd.product_id);
+    const maxPos = (allAds || []).reduce((m, a) => Math.max(m, a.position || 0), 0);
+    // On regarde aussi les noms "Ad N" pour éviter une collision si l'ordre des positions est cassé
+    const maxAdNum = (allAds || []).reduce((m, a) => {
+      const m2 = a.name && a.name.match(/^Ad\s*(\d+)/i);
+      return m2 ? Math.max(m, parseInt(m2[1], 10)) : m;
+    }, 0);
+    const nextN = Math.max(maxPos, maxAdNum) + 1;
+    const newAdName = `Ad ${nextN}`;
+
+    // 2. Récupère l'extension du fichier pending pour le rename
+    const accessToken = driveState.accessToken;
+    let driveExt = 'mp4';
+    try {
+      const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${scriptAd.master_pending_file_id}?fields=name`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (metaRes.ok) {
+        const meta = await metaRes.json();
+        const m = meta.name?.match(/\.([a-z0-9]+)$/i);
+        if (m) driveExt = m[1].toLowerCase();
+      }
+    } catch (e) { console.warn('[approve get ext]', e); }
+    const newDriveName = `${newAdName}.${driveExt}`;
+
+    // 3. Déplacer le fichier de 01_Scripts/_a_valider/ vers 01_Scripts/ ET le renommer en "Ad N.ext"
     const scriptsFolder = await driveFindFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
     const pendingFolder = scriptsFolder ? await driveFindFolder('_a_valider', scriptsFolder.id) : null;
     if (!scriptsFolder || !pendingFolder) throw new Error('Structure Drive 01_Scripts/_a_valider/ introuvable');
 
-    const accessToken = driveState.accessToken;
-    const moveRes = await fetch(`https://www.googleapis.com/drive/v3/files/${scriptAd.master_pending_file_id}?addParents=${scriptsFolder.id}&removeParents=${pendingFolder.id}&fields=id,parents&supportsAllDrives=true`, {
+    const moveRes = await fetch(`https://www.googleapis.com/drive/v3/files/${scriptAd.master_pending_file_id}?addParents=${scriptsFolder.id}&removeParents=${pendingFolder.id}&fields=id,parents,name&supportsAllDrives=true`, {
       method: 'PATCH',
-      headers: { 'Authorization': `Bearer ${accessToken}` }
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newDriveName })
     });
     if (!moveRes.ok) {
       const errText = await moveRes.text();
       throw new Error(`Drive move: HTTP ${moveRes.status} — ${errText.slice(0, 200)}`);
     }
 
-    // 2. Update ad : master validé, statut pipeline normal
+    // 4. Update ad : renommé "Ad N", position=N, master validé, source='script' conservé pour traçabilité
     await sb.from('ads').update({
+      name: newAdName,
+      position: nextN,
       master_file_id: scriptAd.master_pending_file_id,
       master_pending_file_id: null,
       master_status: 'approved',
@@ -7275,8 +7305,8 @@ async function approveScriptMasterFlow(scriptId) {
       });
     }
 
-    await logSync(`${product.id} : ${scriptAd.name} validé (${enabled.length} pays à traduire)`, 'success');
-    toast(`${scriptAd.name} validé`, 'success');
+    await logSync(`${product.id} : ${scriptAd.name} validé → renommé ${newAdName} (${enabled.length} pays à traduire)`, 'success');
+    toast(`${scriptAd.name} validé → ${newAdName}`, 'success');
     render();
   } catch (e) {
     console.error('[APPROVE SCRIPT]', e);
