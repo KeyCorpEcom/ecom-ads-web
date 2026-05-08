@@ -968,17 +968,23 @@ async function fetchAll() {
     sb.from('ads').select('*').eq('workspace_id', wsId).order('position'),
     sb.from('ad_countries').select('*').eq('workspace_id', wsId)
   ]);
+  // Filtre : on cache les ads source='script' qui n'ont pas encore de master uploadé
+  // (ils sont gérés exclusivement dans l'onglet Scripts tant qu'ils ne sont pas produits)
+  const adsAll = adsR.data || [];
+  const ads = adsAll.filter(a => a.source !== 'script' || a.master_file_id);
   return {
     countries: countriesR.data || [],
     products: productsR.data || [],
-    ads: adsR.data || [],
+    ads,
     adCountries: adCountriesR.data || []
   };
 }
 
 function canEdit() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'ads_translator'); }
 function isAdmin() { return currentProfile && currentProfile.role === 'admin'; }
+function isVideoEditor() { return currentProfile && currentProfile.role === 'video_editor'; }
 function canEditPages() { return currentProfile && ['admin', 'ads_translator', 'page_builder'].includes(currentProfile.role); }
+function canProduceScripts() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'video_editor'); }
 function isPageBuilder() { return currentProfile && currentProfile.role === 'page_builder'; }
 
 /* ============================================================
@@ -1508,7 +1514,7 @@ function modalWithOpen(contentHtml, onOpen) {
    PAGE: PRODUIT DETAIL
    ============================================================ */
 async function renderProduit(el, productId) {
-  const [{ data: product }, { data: ads }, { data: countriesAll }, { data: adCountries }, { data: pendingVals }] = await Promise.all([
+  const [{ data: product }, { data: adsAll }, { data: countriesAll }, { data: adCountries }, { data: pendingVals }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).single(),
     sb.from('ads').select('*').eq('product_id', productId).order('position'),
     sb.from('countries').select('*').order('sort_order'),
@@ -1516,6 +1522,8 @@ async function renderProduit(el, productId) {
     sb.from('pending_validations').select('*').eq('product_id', productId)
   ]);
   if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div></div>'; return; }
+  // Cache les scripts pas encore produits (ils vivent dans l'onglet Scripts tant qu'ils n'ont pas de master)
+  const ads = (adsAll || []).filter(a => a.source !== 'script' || a.master_file_id);
   const countries = (product.enabled_countries && product.enabled_countries.length)
     ? countriesAll.filter(c => product.enabled_countries.includes(c.id))
     : countriesAll;
@@ -3940,6 +3948,7 @@ async function logSync(msg, type = 'info') {
 const CONCURRENT_FOLDER_NAME = '00_Ads_Concurrent';
 const MASTER_FOLDER_NAME = '00_Master_Ads';
 const B_ROLLS_FOLDER_NAME = '00_B_Rolls';
+const SCRIPTS_FOLDER_NAME = '01_Scripts';
 
 function driveProductFolderName(p) {
   if (!p.name || p.name === p.id) return p.id;
@@ -4280,6 +4289,7 @@ async function createProductDriveStructure(product, countries) {
   await driveEnsureFolder(CONCURRENT_FOLDER_NAME, productFolder.id);
   await driveEnsureFolder(MASTER_FOLDER_NAME, productFolder.id);
   await driveEnsureFolder(B_ROLLS_FOLDER_NAME, productFolder.id);
+  await driveEnsureFolder(SCRIPTS_FOLDER_NAME, productFolder.id);
   for (const c of countries) {
     await driveEnsureFolder(c.id, productFolder.id);
   }
@@ -6625,28 +6635,33 @@ async function deleteToolFlow(t) {
 }
 
 /* ============================================================
-   SCRIPTS — page video editor (briefs + B-rolls Drive)
+   SCRIPTS — page video editor
+   Pipeline indépendant des ads concurrents :
+   - Admin écrit des scripts (ads.source='script', master_file_id null)
+   - Video editor produit la vidéo + upload master
+   - Master uploadé → ad_countries créées → l'ad rejoint le pipeline classique
    ============================================================ */
 async function renderScriptsList(el) {
   const userRole = currentProfile?.role || 'viewer';
   const isAdminUser = userRole === 'admin';
 
-  const [{ data: products }, { data: ads }] = await Promise.all([
+  // On lit UNIQUEMENT les ads source='script' (le pipeline scripts est indépendant des concurrent ads)
+  const [{ data: products }, { data: scripts }] = await Promise.all([
     sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).order('created_at', { ascending: false }),
-    sb.from('ads').select('id, product_id, name, master_file_id').eq('workspace_id', currentWorkspaceId)
+    sb.from('ads').select('id, product_id, name, master_file_id, position').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
   ]);
 
-  // Stats par produit : combien d'ads à produire (master_file_id null)
-  const adsByProduct = {};
-  (ads || []).forEach(a => { (adsByProduct[a.product_id] = adsByProduct[a.product_id] || []).push(a); });
+  // Group scripts by product
+  const scriptsByProduct = {};
+  (scripts || []).forEach(s => { (scriptsByProduct[s.product_id] = scriptsByProduct[s.product_id] || []).push(s); });
 
   const productStats = (products || []).map(p => {
-    const pAds = adsByProduct[p.id] || [];
-    const todo = pAds.filter(a => !a.master_file_id).length;
-    const done = pAds.length - todo;
+    const pScripts = scriptsByProduct[p.id] || [];
+    const todo = pScripts.filter(s => !s.master_file_id).length;
+    const done = pScripts.length - todo;
     const priority = p.priority || 'normal';
     const priorityWeight = PRIORITY_META[priority]?.weight || 2;
-    return { p, pAds, todo, done, priority, priorityWeight, allDone: pAds.length > 0 && todo === 0 };
+    return { p, pScripts, todo, done, priority, priorityWeight, hasScripts: pScripts.length > 0, allDone: pScripts.length > 0 && todo === 0 };
   });
 
   // Tri : priorité DESC puis date DESC
@@ -6655,9 +6670,15 @@ async function renderScriptsList(el) {
     return new Date(b.p.created_at || 0).getTime() - new Date(a.p.created_at || 0).getTime();
   });
 
-  // Filtre : par défaut on masque les produits 100% finis (tous les masters uploadés)
+  // Filtre : par défaut on masque les produits 100% finis ET ceux sans aucun script
   const hideDone = localStorage.getItem('scripts_hide_done') !== 'false';
-  const visibleStats = hideDone ? productStats.filter(s => !s.allDone) : productStats;
+  // Pour video_editor : masque aussi les produits sans script (rien à faire pour lui)
+  const isVideoEd = isVideoEditor();
+  const visibleStats = productStats.filter(s => {
+    if (isVideoEd && !s.hasScripts) return false;
+    if (hideDone && s.allDone) return false;
+    return true;
+  });
   const totalTodo = productStats.reduce((acc, s) => acc + s.todo, 0);
   const finishedCount = productStats.filter(s => s.allDone).length;
 
@@ -6665,42 +6686,48 @@ async function renderScriptsList(el) {
     <div class="page-head">
       <div>
         <div class="page-title">Scripts</div>
-        <div class="page-subtitle">${totalTodo} ad(s) à produire au total · ${productStats.length} produit(s)${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} produit${finishedCount > 1 ? 's' : ''} 100% fini${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
+        <div class="page-subtitle">${totalTodo} script(s) à produire${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} produit${finishedCount > 1 ? 's' : ''} 100% produit${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
       </div>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
         <input type="checkbox" id="toggle-scripts-hide-done" ${hideDone ? 'checked' : ''} style="accent-color:var(--gold)">
-        <span>Masquer les produits 100% finis</span>
+        <span>Masquer les produits 100% produits</span>
       </label>
     </div>
 
     ${productStats.length === 0 ? `
-      <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun produit</div><div class="empty-text">L'admin doit d'abord créer un produit avec des ads.</div></div>
+      <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun produit</div><div class="empty-text">${isAdminUser ? 'Crée d\'abord un produit dans l\'onglet Produits.' : 'L\'admin doit d\'abord créer un produit.'}</div></div>
     ` : visibleStats.length === 0 ? `
       <div class="empty" style="padding:60px 20px">
-        <div class="empty-title">Tout est produit !</div>
-        <div class="empty-text">Décoche le filtre pour voir les ${finishedCount} produit${finishedCount > 1 ? 's' : ''} déjà finis.</div>
+        <div class="empty-title">${isVideoEd ? 'Aucun script à produire pour l\'instant' : 'Tout est produit !'}</div>
+        <div class="empty-text">${isVideoEd ? 'L\'admin n\'a pas encore créé de scripts. Reviens plus tard.' : 'Décoche le filtre pour voir tous les produits.'}</div>
       </div>
     ` : `
       <div class="product-grid">
         ${visibleStats.map(s => {
-          const { p, pAds, todo, done, priority } = s;
+          const { p, pScripts, todo, done, priority, hasScripts } = s;
           const priorityMeta = PRIORITY_META[priority] || { color: '#60a5fa' };
-          const totalPct = pAds.length === 0 ? 0 : pct(done, pAds.length);
+          const totalPct = pScripts.length === 0 ? 0 : pct(done, pScripts.length);
           return `
             <div class="product-card" data-goto-script="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
                 ${priorityBadge(priority)}
               </div>
-              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${pAds.length} ad${pAds.length > 1 ? 's' : ''}</div>
-              <div style="margin-top:10px">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:11px">
-                  <span style="color:var(--text-dim)">Masters produits</span>
-                  <span class="mono" style="color:${todo === 0 ? 'var(--green)' : 'var(--orange)'};font-weight:600">${done}/${pAds.length} · ${totalPct}%</span>
+              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${pScripts.length} script${pScripts.length > 1 ? 's' : ''}</div>
+              ${!hasScripts ? `
+                <div style="margin-top:10px;padding:10px 12px;background:var(--bg-input);border-radius:8px;border-left:3px solid var(--text-mute);font-size:11px;color:var(--text-dim)">
+                  ${isAdminUser ? 'Aucun script encore — clique pour en ajouter' : 'Pas de script à produire'}
                 </div>
-                <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${totalPct}%;height:100%;background:${todo === 0 ? 'var(--green)' : 'var(--orange)'};transition:width 0.4s"></div></div>
-                ${todo > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--orange);font-weight:600">${todo} à produire</div>` : `<div style="margin-top:8px;font-size:11px;color:var(--green);font-weight:600">Tous les masters sont uploadés</div>`}
-              </div>
+              ` : `
+                <div style="margin-top:10px">
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-size:11px">
+                    <span style="color:var(--text-dim)">Scripts produits</span>
+                    <span class="mono" style="color:${todo === 0 ? 'var(--green)' : 'var(--orange)'};font-weight:600">${done}/${pScripts.length} · ${totalPct}%</span>
+                  </div>
+                  <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${totalPct}%;height:100%;background:${todo === 0 ? 'var(--green)' : 'var(--orange)'};transition:width 0.4s"></div></div>
+                  ${todo > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--orange);font-weight:600">${todo} à produire</div>` : `<div style="margin-top:8px;font-size:11px;color:var(--green);font-weight:600">Tous les scripts produits</div>`}
+                </div>
+              `}
             </div>
           `;
         }).join('')}
@@ -6717,10 +6744,12 @@ async function renderScriptsList(el) {
 
 async function renderScriptDetail(el, productId) {
   const isAdminUser = isAdmin();
+  const isVideoEd = isVideoEditor();
 
-  const [{ data: product }, { data: ads }] = await Promise.all([
+  // On ne lit QUE les ads source='script' pour cette page
+  const [{ data: product }, { data: scripts }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).maybeSingle(),
-    sb.from('ads').select('*').eq('product_id', productId).order('position')
+    sb.from('ads').select('*').eq('product_id', productId).eq('source', 'script').order('position')
   ]);
 
   if (!product) {
@@ -6728,8 +6757,8 @@ async function renderScriptDetail(el, productId) {
     return;
   }
 
-  const todoAds = (ads || []).filter(a => !a.master_file_id);
-  const doneAds = (ads || []).filter(a => a.master_file_id);
+  const todoScripts = (scripts || []).filter(a => !a.master_file_id);
+  const doneScripts = (scripts || []).filter(a => a.master_file_id);
   const priority = product.priority || 'normal';
 
   // Tab actif (state local, sauvegardé en localStorage par produit)
@@ -6744,33 +6773,40 @@ async function renderScriptDetail(el, productId) {
           <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}<span style="color:var(--text);font-family:'Outfit',sans-serif;font-size:18px;font-weight:500"> · ${escapeHtml(product.name || '')}</span></div>
           ${priorityBadge(priority)}
         </div>
-        <div class="page-subtitle">${todoAds.length} ad(s) à produire · ${doneAds.length} fait(es)</div>
+        <div class="page-subtitle">${todoScripts.length} script(s) à produire · ${doneScripts.length} fait(s)</div>
       </div>
+      ${isAdminUser ? `<button class="btn btn-sm" id="btn-new-script">+ Nouveau script</button>` : ''}
     </div>
 
     <div class="copy-tabs">
-      <button type="button" class="copy-tab ${activeTab === 'scripts' ? 'active' : ''}" data-tab="scripts">Scripts (${ads?.length || 0})</button>
+      <button type="button" class="copy-tab ${activeTab === 'scripts' ? 'active' : ''}" data-tab="scripts">Scripts (${scripts?.length || 0})</button>
       <button type="button" class="copy-tab ${activeTab === 'brolls' ? 'active' : ''}" data-tab="brolls">B-Rolls</button>
     </div>
 
     <div id="tab-scripts" class="${activeTab === 'scripts' ? '' : 'hidden'}">
-      ${(ads || []).length === 0 ? `
-        <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucune ad pour ce produit</div><div class="empty-text">${isAdminUser ? 'Crée d\'abord les ads via l\'onglet Produit.' : 'L\'admin doit d\'abord créer des ads.'}</div></div>
-      ` : ads.map(ad => {
-        const isDone = !!ad.master_file_id;
-        const script = ad.script || '';
+      ${(scripts || []).length === 0 ? `
+        <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun script pour ce produit</div><div class="empty-text">${isAdminUser ? 'Clique "+ Nouveau script" pour en créer un.' : 'L\'admin n\'a pas encore créé de script à produire.'}</div></div>
+      ` : scripts.map(s => {
+        const isDone = !!s.master_file_id;
+        const script = s.script || '';
+        const driveUrl = isDone ? `https://drive.google.com/file/d/${s.master_file_id}/view` : null;
         return `
           <div class="script-ad-row ${isDone ? 'done' : 'todo'}">
             <div class="script-ad-head">
-              <div style="display:flex;align-items:center;gap:10px">
-                <span class="script-ad-name">${escapeHtml(ad.name)}</span>
-                <span class="script-status ${isDone ? 'done' : 'todo'}">${isDone ? '✓ Master uploadé' : 'À produire'}</span>
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <span class="script-ad-name">${escapeHtml(s.name)}</span>
+                <span class="script-status ${isDone ? 'done' : 'todo'}">${isDone ? '✓ Vidéo produite' : 'À produire'}</span>
               </div>
-              ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-edit-script="${ad.id}">${script ? 'Éditer' : '+ Ajouter script'}</button>` : ''}
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                ${isDone && driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir la vidéo ↗</a>` : ''}
+                ${(isAdminUser || isVideoEd) && !isDone ? `<button class="btn btn-sm" data-upload-script-master="${s.id}" data-script-name="${escapeHtml(s.name)}">Uploader la vidéo produite</button>` : ''}
+                ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-edit-script="${s.id}">${script ? 'Éditer script' : '+ Écrire script'}</button>` : ''}
+                ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-delete-script="${s.id}" style="color:var(--red)">Supprimer</button>` : ''}
+              </div>
             </div>
             ${script
               ? `<div class="script-text">${escapeHtml(script)}</div>`
-              : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Ajouter script"' : 'Le script sera ajouté par l\'admin'}</div>`
+              : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Écrire script"' : 'Le script sera ajouté par l\'admin'}</div>`
             }
           </div>
         `;
@@ -6790,17 +6826,21 @@ async function renderScriptDetail(el, productId) {
       el.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('active', x === tab));
       document.getElementById('tab-scripts').classList.toggle('hidden', t !== 'scripts');
       document.getElementById('tab-brolls').classList.toggle('hidden', t !== 'brolls');
-      // Lazy-load B-rolls si on bascule dessus pour la 1ère fois
       if (t === 'brolls') loadBRollsTab(product, isAdminUser);
     });
   });
 
-  // Edit script per-ad (admin only)
-  el.querySelectorAll('[data-edit-script]').forEach(btn => {
-    btn.addEventListener('click', () => editAdScriptFlow(btn.dataset.editScript));
+  // Boutons admin
+  document.getElementById('btn-new-script')?.addEventListener('click', () => createScriptFlow(productId));
+  el.querySelectorAll('[data-edit-script]').forEach(btn => btn.addEventListener('click', () => editAdScriptFlow(btn.dataset.editScript)));
+  el.querySelectorAll('[data-delete-script]').forEach(btn => btn.addEventListener('click', () => deleteScriptFlow(btn.dataset.deleteScript)));
+
+  // Bouton upload master (admin + video_editor)
+  el.querySelectorAll('[data-upload-script-master]').forEach(btn => {
+    btn.addEventListener('click', () => uploadScriptMasterFlow(btn.dataset.uploadScriptMaster, btn.dataset.scriptName));
   });
 
-  // Charger B-rolls dès le départ si onglet actif
+  // Charger B-rolls si onglet actif
   if (activeTab === 'brolls') loadBRollsTab(product, isAdminUser);
 }
 
@@ -6909,7 +6949,7 @@ async function editAdScriptFlow(adId) {
 
   const r = await modal(`
     <div class="modal-title">Script — ${escapeHtml(ad.name)}</div>
-    <div class="text-sm text-dim mb-md">Le script que le video editor verra pour produire cette ad. Texte libre — angle, hook, copy, idées B-rolls, etc.</div>
+    <div class="text-sm text-dim mb-md">Le script que le video editor verra pour produire cette vidéo. Texte libre — angle, hook, copy, idées B-rolls, etc.</div>
     <div class="input-group">
       <textarea class="input" data-field="script" style="min-height:240px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ...">${escapeHtml(ad.script || '')}</textarea>
     </div>
@@ -6924,6 +6964,149 @@ async function editAdScriptFlow(adId) {
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
   toast('Script enregistré', 'success');
   render();
+}
+
+// Crée un nouveau script (= ad source='script') pour un produit. Admin only.
+async function createScriptFlow(productId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+  // Calcule le prochain numéro de script (basé sur les scripts existants pour ce produit)
+  const { data: existing } = await sb.from('ads').select('name, position').eq('product_id', productId).eq('source', 'script');
+  const maxN = (existing || []).reduce((m, a) => {
+    const n = parseInt((a.name.match(/\d+/) || [0])[0], 10) || 0;
+    return Math.max(m, n);
+  }, 0);
+  const nextN = maxN + 1;
+  const newName = `Script ${nextN}`;
+
+  const r = await modal(`
+    <div class="modal-title">Nouveau script — ${escapeHtml(newName)}</div>
+    <div class="text-sm text-dim mb-md">Rédige le script que le video editor suivra pour produire cette vidéo. Tu pourras l'éditer plus tard.</div>
+    <div class="input-group">
+      <textarea class="input" data-field="script" style="min-height:240px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" autofocus placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Créer</button>
+    </div>
+  `);
+  if (!r) return;
+  const script = (r.script || '').trim() || null;
+  const { error } = await sb.from('ads').insert({
+    product_id: productId,
+    name: newName,
+    position: nextN,
+    source: 'script',
+    script,
+    workspace_id: currentWorkspaceId
+  });
+  if (error) { toast('Erreur création : ' + error.message, 'error'); return; }
+  toast(`${newName} créé`, 'success');
+  render();
+}
+
+// Supprime un script (admin only). Si master déjà uploadé, le fichier Drive est mis à la corbeille.
+async function deleteScriptFlow(scriptId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+  const { data: s } = await sb.from('ads').select('id, name, master_file_id, source').eq('id', scriptId).maybeSingle();
+  if (!s || s.source !== 'script') { toast('Script introuvable', 'error'); return; }
+
+  const ok = await confirmDialog(`Supprimer ${s.name} ?`,
+    s.master_file_id
+      ? 'La vidéo produite sera mise à la corbeille Drive (récupérable 30 jours), et toutes les traductions associées seront supprimées.'
+      : 'Cette action est définitive.'
+  );
+  if (!ok) return;
+
+  // Trash Drive file si présent (best effort)
+  if (s.master_file_id && driveState.connected) {
+    try {
+      await gapi.client.drive.files.update({ fileId: s.master_file_id, resource: { trashed: true }, supportsAllDrives: true });
+    } catch (e) { console.warn('[DELETE script drive]', e); }
+  }
+  // Cleanup ad_countries + pending_validations + ad
+  await sb.from('pending_validations').delete().eq('ad_id', scriptId);
+  await sb.from('ad_countries').delete().eq('ad_id', scriptId);
+  const { error } = await sb.from('ads').delete().eq('id', scriptId);
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast(`${s.name} supprimé`, 'success');
+  render();
+}
+
+// Upload de la vidéo produite par le video editor (ou admin) pour un script.
+// Le fichier va dans 01_Scripts/ sur Drive, master_file_id est set sur l'ad,
+// et les ad_countries sont créés pour permettre la traduction par pays.
+async function uploadScriptMasterFlow(scriptId, scriptName) {
+  if (!canProduceScripts()) { toast('Permission refusée', 'error'); return; }
+  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+
+  // File picker
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'video/*';
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+
+  await new Promise((resolve) => {
+    fileInput.addEventListener('change', () => resolve());
+    fileInput.click();
+    // Détecte aussi un cancel (focus revient sans sélection)
+    setTimeout(() => {
+      if (!fileInput.files || fileInput.files.length === 0) {
+        // Note : Chrome ne fire pas 'change' sur cancel, on attend que l'user ferme et relance
+      }
+    }, 500);
+  });
+
+  const file = fileInput.files?.[0];
+  fileInput.remove();
+  if (!file) return; // user a annulé
+
+  toast(`Upload de "${file.name}" sur Drive...`, 'info', 5000);
+
+  try {
+    // 1. Récupère le produit + ses pays pour les ad_countries
+    const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
+    if (!scriptAd) throw new Error('Script introuvable');
+    const { data: product } = await sb.from('products').select('*').eq('id', scriptAd.product_id).single();
+    if (!product?.drive_folder_id) throw new Error('Pas de dossier Drive sur ce produit');
+    const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
+    const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
+
+    // 2. Trouver/créer le dossier 01_Scripts/
+    const scriptsFolder = await driveEnsureFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+
+    // 3. Upload : on renomme en "Script N.ext" pour matcher la convention
+    const ext = (file.name.match(/\.([a-z0-9]+)$/i) || ['', 'mp4'])[1].toLowerCase();
+    const newName = `${scriptName}.${ext}`;
+    const uploaded = await driveUploadFile(file, scriptsFolder.id, newName);
+    if (!uploaded?.id) throw new Error('Upload Drive a échoué');
+
+    // 4. Auto-share (anyone with link, pour que les ads_translator puissent télécharger)
+    try {
+      await gapi.client.drive.permissions.create({
+        fileId: uploaded.id,
+        resource: { role: 'reader', type: 'anyone' }
+      });
+    } catch (e) { console.warn('[script auto-share]', e); }
+
+    // 5. Update master_file_id sur l'ad
+    await sb.from('ads').update({ master_file_id: uploaded.id }).eq('id', scriptId);
+
+    // 6. Créer les ad_countries pour permettre la traduction (s'ils n'existent pas déjà)
+    const { data: existingAc } = await sb.from('ad_countries').select('country_id').eq('ad_id', scriptId);
+    const existingSet = new Set((existingAc || []).map(x => x.country_id));
+    const acToInsert = enabled
+      .filter(cId => !existingSet.has(cId))
+      .map(cId => ({ ad_id: scriptId, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId }));
+    if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
+
+    await logSync(`${product.id} : ${scriptName} produit et uploadé (${enabled.length} pays à traduire)`, 'success');
+    toast(`${scriptName} uploadé. L'ad est maintenant dans le pipeline de traduction.`, 'success', 5000);
+    render();
+  } catch (e) {
+    console.error('[UPLOAD SCRIPT MASTER]', e);
+    toast('Erreur upload : ' + (e.message || 'inconnue'), 'error', 7000);
+  }
 }
 
 /* ============================================================
