@@ -6787,23 +6787,67 @@ async function renderScriptDetail(el, productId) {
       ${(scripts || []).length === 0 ? `
         <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun script pour ce produit</div><div class="empty-text">${isAdminUser ? 'Clique "+ Nouveau script" pour en créer un.' : 'L\'admin n\'a pas encore créé de script à produire.'}</div></div>
       ` : scripts.map(s => {
-        const isDone = !!s.master_file_id;
         const script = s.script || '';
-        const driveUrl = isDone ? `https://drive.google.com/file/d/${s.master_file_id}/view` : null;
+        const status = s.master_status; // null, 'pending', 'approved', 'rejected'
+        const isApproved = status === 'approved' || !!s.master_file_id;
+        const isPending = status === 'pending';
+        const isRejected = status === 'rejected';
+        const approvedUrl = s.master_file_id ? `https://drive.google.com/file/d/${s.master_file_id}/view` : null;
+        const pendingUrl = s.master_pending_file_id ? `https://drive.google.com/file/d/${s.master_pending_file_id}/view` : null;
+
+        // Badge de statut
+        let statusBadge, rowClass;
+        if (isApproved) { statusBadge = '<span class="script-status done">✓ Validé</span>'; rowClass = 'done'; }
+        else if (isPending) { statusBadge = '<span class="script-status" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏱ À valider par admin</span>'; rowClass = 'todo'; }
+        else if (isRejected) { statusBadge = '<span class="script-status" style="background:rgba(248,113,113,0.15);color:var(--red)">✗ Rejeté — à refaire</span>'; rowClass = 'todo'; }
+        else { statusBadge = '<span class="script-status todo">À produire</span>'; rowClass = 'todo'; }
+
+        // Boutons d'action selon statut + rôle
+        const actionBtns = [];
+        if (isApproved && approvedUrl) {
+          actionBtns.push(`<a href="${escapeHtml(approvedUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir la vidéo ↗</a>`);
+        }
+        if (isPending && pendingUrl) {
+          actionBtns.push(`<a href="${escapeHtml(pendingUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Voir la vidéo uploadée ↗</a>`);
+          if (isAdminUser) {
+            actionBtns.push(`<button class="btn btn-sm" style="background:var(--green);color:#000" data-approve-script="${s.id}">✓ Valider</button>`);
+            actionBtns.push(`<button class="btn btn-sm btn-danger" data-reject-script="${s.id}">Rejeter</button>`);
+          }
+        }
+        if (isRejected) {
+          if (pendingUrl) actionBtns.push(`<a href="${escapeHtml(pendingUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir la vidéo rejetée ↗</a>`);
+          if (isAdminUser || isVideoEd) {
+            actionBtns.push(`<button class="btn btn-sm" data-upload-script-master="${s.id}" data-script-name="${escapeHtml(s.name)}">Re-uploader corrigé</button>`);
+          }
+        }
+        if (!isApproved && !isPending && !isRejected) {
+          // Jamais uploadé
+          if (isAdminUser || isVideoEd) {
+            actionBtns.push(`<button class="btn btn-sm" data-upload-script-master="${s.id}" data-script-name="${escapeHtml(s.name)}">Uploader la vidéo produite</button>`);
+          }
+        }
+        if (isAdminUser) {
+          actionBtns.push(`<button class="btn btn-ghost btn-sm" data-edit-script="${s.id}">${script ? 'Éditer script' : '+ Écrire script'}</button>`);
+          actionBtns.push(`<button class="btn btn-ghost btn-sm" data-delete-script="${s.id}" style="color:var(--red)">Supprimer</button>`);
+        }
+
         return `
-          <div class="script-ad-row ${isDone ? 'done' : 'todo'}">
+          <div class="script-ad-row ${rowClass}">
             <div class="script-ad-head">
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                 <span class="script-ad-name">${escapeHtml(s.name)}</span>
-                <span class="script-status ${isDone ? 'done' : 'todo'}">${isDone ? '✓ Vidéo produite' : 'À produire'}</span>
+                ${statusBadge}
               </div>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-                ${isDone && driveUrl ? `<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir la vidéo ↗</a>` : ''}
-                ${(isAdminUser || isVideoEd) && !isDone ? `<button class="btn btn-sm" data-upload-script-master="${s.id}" data-script-name="${escapeHtml(s.name)}">Uploader la vidéo produite</button>` : ''}
-                ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-edit-script="${s.id}">${script ? 'Éditer script' : '+ Écrire script'}</button>` : ''}
-                ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-delete-script="${s.id}" style="color:var(--red)">Supprimer</button>` : ''}
+                ${actionBtns.join('')}
               </div>
             </div>
+            ${isRejected && s.master_feedback ? `
+              <div style="padding:10px 12px;background:rgba(248,113,113,0.08);border-left:3px solid var(--red);border-radius:6px;margin-bottom:10px">
+                <div style="font-weight:700;color:var(--red);font-size:11px;margin-bottom:6px;letter-spacing:0.5px">FEEDBACK ADMIN</div>
+                <div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${escapeHtml(s.master_feedback)}</div>
+              </div>
+            ` : ''}
             ${script
               ? `<div class="script-text">${escapeHtml(script)}</div>`
               : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Écrire script"' : 'Le script sera ajouté par l\'admin'}</div>`
@@ -6838,6 +6882,14 @@ async function renderScriptDetail(el, productId) {
   // Bouton upload master (admin + video_editor)
   el.querySelectorAll('[data-upload-script-master]').forEach(btn => {
     btn.addEventListener('click', () => uploadScriptMasterFlow(btn.dataset.uploadScriptMaster, btn.dataset.scriptName));
+  });
+
+  // Boutons admin : valider / rejeter
+  el.querySelectorAll('[data-approve-script]').forEach(btn => {
+    btn.addEventListener('click', () => approveScriptMasterFlow(btn.dataset.approveScript));
+  });
+  el.querySelectorAll('[data-reject-script]').forEach(btn => {
+    btn.addEventListener('click', () => rejectScriptMasterFlow(btn.dataset.rejectScript));
   });
 
   // Charger B-rolls si onglet actif
@@ -7095,27 +7147,108 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
     const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
     const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
 
-    // 2. Trouver/créer le dossier 01_Scripts/
-    const scriptsFolder = await driveEnsureFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+    // 1. Si une version pending/rejetée existe déjà, on la trash sur Drive (best effort)
+    if (scriptAd.master_pending_file_id) {
+      try {
+        await gapi.client.drive.files.update({ fileId: scriptAd.master_pending_file_id, resource: { trashed: true }, supportsAllDrives: true });
+      } catch (e) { console.warn('[old pending trash]', e); }
+    }
 
-    // 3. Upload : on renomme en "Script N.ext" pour matcher la convention
+    // 2. Trouver/créer 01_Scripts/_a_valider/ (les uploads pending vivent ici jusqu'à validation admin)
+    const scriptsFolder = await driveEnsureFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+    const pendingFolder = await driveEnsureFolder('_a_valider', scriptsFolder.id);
+
+    // 3. Upload dans le sous-dossier pending
     const ext = (file.name.match(/\.([a-z0-9]+)$/i) || ['', 'mp4'])[1].toLowerCase();
     const newName = `${scriptName}.${ext}`;
-    const uploaded = await driveUploadFile(file, scriptsFolder.id, newName);
+    const uploaded = await driveUploadFile(file, pendingFolder.id, newName);
     if (!uploaded?.id) throw new Error('Upload Drive a échoué');
 
-    // 4. Auto-share (anyone with link, pour que les ads_translator puissent télécharger)
+    // 4. Auto-share pour que l'admin puisse visionner via le lien direct
     try {
       await gapi.client.drive.permissions.create({
         fileId: uploaded.id,
         resource: { role: 'reader', type: 'anyone' }
       });
-    } catch (e) { console.warn('[script auto-share]', e); }
+    } catch (e) { console.warn('[script pending auto-share]', e); }
 
-    // 5. Update master_file_id sur l'ad
-    await sb.from('ads').update({ master_file_id: uploaded.id }).eq('id', scriptId);
+    // 5. Marque l'ad comme "pending validation" (master_file_id reste null tant que pas validé)
+    await sb.from('ads').update({
+      master_pending_file_id: uploaded.id,
+      master_status: 'pending',
+      master_feedback: null
+    }).eq('id', scriptId);
 
-    // 6. Créer les ad_countries pour permettre la traduction (s'ils n'existent pas déjà)
+    // 6. Notifier les admins du workspace
+    const adminIds = await getWorkspaceAdmins();
+    const uploaderName = currentProfile?.full_name || currentProfile?.email || 'video editor';
+    for (const adminId of adminIds) {
+      await sendNotification({
+        userId: adminId,
+        type: 'trad_pending',
+        title: 'Script à valider',
+        message: `${uploaderName} a uploadé ${scriptName} pour ${product.name || product.id}.`,
+        link: { product_id: product.id, ad_id: scriptId }
+      });
+    }
+
+    await logSync(`${product.id} : ${scriptName} uploadé en attente de validation`, 'info');
+    toast(`${scriptName} uploadé. En attente de validation admin.`, 'success', 5000);
+    render();
+  } catch (e) {
+    console.error('[UPLOAD SCRIPT MASTER]', e);
+    toast('Erreur upload : ' + extractGapiError(e), 'error', 8000);
+  }
+}
+
+// Valide un master script uploadé : déplace de _a_valider/ vers 01_Scripts/, set master_file_id, crée ad_countries
+async function approveScriptMasterFlow(scriptId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
+  if (!scriptAd) { toast('Script introuvable', 'error'); return; }
+  if (scriptAd.master_status !== 'pending' || !scriptAd.master_pending_file_id) {
+    toast('Pas de version en attente de validation', 'warn'); return;
+  }
+
+  const ok = await confirmDialog(`Valider ${scriptAd.name} ?`,
+    'La vidéo passera dans le pipeline de traduction. Les ads_translator pourront commencer à la traduire pour chaque pays.');
+  if (!ok) return;
+
+  toast('Validation en cours...', 'info');
+
+  try {
+    await ensureDriveReady();
+
+    const { data: product } = await sb.from('products').select('*').eq('id', scriptAd.product_id).single();
+    if (!product?.drive_folder_id) throw new Error('Pas de dossier Drive sur ce produit');
+    const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
+    const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
+
+    // 1. Déplacer le fichier de 01_Scripts/_a_valider/ vers 01_Scripts/
+    const scriptsFolder = await driveFindFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+    const pendingFolder = scriptsFolder ? await driveFindFolder('_a_valider', scriptsFolder.id) : null;
+    if (!scriptsFolder || !pendingFolder) throw new Error('Structure Drive 01_Scripts/_a_valider/ introuvable');
+
+    const accessToken = driveState.accessToken;
+    const moveRes = await fetch(`https://www.googleapis.com/drive/v3/files/${scriptAd.master_pending_file_id}?addParents=${scriptsFolder.id}&removeParents=${pendingFolder.id}&fields=id,parents&supportsAllDrives=true`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${accessToken}` }
+    });
+    if (!moveRes.ok) {
+      const errText = await moveRes.text();
+      throw new Error(`Drive move: HTTP ${moveRes.status} — ${errText.slice(0, 200)}`);
+    }
+
+    // 2. Update ad : master validé, statut pipeline normal
+    await sb.from('ads').update({
+      master_file_id: scriptAd.master_pending_file_id,
+      master_pending_file_id: null,
+      master_status: 'approved',
+      master_feedback: null
+    }).eq('id', scriptId);
+
+    // 3. Créer les ad_countries (s'ils n'existent pas déjà)
     const { data: existingAc } = await sb.from('ad_countries').select('country_id').eq('ad_id', scriptId);
     const existingSet = new Set((existingAc || []).map(x => x.country_id));
     const acToInsert = enabled
@@ -7123,13 +7256,72 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
       .map(cId => ({ ad_id: scriptId, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId }));
     if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
 
-    await logSync(`${product.id} : ${scriptName} produit et uploadé (${enabled.length} pays à traduire)`, 'success');
-    toast(`${scriptName} uploadé. L'ad est maintenant dans le pipeline de traduction.`, 'success', 5000);
+    // 4. Notifier les video editors
+    const { data: videoEditors } = await sb.from('profiles').select('id').eq('role', 'video_editor');
+    for (const ve of (videoEditors || [])) {
+      await sendNotification({
+        userId: ve.id,
+        type: 'trad_approved',
+        title: 'Script validé ✓',
+        message: `${scriptAd.name} pour ${product.name || product.id} — passé en pipeline traduction.`,
+        link: { product_id: product.id, ad_id: scriptId }
+      });
+    }
+
+    await logSync(`${product.id} : ${scriptAd.name} validé (${enabled.length} pays à traduire)`, 'success');
+    toast(`${scriptAd.name} validé`, 'success');
     render();
   } catch (e) {
-    console.error('[UPLOAD SCRIPT MASTER]', e);
-    toast('Erreur upload : ' + extractGapiError(e), 'error', 8000);
+    console.error('[APPROVE SCRIPT]', e);
+    toast('Erreur validation : ' + extractGapiError(e), 'error', 8000);
   }
+}
+
+// Rejette un master script avec feedback obligatoire — le video editor pourra re-uploader
+async function rejectScriptMasterFlow(scriptId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
+  if (!scriptAd) { toast('Script introuvable', 'error'); return; }
+  if (scriptAd.master_status !== 'pending') {
+    toast('Cette vidéo n\'est pas en attente de validation', 'warn'); return;
+  }
+
+  const r = await modal(`
+    <div class="modal-title" style="color:var(--red)">Rejeter ${escapeHtml(scriptAd.name)}</div>
+    <div class="text-sm text-dim mb-md">Feedback pour le video editor (obligatoire) :</div>
+    <div class="input-group">
+      <textarea class="input" data-field="feedback" style="min-height:140px" autofocus placeholder="Ex: Le hook est trop long, refais avec une accroche dans les 3 premières secondes. Le son est mal mixé sur la 2ème scène."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Rejeter avec ce feedback</button>
+    </div>
+  `);
+  if (!r) return;
+  const feedback = (r.feedback || '').trim();
+  if (!feedback) { toast('Feedback obligatoire', 'error'); return; }
+
+  // On garde master_pending_file_id pour que le video editor puisse revoir ce qu'il a uploadé
+  await sb.from('ads').update({
+    master_status: 'rejected',
+    master_feedback: feedback
+  }).eq('id', scriptId);
+
+  // Notifier les video editors
+  const { data: videoEditors } = await sb.from('profiles').select('id').eq('role', 'video_editor');
+  for (const ve of (videoEditors || [])) {
+    await sendNotification({
+      userId: ve.id,
+      type: 'trad_rejected',
+      title: 'Script rejeté',
+      message: `${scriptAd.name} — Feedback : ${feedback.slice(0, 120)}${feedback.length > 120 ? '...' : ''}`,
+      link: { product_id: scriptAd.product_id, ad_id: scriptId }
+    });
+  }
+
+  toast(`${scriptAd.name} rejeté — l'editor peut re-uploader`, 'success');
+  render();
 }
 
 /* ============================================================
