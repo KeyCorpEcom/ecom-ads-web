@@ -390,6 +390,23 @@ a{color:var(--gold);text-decoration:none}
 .tool-detail-action{background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:5px 10px;border-radius:5px;cursor:pointer;font-size:11px;transition:all 0.15s;font-weight:600}
 .tool-detail-action:hover{background:var(--bg-card-hover, var(--bg-card));color:var(--gold);border-color:var(--gold)}
 
+/* ============ SECTIONS LIBRARY ============ */
+.section-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+.section-card{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;cursor:pointer;transition:all 0.18s;display:flex;flex-direction:column;position:relative}
+.section-card:hover{border-color:var(--gold);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+.section-thumb{aspect-ratio:16/10;background:var(--bg-input);background-size:cover;background-position:center;border-bottom:1px solid var(--border-soft)}
+.section-thumb-placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-mute);font-size:11px;letter-spacing:1px;text-transform:uppercase}
+.section-card-body{padding:14px 16px;flex:1;display:flex;flex-direction:column;gap:6px}
+.section-card-name{font-size:14px;font-weight:700;color:var(--text);letter-spacing:-0.01em;line-height:1.3}
+.section-card-cat{display:inline-block;align-self:flex-start;font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(96,165,250,0.15);color:var(--blue);font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
+.section-card-actions{position:absolute;top:8px;right:8px;display:flex;gap:4px;opacity:0;transition:opacity 0.15s}
+.section-card:hover .section-card-actions{opacity:1}
+.section-cat-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:18px}
+.section-cat-chip{padding:6px 12px;border-radius:8px;background:var(--bg-input);border:1px solid var(--border);color:var(--text-dim);cursor:pointer;font-size:12px;font-weight:500;transition:all 0.15s;user-select:none}
+.section-cat-chip:hover{border-color:var(--gold);color:var(--text)}
+.section-cat-chip.active{background:rgba(200,165,90,0.15);border-color:var(--gold);color:var(--gold);font-weight:600}
+.section-code-block{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.5;color:var(--text);max-height:400px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+
 /* ============ SCRIPTS PAGE ============ */
 .script-ad-row{padding:14px 16px;background:var(--bg-input);border-radius:10px;border-left:3px solid var(--border);margin-bottom:10px;transition:all 0.15s}
 .script-ad-row.done{opacity:0.55;border-left-color:var(--green)}
@@ -911,9 +928,9 @@ async function initApp(user) {
   // Affiche le switcher de workspace
   renderWorkspaceSwitcher();
 
-  // Page builder : cache tout sauf Pages + Formations + Tools (recherche cachée aussi)
+  // Page builder : cache tout sauf Pages + Sections + Formations + Tools (recherche cachée aussi)
   if (profile.role === 'page_builder') {
-    const allowedRoutes = new Set(['pages', 'formations', 'tools']);
+    const allowedRoutes = new Set(['pages', 'sections', 'formations', 'tools']);
     document.querySelectorAll('.nav-item').forEach(el => {
       // Cache la recherche (donne accès à tout le reste de l'app)
       if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
@@ -997,8 +1014,8 @@ async function render(e) {
   if (!(e instanceof Event)) bustFetchAllCache();
   const { page, params } = getRoute();
 
-  // Si page_builder : restriction à Pages + Formations + Tools
-  if (currentProfile?.role === 'page_builder' && !['pages', 'formations', 'formation', 'tools'].includes(page)) {
+  // Si page_builder : restriction à Pages + Sections + Formations + Tools
+  if (currentProfile?.role === 'page_builder' && !['pages', 'sections', 'formations', 'formation', 'tools'].includes(page)) {
     navigate('pages');
     return;
   }
@@ -1045,6 +1062,7 @@ async function render(e) {
     else if (page === 'formation') await renderFormationDetail(el, params[0]);
     else if (page === 'formations-suivi') await renderFormationsSuivi(el);
     else if (page === 'tools') await renderTools(el);
+    else if (page === 'sections') await renderSections(el);
     else if (page === 'scripts') {
       if (params[0]) await renderScriptDetail(el, params[0]);
       else await renderScriptsList(el);
@@ -4000,10 +4018,13 @@ async function renderPagesHome(el) {
         <div class="page-title"> Product Page</div>
         <div class="page-subtitle">${globalStats.pending} à faire · ${globalStats.built} en review · ${globalStats.approved} validées · ${globalStats.rejected} rejetées</div>
       </div>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
-        <input type="checkbox" id="toggle-hide-validated" ${hideValidated ? 'checked' : ''} style="accent-color:var(--gold)">
-        <span>Masquer les produits 100% validés</span>
-      </label>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
+          <input type="checkbox" id="toggle-hide-validated" ${hideValidated ? 'checked' : ''} style="accent-color:var(--gold)">
+          <span>Masquer les produits 100% validés</span>
+        </label>
+        <a class="btn btn-secondary btn-sm" href="#sections" title="Bibliothèque de sections réutilisables">Sections ↗</a>
+      </div>
     </div>
 
     ${visibleRows.length === 0 ? `
@@ -7275,6 +7296,365 @@ async function deleteToolFlow(t) {
   if (!ok) return;
   await sb.from('tools').delete().eq('id', t.id);
   toast('Tool supprimé', 'success');
+  render();
+}
+
+/* ============================================================
+   SECTIONS LIBRARY — bibliothèque de sections HTML/Liquid
+   réutilisables par le page builder
+   ============================================================ */
+const SECTION_CATEGORIES = [
+  'Hero',
+  'Social proof',
+  'Features',
+  'Comparison',
+  'FAQ',
+  'CTA',
+  'Bonuses',
+  'Trust badges',
+  'Footer',
+  'Other'
+];
+
+function canManageSections() {
+  return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'page_builder');
+}
+
+// Convertit un thumbnail_path en URL publique Supabase Storage
+function sectionThumbUrl(path) {
+  if (!path) return null;
+  if (path.startsWith('http')) return path;
+  return `${SUPABASE_URL}/storage/v1/object/public/section-thumbnails/${path}`;
+}
+
+async function renderSections(el) {
+  const { data: sections } = await sb.from('sections')
+    .select('*')
+    .eq('workspace_id', currentWorkspaceId)
+    .order('position')
+    .order('created_at', { ascending: false });
+
+  // Filtre par catégorie (state local en localStorage)
+  const activeCat = localStorage.getItem('sections_filter_cat') || 'all';
+  const allSections = sections || [];
+  const counts = { all: allSections.length };
+  SECTION_CATEGORIES.forEach(c => { counts[c] = 0; });
+  allSections.forEach(s => { counts[s.category] = (counts[s.category] || 0) + 1; });
+
+  const visible = activeCat === 'all' ? allSections : allSections.filter(s => s.category === activeCat);
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <a class="btn btn-ghost btn-sm" href="#pages" style="margin-bottom:8px">← Product Page</a>
+        <div class="page-title">Bibliothèque de sections</div>
+        <div class="page-subtitle">${allSections.length} section${allSections.length > 1 ? 's' : ''} disponible${allSections.length > 1 ? 's' : ''}${activeCat !== 'all' ? ` · ${visible.length} dans "${escapeHtml(activeCat)}"` : ''}</div>
+      </div>
+      ${canManageSections() ? '<button class="btn" id="btn-new-section">+ Nouvelle section</button>' : ''}
+    </div>
+
+    <div class="section-cat-tabs">
+      <span class="section-cat-chip ${activeCat === 'all' ? 'active' : ''}" data-cat="all">Toutes (${counts.all})</span>
+      ${SECTION_CATEGORIES.map(c => counts[c] > 0 || activeCat === c ? `
+        <span class="section-cat-chip ${activeCat === c ? 'active' : ''}" data-cat="${escapeHtml(c)}">${escapeHtml(c)} (${counts[c] || 0})</span>
+      ` : '').join('')}
+    </div>
+
+    ${visible.length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-icon"></div>
+        <div class="empty-title">${activeCat === 'all' ? 'Aucune section dans la bibliothèque' : `Aucune section "${escapeHtml(activeCat)}"`}</div>
+        <div class="empty-text">${canManageSections() ? 'Clique "+ Nouvelle section" pour en ajouter une.' : 'L\'admin ou le page builder peut en ajouter.'}</div>
+      </div>
+    ` : `
+      <div class="section-grid">
+        ${visible.map(s => {
+          const thumb = sectionThumbUrl(s.thumbnail_path);
+          return `
+            <div class="section-card" data-open-section="${s.id}">
+              <div class="section-thumb" ${thumb ? `style="background-image:url('${escapeHtml(thumb)}')"` : ''}>
+                ${!thumb ? '<div class="section-thumb-placeholder">Pas d\'aperçu</div>' : ''}
+              </div>
+              <div class="section-card-body">
+                <span class="section-card-cat">${escapeHtml(s.category)}</span>
+                <div class="section-card-name">${escapeHtml(s.name)}</div>
+              </div>
+              ${canManageSections() ? `
+                <div class="section-card-actions" onclick="event.stopPropagation()">
+                  <button class="btn-icon-action" data-edit-section="${s.id}" title="Éditer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                  </button>
+                  <button class="btn-icon-action danger" data-del-section="${s.id}" title="Supprimer">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                  </button>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  // Filtres catégorie
+  el.querySelectorAll('[data-cat]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      localStorage.setItem('sections_filter_cat', chip.dataset.cat);
+      render();
+    });
+  });
+
+  // Click carte → modal détail
+  el.querySelectorAll('[data-open-section]').forEach(c => {
+    c.addEventListener('click', () => openSectionDetail(c.dataset.openSection));
+  });
+
+  // Boutons gestion (admin + page_builder)
+  if (canManageSections()) {
+    document.getElementById('btn-new-section')?.addEventListener('click', () => editSectionFlow(null));
+    el.querySelectorAll('[data-edit-section]').forEach(b => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const { data: full } = await sb.from('sections').select('*').eq('id', b.dataset.editSection).single();
+      if (full) editSectionFlow(full);
+    }));
+    el.querySelectorAll('[data-del-section]').forEach(b => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const { data: full } = await sb.from('sections').select('*').eq('id', b.dataset.delSection).single();
+      if (full) deleteSectionFlow(full);
+    }));
+  }
+}
+
+async function openSectionDetail(sectionId) {
+  const { data: s } = await sb.from('sections').select('*').eq('id', sectionId).maybeSingle();
+  if (!s) { toast('Section introuvable', 'error'); return; }
+  const thumb = sectionThumbUrl(s.thumbnail_path);
+
+  await new Promise((resolve) => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `
+      <div class="modal" style="max-width:780px">
+        <div style="display:flex;align-items:flex-start;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+          <div style="flex:1;min-width:200px">
+            <div class="modal-title" style="margin-bottom:4px">${escapeHtml(s.name)}</div>
+            <span class="section-card-cat">${escapeHtml(s.category)}</span>
+          </div>
+          ${canManageSections() ? `
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-ghost btn-sm" data-action="edit">Éditer</button>
+              <button class="btn btn-ghost btn-sm" data-action="delete" style="color:var(--red)">Supprimer</button>
+            </div>
+          ` : ''}
+        </div>
+
+        ${thumb ? `<div style="margin-bottom:14px;border-radius:8px;overflow:hidden;border:1px solid var(--border-soft)"><img src="${escapeHtml(thumb)}" alt="" style="width:100%;display:block"></div>` : ''}
+
+        ${s.notes ? `
+          <div style="padding:12px 14px;background:var(--bg-input);border-radius:8px;border-left:3px solid var(--gold);margin-bottom:14px">
+            <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">Notes / instructions</div>
+            <div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${escapeHtml(s.notes)}</div>
+          </div>
+        ` : ''}
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div style="font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Code à copier</div>
+          <button class="btn btn-sm" data-action="copy">Copier le code</button>
+        </div>
+        <pre class="section-code-block">${escapeHtml(s.code || '')}</pre>
+
+        <div class="modal-actions">
+          <button class="btn" data-action="close">Fermer</button>
+        </div>
+      </div>
+    `;
+    container.appendChild(bd);
+    const close = () => { if (bd.parentNode) bd.remove(); resolve(null); };
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(); });
+
+    bd.querySelector('[data-action="close"]').addEventListener('click', close);
+
+    bd.querySelector('[data-action="copy"]').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(s.code || '');
+        toast('Code copié', 'success');
+      } catch (e) {
+        toast('Erreur copie : ' + e.message, 'error');
+      }
+    });
+
+    bd.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
+      close();
+      editSectionFlow(s);
+    });
+
+    bd.querySelector('[data-action="delete"]')?.addEventListener('click', async () => {
+      close();
+      await deleteSectionFlow(s);
+    });
+  });
+}
+
+async function editSectionFlow(existing) {
+  if (!canManageSections()) { toast('Permission refusée', 'error'); return; }
+  const s = existing || { name: '', category: 'Hero', thumbnail_path: '', code: '', notes: '', position: 0 };
+
+  const result = await new Promise((resolve) => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    const currentThumb = sectionThumbUrl(s.thumbnail_path);
+    bd.innerHTML = `
+      <div class="modal" style="max-width:680px">
+        <div class="modal-title">${existing ? 'Éditer la section' : 'Nouvelle section'}</div>
+
+        <div class="grid-2">
+          <div class="input-group">
+            <label class="input-label">Nom *</label>
+            <input class="input" data-field="name" value="${escapeHtml(s.name)}" placeholder="Ex: Hero with countdown" autofocus>
+          </div>
+          <div class="input-group">
+            <label class="input-label">Catégorie *</label>
+            <select class="select" data-field="category">
+              ${SECTION_CATEGORIES.map(c => `<option value="${escapeHtml(c)}" ${c === s.category ? 'selected' : ''}>${escapeHtml(c)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label">Image preview (optionnel)</label>
+          ${currentThumb ? `
+            <div style="margin-bottom:8px;padding:8px;background:var(--bg-input);border-radius:6px;display:flex;gap:10px;align-items:center">
+              <img src="${escapeHtml(currentThumb)}" style="height:50px;border-radius:4px">
+              <div style="flex:1;font-size:11px;color:var(--text-dim)">Image actuelle</div>
+              <button type="button" class="btn btn-ghost btn-sm" data-action="remove-thumb" style="color:var(--red)">Supprimer image</button>
+            </div>
+          ` : ''}
+          <input type="file" id="section-thumb-input" accept="image/png,image/jpeg,image/webp,image/gif">
+          <div class="input-hint">PNG / JPEG / WebP / GIF — uploadé sur Supabase Storage. Max ~2 MB recommandé.</div>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label">Code (HTML / Liquid) *</label>
+          <textarea class="input" data-field="code" style="min-height:200px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.5" placeholder="<section>...</section>">${escapeHtml(s.code || '')}</textarea>
+          <div class="input-hint">Le code que ton page_builder va copier-coller dans Shopify.</div>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label">Notes / instructions (optionnel)</label>
+          <textarea class="input" data-field="notes" style="min-height:80px" placeholder="Ex: change la variable {{ countdown_date }} avant publication">${escapeHtml(s.notes || '')}</textarea>
+        </div>
+
+        <div class="input-group">
+          <label class="input-label">Position</label>
+          <input class="input" type="number" data-field="position" value="${s.position || 0}">
+          <div class="input-hint">Plus petit = en haut.</div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" data-action="cancel">Annuler</button>
+          <button class="btn" data-action="save">${existing ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+      </div>
+    `;
+    container.appendChild(bd);
+    const close = (r) => { if (bd.parentNode) bd.remove(); resolve(r); };
+
+    let removeThumbRequested = false;
+    bd.querySelector('[data-action="remove-thumb"]')?.addEventListener('click', () => {
+      if (!confirm('Retirer l\'image actuelle ? Tu pourras en uploader une nouvelle ou laisser vide.')) return;
+      removeThumbRequested = true;
+      const block = bd.querySelector('[data-action="remove-thumb"]')?.closest('div[style*="background"]');
+      if (block) block.remove();
+      toast('Image marquée à supprimer', 'info', 3000);
+    });
+
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
+    bd.querySelector('[data-action="save"]').addEventListener('click', () => {
+      const name = (bd.querySelector('[data-field="name"]')?.value || '').trim();
+      if (!name) { toast('Nom requis', 'error'); return; }
+      const code = (bd.querySelector('[data-field="code"]')?.value || '').trim();
+      if (!code) { toast('Code requis', 'error'); return; }
+      const file = bd.querySelector('#section-thumb-input')?.files?.[0] || null;
+      close({
+        name,
+        category: bd.querySelector('[data-field="category"]')?.value || 'Other',
+        code,
+        notes: (bd.querySelector('[data-field="notes"]')?.value || '').trim() || null,
+        position: parseInt(bd.querySelector('[data-field="position"]')?.value) || 0,
+        file,
+        removeThumbRequested
+      });
+    });
+  });
+
+  if (!result) return;
+
+  // Étape 1 : insert/update sans la thumbnail
+  const payload = {
+    workspace_id: currentWorkspaceId,
+    name: result.name,
+    category: result.category,
+    code: result.code,
+    notes: result.notes,
+    position: result.position,
+    updated_at: new Date().toISOString()
+  };
+
+  let sectionId = existing?.id;
+  if (!existing) {
+    payload.created_by = currentUser.id;
+    const { data: inserted, error } = await sb.from('sections').insert(payload).select().single();
+    if (error) { toast('Erreur création : ' + error.message, 'error'); return; }
+    sectionId = inserted.id;
+  } else {
+    const { error } = await sb.from('sections').update(payload).eq('id', existing.id);
+    if (error) { toast('Erreur sauvegarde : ' + error.message, 'error'); return; }
+  }
+
+  // Étape 2 : gestion thumbnail
+  // Si on retire l'ancienne (sans nouveau fichier) → trash storage + clear path
+  if (result.removeThumbRequested && !result.file && existing?.thumbnail_path) {
+    try { await sb.storage.from('section-thumbnails').remove([existing.thumbnail_path]); } catch (e) { console.warn(e); }
+    await sb.from('sections').update({ thumbnail_path: null }).eq('id', sectionId);
+  }
+
+  // Si nouveau fichier → upload + delete ancien si existant
+  if (result.file) {
+    if (existing?.thumbnail_path) {
+      try { await sb.storage.from('section-thumbnails').remove([existing.thumbnail_path]); } catch (e) { console.warn(e); }
+    }
+    const ext = (result.file.name.match(/\.([a-z0-9]+)$/i) || ['', 'png'])[1].toLowerCase();
+    const path = `${sectionId}-${Date.now()}.${ext}`;
+    const { error: errUp } = await sb.storage.from('section-thumbnails').upload(path, result.file, { upsert: true, contentType: result.file.type });
+    if (errUp) { toast('Image upload échoué : ' + errUp.message, 'error', 7000); }
+    else {
+      await sb.from('sections').update({ thumbnail_path: path }).eq('id', sectionId);
+    }
+  }
+
+  toast(existing ? 'Section mise à jour' : 'Section créée', 'success');
+  render();
+}
+
+async function deleteSectionFlow(s) {
+  if (!canManageSections()) { toast('Permission refusée', 'error'); return; }
+  const ok = await modal(`
+    <div class="modal-title" style="color:var(--red)">Supprimer cette section ?</div>
+    <div class="text-sm text-dim mb-md">"${escapeHtml(s.name)}" — supprimée définitivement (image preview incluse).</div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Supprimer</button>
+    </div>
+  `);
+  if (!ok) return;
+  if (s.thumbnail_path) {
+    try { await sb.storage.from('section-thumbnails').remove([s.thumbnail_path]); } catch (e) { console.warn(e); }
+  }
+  await sb.from('sections').delete().eq('id', s.id);
+  toast('Section supprimée', 'success');
   render();
 }
 
