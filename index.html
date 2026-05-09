@@ -537,6 +537,59 @@ let userWorkspaces = []; // [{ workspace_id, role, workspaces: { id, name, slug 
 /* ============================================================
    UTILITIES
    ============================================================ */
+// === Helpers Pricing & ROAS BE ===
+// Convertit un prix d'une devise vers EUR, en utilisant les exchange_rates des countries.
+// rates: Map { currency_code: rate } où rate = combien de cette devise pour 1 EUR (1 EUR = X CZK)
+function priceToEur(amount, fromCurrency, ratesByCurrency) {
+  if (!amount || amount <= 0) return 0;
+  if (fromCurrency === 'EUR') return amount;
+  const rate = ratesByCurrency[fromCurrency];
+  if (!rate || rate <= 0) return 0;
+  return amount / rate; // amount est en X devise, on divise par (X devise / 1 EUR) → EUR
+}
+
+// Convertit un prix EUR vers une devise locale (1 EUR = rate * unités locales)
+function eurToLocal(amountEur, country) {
+  const rate = country.exchange_rate || 1;
+  return amountEur * rate;
+}
+
+// "Psych pricing" : arrondit DOWN au plus proche endpoint (k * increment - subtract).
+// Ex EUR (50, 0.10) : 620 → 599.90 ; 689 → 649.90
+// Ex CZK (50, 1)    : 1519 → 1499 ; 1675 → 1649
+// Ex HUF (1000, 10) : 19500 → 18990
+function psychPrice(amount, increment, subtract) {
+  if (!amount || amount <= 0) return null;
+  const k = Math.floor((amount + subtract) / increment);
+  if (k < 1) return null;
+  return k * increment - subtract;
+}
+
+// ROAS BE par pays : combien de € de revenu il faut générer pour chaque € de pub dépensé
+// pour atteindre le break-even (zéro profit, zéro perte).
+// Inputs : prix local (déjà psych), country (pour rate + VAT), cogs en EUR, frais PSP %, autres frais EUR
+function computeRoasBE({ localPrice, country, cogsEur, pspPct, otherFeesEur }) {
+  if (!localPrice || localPrice <= 0) return null;
+  const rate = country.exchange_rate || 1;
+  const vat = (country.vat_pct || 0) / 100;
+  const psp = (pspPct || 0) / 100;
+  const localPriceEur = localPrice / rate;
+  // revenu net en EUR = prix HT - frais PSP - autres frais
+  const revenueNetEur = localPriceEur / (1 + vat) - psp * localPriceEur - (otherFeesEur || 0);
+  const contribution = revenueNetEur - (cogsEur || 0);
+  if (contribution <= 0) return Infinity; // perte sur chaque vente, ROAS BE infini = jamais rentable
+  return localPriceEur / contribution;
+}
+
+// Format un montant dans une devise donnée (gère décimales selon devise)
+function fmtCurrency(amount, country) {
+  if (amount == null) return '—';
+  const sym = country.currency_symbol || country.currency_code || '';
+  const decimals = (country.psych_subtract && country.psych_subtract < 1) ? 2 : 0;
+  const formatted = Number(amount).toLocaleString('fr-FR', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return `${formatted} ${sym}`;
+}
+
 // === Lazy-loaders pour les libs lourdes ===
 let _chartJsPromise = null;
 function loadChartJs() {
@@ -1020,9 +1073,17 @@ async function fetchAll(opts = {}) {
     sb.from('ads').select('*').eq('workspace_id', wsId).order('position'),
     sb.from('ad_countries').select('*').eq('workspace_id', wsId)
   ]);
+  // Pour les non-admins : cacher les produits draft (pas encore validés via le workflow pricing).
+  // Admin voit tout (avec filtre UI séparé pour basculer).
+  const productsAll = productsR.data || [];
+  const products = isAdmin() ? productsAll : productsAll.filter(p => p.status === 'approved');
+  const approvedIds = new Set(products.map(p => p.id));
   // Filtre : on cache les ads source='script' qui n'ont pas encore de master uploadé
+  // ET les ads de produits non-approuvés (pour les non-admins)
   const adsAll = adsR.data || [];
-  const ads = adsAll.filter(a => a.source !== 'script' || a.master_file_id);
+  const ads = adsAll
+    .filter(a => a.source !== 'script' || a.master_file_id)
+    .filter(a => isAdmin() || approvedIds.has(a.product_id));
   const adCountries = adCountriesR.data || [];
 
   // Index pré-calculé pour O(1) lookup au lieu de .find() partout (gain énorme sur Analytics)
@@ -1219,9 +1280,12 @@ async function renderAds(el) {
 
           return `
             <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
-                ${priorityBadge(priority)}
+                <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  ${p.status === 'draft' ? '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>' : ''}
+                  ${priorityBadge(priority)}
+                </div>
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
@@ -1341,9 +1405,12 @@ async function renderProduits(el) {
           const { p, pAds, activeCs, total, trad, meta, pagesApproved, pagesPct, tradPct, metaPct, masterDone, masterPct, priority, priorityMeta, readyToLaunch } = s;
           return `
             <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
-                ${priorityBadge(priority)}
+                <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  ${p.status === 'draft' ? '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>' : ''}
+                  ${priorityBadge(priority)}
+                </div>
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
@@ -1459,6 +1526,51 @@ async function newProductFlow() {
       <input class="input" data-field="concurrentPageUrl" placeholder="https://concurrent.com/products/...">
       <div class="input-hint">La landing à copier. Le page builder s'en servira pour construire la page dans Shopify.</div>
     </div>
+
+    <div style="padding:14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft);margin-bottom:14px">
+      <div style="font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px"> Pricing (optionnel à la création — tu pourras le faire plus tard)</div>
+      <div class="text-sm text-dim mb-md" style="line-height:1.5">Renseigne le prix de vente + COGS pour voir le ROAS BE par pays et valider le produit.<br>Tu peux laisser vide maintenant et compléter plus tard via "Éditer produit".</div>
+
+      <div class="input-group">
+        <label class="input-label">Prix de vente base</label>
+        <div style="display:flex;gap:8px">
+          <input class="input" type="number" step="0.01" data-field="basePrice" placeholder="49.90" style="flex:1">
+          <select class="select" data-field="basePriceCurrency" style="width:90px">
+            <option value="EUR" selected>EUR</option>
+            <option value="USD">USD</option>
+            <option value="GBP">GBP</option>
+          </select>
+        </div>
+        <div class="input-hint">Le prix sera converti et arrondi (psych) pour chaque pays activé.</div>
+      </div>
+
+      <div class="input-group">
+        <label class="input-label">COGS (coût d'achat unité)</label>
+        <div style="display:flex;gap:8px">
+          <input class="input" type="number" step="0.01" data-field="cogs" placeholder="12.50" style="flex:1">
+          <select class="select" data-field="cogsCurrency" style="width:90px">
+            <option value="USD" selected>USD</option>
+            <option value="EUR">EUR</option>
+            <option value="CNY">CNY</option>
+          </select>
+        </div>
+        <div class="input-hint">Le prix que ton agent te donne. Sera converti en EUR pour le calcul ROAS BE.</div>
+      </div>
+
+      <div class="grid-2">
+        <div class="input-group">
+          <label class="input-label">Frais PSP (%)</label>
+          <input class="input" type="number" step="0.1" data-field="pspFeesPct" placeholder="3" value="3">
+          <div class="input-hint">Stripe, PayPal, etc.</div>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Autres frais (EUR)</label>
+          <input class="input" type="number" step="0.01" data-field="otherFeesEur" placeholder="0" value="0">
+          <div class="input-hint">Shipping fees, abos outils...</div>
+        </div>
+      </div>
+    </div>
+
     <div class="input-group">
       <label class="input-label"> Upload videos concurrent (optionnel)</label>
       <div id="new-product-dropzone" style="padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s;${!driveState.connected ? 'opacity:0.5;cursor:not-allowed' : ''}">
@@ -1508,21 +1620,32 @@ async function newProductFlow() {
   let driveFolderId = (r.driveFolderId || '').trim() || null;
   const autoCreate = r.autoCreateDrive === 'on' || r.autoCreateDrive === true || document.querySelector('[data-field="autoCreateDrive"]')?.checked;
 
-  // 1. Créer le produit en DB
+  // 1. Créer le produit en DB (status = 'draft' tant que prix pas validé par admin)
   const priority = (r.priority || 'normal');
   const concurrentPageUrl = (r.concurrentPageUrl || '').trim() ? normalizeUrl(r.concurrentPageUrl.trim()) : null;
+  const basePrice = parseFloat(r.basePrice) || null;
+  const cogs = parseFloat(r.cogs) || null;
+  const pspFeesPct = parseFloat(r.pspFeesPct);
+  const otherFeesEur = parseFloat(r.otherFeesEur);
   const { error: errP } = await sb.from('products').insert({
     id, name: (r.name || '').trim() || id,
     enabled_countries: selectedCountries,
     drive_folder_id: driveFolderId,
     priority,
     concurrent_page_url: concurrentPageUrl,
+    base_price: basePrice,
+    base_price_currency: r.basePriceCurrency || 'EUR',
+    cogs,
+    cogs_currency: r.cogsCurrency || 'USD',
+    psp_fees_pct: isNaN(pspFeesPct) ? 3 : pspFeesPct,
+    other_fees_eur: isNaN(otherFeesEur) ? 0 : otherFeesEur,
+    status: 'draft',
     created_by: currentUser.id,
     workspace_id: currentWorkspaceId
   });
   if (errP) { toast('Erreur : ' + errP.message, 'error'); return; }
 
-  toast(`Produit ${id} créé`, 'success');
+  toast(`Produit ${id} créé en draft — édite-le pour valider le pricing`, 'success', 5000);
 
   // 2. Créer la structure Drive si demandé
   if (autoCreate && driveState.connected && !driveFolderId) {
@@ -2505,6 +2628,7 @@ async function editProductFlow(productId) {
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
   if (!product) return;
   const enabled = (product.enabled_countries && product.enabled_countries.length) ? [...product.enabled_countries] : allCountries.map(c => c.id);
+  const status = product.status || 'approved';
   const countriesHtml = allCountries.map(c => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
       <input type="checkbox" data-edit-country-check="${c.id}" ${enabled.includes(c.id) ? 'checked' : ''} style="margin:0;accent-color:${c.color}">
@@ -2512,74 +2636,276 @@ async function editProductFlow(productId) {
     </label>
   `).join('');
 
-  let deleteRequested = false;
-  const r = await modalWithOpen(`
-    <div class="modal-title">Éditer ${escapeHtml(product.id)}</div>
-    <div class="input-group">
-      <label class="input-label">Nom / description</label>
-      <input class="input" data-field="name" value="${escapeHtml(product.name || '')}">
-    </div>
-    <div class="input-group">
-      <label class="input-label">ID du dossier Drive</label>
-      <input class="input mono" data-field="driveFolderId" value="${escapeHtml(product.drive_folder_id || '')}" placeholder="1ABCxyz...">
-      <div class="input-hint">Récupère l'ID depuis l'URL Drive: drive.google.com/drive/folders/<strong>ID_ICI</strong></div>
-    </div>
-    <div class="input-group">
-      <label class="input-label"> Marchés actifs pour ce produit</label>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border)">
-        ${countriesHtml}
+  // Status badge à afficher dans le titre
+  const statusBadge = status === 'approved'
+    ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(52,211,153,0.15);color:var(--green);margin-left:8px;vertical-align:middle">✓ APPROUVÉ</span>`
+    : `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange);margin-left:8px;vertical-align:middle">DRAFT</span>`;
+
+  // Custom Promise modal (pour gérer Save / Approve / Reject avec breakdown live)
+  const result = await new Promise((resolve) => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `
+      <div class="modal" style="max-width:780px">
+        <div class="modal-title">Éditer ${escapeHtml(product.id)} ${statusBadge}</div>
+
+        <div class="input-group">
+          <label class="input-label">Nom / description</label>
+          <input class="input" data-field="name" value="${escapeHtml(product.name || '')}">
+        </div>
+        <div class="input-group">
+          <label class="input-label">ID du dossier Drive</label>
+          <input class="input mono" data-field="driveFolderId" value="${escapeHtml(product.drive_folder_id || '')}" placeholder="1ABCxyz...">
+        </div>
+        <div class="input-group">
+          <label class="input-label">Marchés actifs</label>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border)">
+            ${countriesHtml}
+          </div>
+        </div>
+        <div class="input-group">
+          <label class="input-label">Priorité</label>
+          <select class="select" data-field="priority">
+            <option value="urgent" ${(product.priority === 'urgent' || product.priority === 'high') ? 'selected' : ''}>URGENT</option>
+            <option value="normal" ${(!product.priority || product.priority === 'normal') ? 'selected' : ''}>NORMAL</option>
+            <option value="low" ${product.priority === 'low' ? 'selected' : ''}>FAIBLE</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label class="input-label">URL Concurrent (référence page builder)</label>
+          <input class="input" data-field="concurrentPageUrl" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://concurrent.com/products/...">
+        </div>
+
+        <div style="padding:16px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft);margin-bottom:14px">
+          <div style="font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px"> Pricing</div>
+
+          <div class="grid-2">
+            <div class="input-group" style="margin-bottom:8px">
+              <label class="input-label">Prix de vente base</label>
+              <div style="display:flex;gap:8px">
+                <input class="input" type="number" step="0.01" data-field="basePrice" value="${product.base_price || ''}" placeholder="49.90" style="flex:1">
+                <select class="select" data-field="basePriceCurrency" style="width:90px">
+                  <option value="EUR" ${(product.base_price_currency || 'EUR') === 'EUR' ? 'selected' : ''}>EUR</option>
+                  <option value="USD" ${product.base_price_currency === 'USD' ? 'selected' : ''}>USD</option>
+                  <option value="GBP" ${product.base_price_currency === 'GBP' ? 'selected' : ''}>GBP</option>
+                </select>
+              </div>
+            </div>
+            <div class="input-group" style="margin-bottom:8px">
+              <label class="input-label">COGS (coût d'achat)</label>
+              <div style="display:flex;gap:8px">
+                <input class="input" type="number" step="0.01" data-field="cogs" value="${product.cogs || ''}" placeholder="12.50" style="flex:1">
+                <select class="select" data-field="cogsCurrency" style="width:90px">
+                  <option value="USD" ${(product.cogs_currency || 'USD') === 'USD' ? 'selected' : ''}>USD</option>
+                  <option value="EUR" ${product.cogs_currency === 'EUR' ? 'selected' : ''}>EUR</option>
+                  <option value="CNY" ${product.cogs_currency === 'CNY' ? 'selected' : ''}>CNY</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="input-group" style="margin-bottom:8px">
+              <label class="input-label">Frais PSP (%)</label>
+              <input class="input" type="number" step="0.1" data-field="pspFeesPct" value="${product.psp_fees_pct ?? 3}" placeholder="3">
+            </div>
+            <div class="input-group" style="margin-bottom:8px">
+              <label class="input-label">Autres frais (EUR)</label>
+              <input class="input" type="number" step="0.01" data-field="otherFeesEur" value="${product.other_fees_eur ?? 0}" placeholder="0">
+            </div>
+          </div>
+
+          <div id="pricing-breakdown" style="margin-top:10px"></div>
+        </div>
+
+        <div class="modal-actions" style="flex-wrap:wrap;gap:8px">
+          ${isAdmin() ? '<button class="btn btn-danger btn-sm" data-action="reject">Supprimer produit</button>' : ''}
+          <div style="flex:1"></div>
+          <button class="btn btn-secondary" data-action="cancel">Annuler</button>
+          <button class="btn btn-secondary" data-action="save">Enregistrer (sans valider)</button>
+          ${status !== 'approved' && isAdmin() ? '<button class="btn" style="background:var(--green);color:#000" data-action="approve"> Valider et lancer</button>' : ''}
+          ${status === 'approved' && isAdmin() ? '<button class="btn btn-secondary" data-action="unapprove">Repasser en draft</button>' : ''}
+        </div>
       </div>
-      <div class="input-hint">Décoche les pays où tu ne lances pas ce produit.</div>
-    </div>
-    <div class="input-group">
-      <label class="input-label"> Priorité</label>
-      <select class="select" data-field="priority">
-        <option value="urgent" ${(product.priority === 'urgent' || product.priority === 'high') ? 'selected' : ''}>URGENT</option>
-        <option value="normal" ${(!product.priority || product.priority === 'normal') ? 'selected' : ''}>NORMAL</option>
-        <option value="low" ${product.priority === 'low' ? 'selected' : ''}>FAIBLE</option>
-      </select>
-    </div>
-    <div class="input-group">
-      <label class="input-label"> URL Concurrent (référence pour page builder)</label>
-      <input class="input" data-field="concurrentPageUrl" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://concurrent.com/products/...">
-    </div>
-    <div class="modal-actions">
-      ${isAdmin() ? '<button class="btn btn-danger btn-sm" id="btn-delete-product">Supprimer produit</button>' : ''}
-      <div style="flex:1"></div>
-      <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>Enregistrer</button>
-    </div>
-  `, (bd) => {
+    `;
+    container.appendChild(bd);
+    const close = (r) => { if (bd.parentNode) bd.remove(); resolve(r); };
+
+    // Country toggles
     bd.querySelectorAll('[data-edit-country-check]').forEach(cb => {
       cb.addEventListener('change', () => {
         const cid = cb.dataset.editCountryCheck;
         if (cb.checked) { if (!enabled.includes(cid)) enabled.push(cid); }
         else { const i = enabled.indexOf(cid); if (i >= 0) enabled.splice(i, 1); }
+        renderPricingBreakdown(bd, allCountries, enabled);
       });
     });
-    bd.querySelector('#btn-delete-product')?.addEventListener('click', async () => {
-      bd.remove();
-      deleteRequested = true;
-      await deleteProductWithDriveOption(product.id);
-      navigate('produits');
+
+    // Live update breakdown on input change
+    ['basePrice', 'basePriceCurrency', 'cogs', 'cogsCurrency', 'pspFeesPct', 'otherFeesEur'].forEach(field => {
+      const el = bd.querySelector(`[data-field="${field}"]`);
+      if (el) el.addEventListener('input', () => renderPricingBreakdown(bd, allCountries, enabled));
+      if (el && el.tagName === 'SELECT') el.addEventListener('change', () => renderPricingBreakdown(bd, allCountries, enabled));
+    });
+
+    // Render initial
+    renderPricingBreakdown(bd, allCountries, enabled);
+
+    // Backdrop click → cancel
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+
+    // Action buttons
+    bd.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        if (action === 'cancel') return close(null);
+        // Capture all fields
+        const fields = {};
+        bd.querySelectorAll('[data-field]').forEach(f => { fields[f.dataset.field] = f.value; });
+        close({ action, fields });
+      });
     });
   });
-  if (deleteRequested) return;
-  if (!r) return;
+
+  if (!result) return;
+  const { action, fields } = result;
+
+  // Reject = delete product (avec option Drive)
+  if (action === 'reject') {
+    await deleteProductWithDriveOption(product.id);
+    navigate('produits');
+    return;
+  }
+
   if (enabled.length === 0) { toast('Au moins 1 marché requis', 'error'); return; }
 
-  const priority = (r.priority || 'normal');
-  const concurrentPageUrl = (r.concurrentPageUrl || '').trim() ? normalizeUrl(r.concurrentPageUrl.trim()) : null;
-  const { error } = await sb.from('products').update({
-    name: (r.name || '').trim() || product.id,
-    drive_folder_id: (r.driveFolderId || '').trim() || null,
+  // Build payload commun
+  const priority = (fields.priority || 'normal');
+  const concurrentPageUrl = (fields.concurrentPageUrl || '').trim() ? normalizeUrl(fields.concurrentPageUrl.trim()) : null;
+  const basePrice = parseFloat(fields.basePrice) || null;
+  const cogs = parseFloat(fields.cogs) || null;
+  const pspFeesPct = parseFloat(fields.pspFeesPct);
+  const otherFeesEur = parseFloat(fields.otherFeesEur);
+  const payload = {
+    name: (fields.name || '').trim() || product.id,
+    drive_folder_id: (fields.driveFolderId || '').trim() || null,
     enabled_countries: enabled,
     priority,
-    concurrent_page_url: concurrentPageUrl
-  }).eq('id', product.id);
+    concurrent_page_url: concurrentPageUrl,
+    base_price: basePrice,
+    base_price_currency: fields.basePriceCurrency || 'EUR',
+    cogs,
+    cogs_currency: fields.cogsCurrency || 'USD',
+    psp_fees_pct: isNaN(pspFeesPct) ? 3 : pspFeesPct,
+    other_fees_eur: isNaN(otherFeesEur) ? 0 : otherFeesEur
+  };
+
+  if (action === 'approve') {
+    if (!basePrice || !cogs) { toast('Renseigne au moins le prix de vente + COGS pour valider', 'error'); return; }
+    payload.status = 'approved';
+    payload.approved_at = new Date().toISOString();
+    payload.approved_by = currentUser.id;
+  } else if (action === 'unapprove') {
+    payload.status = 'draft';
+    payload.approved_at = null;
+    payload.approved_by = null;
+  }
+  // Pour 'save' on garde le status courant inchangé
+
+  const { error } = await sb.from('products').update(payload).eq('id', product.id);
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
-  toast('Produit mis à jour', 'success');
+  if (action === 'approve') toast(`${product.id} validé et lancé en pipeline`, 'success', 5000);
+  else if (action === 'unapprove') toast(`${product.id} repassé en draft`, 'info');
+  else toast('Produit mis à jour', 'success');
   render();
+}
+
+// Compose les rates de change : { CURRENCY_CODE: rate (combien de cette devise pour 1 EUR) }
+function buildRatesMap(allCountries) {
+  const rates = { EUR: 1 };
+  (allCountries || []).forEach(c => {
+    if (c.currency_code && !rates[c.currency_code]) rates[c.currency_code] = c.exchange_rate || 1;
+  });
+  // Devises potentielles non dans countries (USD, CNY...) : valeurs par défaut raisonnables
+  if (!rates['USD']) rates['USD'] = 1.08;
+  if (!rates['CNY']) rates['CNY'] = 7.8;
+  if (!rates['GBP']) rates['GBP'] = 0.85;
+  return rates;
+}
+
+// Rend le tableau de breakdown pricing dans le modal d'édition produit (mis à jour live)
+function renderPricingBreakdown(bd, allCountries, enabled) {
+  const wrap = bd.querySelector('#pricing-breakdown');
+  if (!wrap) return;
+  const basePrice = parseFloat(bd.querySelector('[data-field="basePrice"]')?.value);
+  const basePriceCurrency = bd.querySelector('[data-field="basePriceCurrency"]')?.value || 'EUR';
+  const cogs = parseFloat(bd.querySelector('[data-field="cogs"]')?.value);
+  const cogsCurrency = bd.querySelector('[data-field="cogsCurrency"]')?.value || 'USD';
+  const pspFeesPct = parseFloat(bd.querySelector('[data-field="pspFeesPct"]')?.value);
+  const otherFeesEur = parseFloat(bd.querySelector('[data-field="otherFeesEur"]')?.value) || 0;
+
+  if (!basePrice || isNaN(basePrice) || basePrice <= 0) {
+    wrap.innerHTML = '<div class="text-sm text-dim" style="padding:14px;text-align:center;background:var(--bg);border-radius:6px">Renseigne le prix de vente pour voir le pricing par pays.</div>';
+    return;
+  }
+
+  const rates = buildRatesMap(allCountries);
+  const basePriceEur = priceToEur(basePrice, basePriceCurrency, rates);
+  const cogsEur = priceToEur(cogs, cogsCurrency, rates);
+
+  const activeCountries = (allCountries || []).filter(c => enabled.includes(c.id));
+  if (activeCountries.length === 0) {
+    wrap.innerHTML = '<div class="text-sm text-dim">Aucun pays activé. Coche les marchés ci-dessus.</div>';
+    return;
+  }
+
+  const psp = isNaN(pspFeesPct) ? 3 : pspFeesPct;
+
+  const rows = activeCountries.map(c => {
+    const localFromEur = eurToLocal(basePriceEur, c);
+    const localPsych = psychPrice(localFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
+    const roas = computeRoasBE({ localPrice: localPsych, country: c, cogsEur: cogsEur || 0, pspPct: psp, otherFeesEur });
+    return { c, localFromEur, localPsych, roas };
+  });
+
+  wrap.innerHTML = `
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Pricing par pays (en direct)</div>
+    <div style="overflow-x:auto;border:1px solid var(--border-soft);border-radius:8px">
+      <table class="ads-table" style="width:100%;font-size:12px;margin:0">
+        <thead>
+          <tr>
+            <th class="ad-col" style="padding-left:12px">Pays</th>
+            <th>Converti</th>
+            <th>Prix psych</th>
+            <th>VAT</th>
+            <th>ROAS BE</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => {
+            const roasStr = (r.roas == null) ? '—' : (r.roas === Infinity ? '∞ perte' : r.roas.toFixed(2));
+            const roasColor = (r.roas == null) ? 'var(--text-mute)' :
+              r.roas === Infinity ? 'var(--red)' :
+              r.roas > 3 ? 'var(--red)' :
+              r.roas > 2 ? 'var(--orange)' :
+              'var(--green)';
+            return `
+              <tr>
+                <td class="ad-col" style="padding-left:12px">${flagImg(r.c.id)}<strong>${r.c.id}</strong> <span class="text-dim">${escapeHtml(r.c.currency_code || 'EUR')}</span></td>
+                <td class="text-dim">${escapeHtml(fmtCurrency(r.localFromEur, r.c))}</td>
+                <td><strong>${escapeHtml(fmtCurrency(r.localPsych, r.c))}</strong></td>
+                <td>${r.c.vat_pct ?? 0}%</td>
+                <td style="color:${roasColor};font-weight:700;font-family:'JetBrains Mono',monospace">${roasStr}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-sm text-dim" style="margin-top:8px;font-size:11px">
+      ROAS BE = ratio prix / contribution. <span style="color:var(--green)">Vert ≤ 2</span> · <span style="color:var(--orange)">Orange 2-3</span> · <span style="color:var(--red)">Rouge > 3 (difficile)</span>
+    </div>
+  `;
 }
 
 async function addAdFlow(productId) {
@@ -3090,21 +3416,78 @@ async function editCountryFlow(id) {
   if (!c) return;
   const r = await modal(`
     <div class="modal-title">Éditer ${escapeHtml(c.id)}</div>
-    <div class="input-group">
-      <label class="input-label">Nom</label>
-      <input class="input" data-field="name" value="${escapeHtml(c.name)}">
+    <div class="grid-2">
+      <div class="input-group">
+        <label class="input-label">Nom</label>
+        <input class="input" data-field="name" value="${escapeHtml(c.name)}">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Couleur</label>
+        <input class="input" type="color" data-field="color" value="${c.color}">
+      </div>
     </div>
-    <div class="input-group">
-      <label class="input-label">Couleur</label>
-      <input class="input" type="color" data-field="color" value="${c.color}">
+
+    <div style="padding:14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft);margin-top:8px">
+      <div style="font-weight:600;margin-bottom:10px">Devise & Pricing</div>
+      <div class="grid-2">
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">Code devise</label>
+          <input class="input mono" data-field="currency_code" value="${escapeHtml(c.currency_code || 'EUR')}" placeholder="EUR" maxlength="3" style="text-transform:uppercase">
+          <div class="input-hint">3 lettres : EUR, GBP, CZK, PLN, USD...</div>
+        </div>
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">Symbole devise</label>
+          <input class="input" data-field="currency_symbol" value="${escapeHtml(c.currency_symbol || '€')}" placeholder="€">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">Taux de change (1 EUR = X)</label>
+          <input class="input" type="number" step="0.0001" data-field="exchange_rate" value="${c.exchange_rate ?? 1}" placeholder="1.0">
+          <div class="input-hint">Ex CZK : 24.5 (1 EUR = 24.5 Kč)</div>
+        </div>
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">VAT (%)</label>
+          <input class="input" type="number" step="0.1" data-field="vat_pct" value="${c.vat_pct ?? 20}" placeholder="20">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">Psych - increment</label>
+          <input class="input" type="number" step="0.01" data-field="psych_increment" value="${c.psych_increment ?? 50}" placeholder="50">
+          <div class="input-hint">EUR/USD = 50, HUF = 1000, CHF = 5</div>
+        </div>
+        <div class="input-group" style="margin-bottom:8px">
+          <label class="input-label">Psych - subtract</label>
+          <input class="input" type="number" step="0.01" data-field="psych_subtract" value="${c.psych_subtract ?? 0.10}" placeholder="0.10">
+          <div class="input-hint">EUR = 0.10 (.90), CZK = 1 (entier finissant 9)</div>
+        </div>
+      </div>
+      <div class="text-sm text-dim" style="font-size:11px;line-height:1.5;padding:8px 10px;background:var(--bg);border-radius:6px;margin-top:6px">
+        <strong>Aperçu psych :</strong> avec ces réglages, un prix EUR base de 50€ donnerait <span class="mono" id="psych-preview">—</span> dans cette devise.
+      </div>
     </div>
+
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
       <button class="btn" data-modal-ok>Enregistrer</button>
     </div>
   `);
   if (!r) return;
-  await sb.from('countries').update({ name: (r.name || '').trim() || c.id, color: r.color }).eq('id', c.id);
+  const exchange_rate = parseFloat(r.exchange_rate);
+  const vat_pct = parseFloat(r.vat_pct);
+  const psych_increment = parseFloat(r.psych_increment);
+  const psych_subtract = parseFloat(r.psych_subtract);
+  await sb.from('countries').update({
+    name: (r.name || '').trim() || c.id,
+    color: r.color,
+    currency_code: (r.currency_code || 'EUR').trim().toUpperCase(),
+    currency_symbol: (r.currency_symbol || '€').trim(),
+    exchange_rate: isNaN(exchange_rate) ? 1 : exchange_rate,
+    vat_pct: isNaN(vat_pct) ? 20 : vat_pct,
+    psych_increment: isNaN(psych_increment) ? 50 : psych_increment,
+    psych_subtract: isNaN(psych_subtract) ? 0.10 : psych_subtract
+  }).eq('id', c.id);
   toast('Pays mis à jour', 'success');
   render();
 }
