@@ -3949,7 +3949,7 @@ function pageStatusBadge(status) {
 
 async function renderPagesHome(el) {
   const [{ data: products }, { data: countriesAll }, { data: pages }] = await Promise.all([
-    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).order('created_at', { ascending: false }),
+    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').order('created_at', { ascending: false }),
     sb.from('countries').select('*').order('sort_order'),
     sb.from('product_pages').select('*').eq('workspace_id', currentWorkspaceId)
   ]);
@@ -7290,8 +7290,9 @@ async function renderScriptsList(el) {
   const isAdminUser = userRole === 'admin';
 
   // On lit UNIQUEMENT les ads source='script' (le pipeline scripts est indépendant des concurrent ads)
+  // Les drafts sont cachés ici aussi — ils ne devraient pas avoir de scripts à produire
   const [{ data: products }, { data: scripts }] = await Promise.all([
-    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).order('created_at', { ascending: false }),
+    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').order('created_at', { ascending: false }),
     sb.from('ads').select('id, product_id, name, master_file_id, position').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
   ]);
 
