@@ -7665,7 +7665,8 @@ async function deleteSectionFlow(s) {
 }
 
 // Import en masse : l'admin colle un JSON array, on insère tout d'un coup.
-// Pas de gestion des thumbnails ici (à faire en édition individuelle après si besoin).
+// Supporte 'code' direct OU 'code_url' (fetché depuis Discord CDN ou ailleurs).
+// Supporte 'thumbnail_url' (uploadé auto sur Supabase Storage).
 async function bulkImportSectionsFlow() {
   if (!canManageSections()) { toast('Permission refusée', 'error'); return; }
 
@@ -7673,8 +7674,9 @@ async function bulkImportSectionsFlow() {
   {
     "name": "Hero with countdown",
     "category": "Hero",
-    "code": "<section>...</section>",
-    "notes": "Replace {{ countdown_date }} placeholder"
+    "code_url": "https://cdn.discordapp.com/attachments/.../message.txt",
+    "thumbnail_url": "https://cdn.discordapp.com/attachments/.../preview.png",
+    "notes": "Replace {{ countdown_date }}"
   },
   {
     "name": "FAQ accordion",
@@ -7686,13 +7688,15 @@ async function bulkImportSectionsFlow() {
   const r = await modal(`
     <div class="modal-title">Importer en masse</div>
     <div class="text-sm text-dim mb-md" style="line-height:1.6">
-      Colle un tableau JSON de sections. Chaque objet doit avoir <span class="mono">name</span>, <span class="mono">category</span>, <span class="mono">code</span> (obligatoires) et <span class="mono">notes</span> (optionnel).<br>
-      <strong>Catégories valides :</strong> ${SECTION_CATEGORIES.join(', ')} (tout autre fallback sur "Other").
+      Colle un tableau JSON. Chaque objet : <span class="mono">name</span>, <span class="mono">category</span> obligatoires.<br>
+      Pour le code : <span class="mono">code</span> (string direct) <strong>OU</strong> <span class="mono">code_url</span> (fetch auto depuis l'URL).<br>
+      Pour l'image : <span class="mono">thumbnail_url</span> optionnel — fetch auto + upload Supabase Storage.<br>
+      <strong>Catégories :</strong> ${SECTION_CATEGORIES.join(', ')} (sinon fallback "Other").
     </div>
     <div class="input-group">
       <label class="input-label">JSON</label>
       <textarea class="input" data-field="json" style="min-height:280px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.4" placeholder='${escapeHtml(sampleJson)}'></textarea>
-      <div class="input-hint">Astuce : passe ton contenu Discord à Claude/ChatGPT en lui demandant de le formater dans ce JSON. Les images preview ne sont pas importées via JSON — édite chaque section après pour ajouter une image si besoin.</div>
+      <div class="input-hint">Pour Discord : exporte ton channel avec <a href="https://github.com/Tyrrrz/DiscordChatExporter" target="_blank" style="color:var(--blue);text-decoration:underline">DiscordChatExporter</a> en JSON, puis demande à Claude/ChatGPT de convertir au format ci-dessus avec les URLs Discord CDN.</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
@@ -7709,48 +7713,157 @@ async function bulkImportSectionsFlow() {
     toast('JSON invalide : ' + e.message, 'error', 8000);
     return;
   }
-  if (!Array.isArray(parsed)) {
-    toast('Le JSON doit être un tableau []', 'error');
-    return;
-  }
-  if (parsed.length === 0) {
-    toast('Tableau vide — rien à importer', 'warn');
-    return;
-  }
+  if (!Array.isArray(parsed)) { toast('Le JSON doit être un tableau []', 'error'); return; }
+  if (parsed.length === 0) { toast('Tableau vide — rien à importer', 'warn'); return; }
 
-  // Validate + clean each entry
+  // Validate base structure
   const validCats = new Set(SECTION_CATEGORIES);
   const errors = [];
-  const rows = parsed.map((item, i) => {
+  const items = parsed.map((item, i) => {
     if (!item || typeof item !== 'object') { errors.push(`Item ${i+1} : pas un objet`); return null; }
     const name = (item.name || '').trim();
-    const code = (item.code || '').trim();
     if (!name) { errors.push(`Item ${i+1} : "name" manquant`); return null; }
-    if (!code) { errors.push(`Item ${i+1} : "code" manquant (${name})`); return null; }
-    const category = validCats.has(item.category) ? item.category : 'Other';
+    const directCode = (item.code || '').trim();
+    const codeUrl = (item.code_url || '').trim();
+    if (!directCode && !codeUrl) { errors.push(`Item ${i+1} (${name}) : ni "code" ni "code_url"`); return null; }
     return {
-      workspace_id: currentWorkspaceId,
+      idx: i + 1,
       name,
-      category,
-      code,
+      category: validCats.has(item.category) ? item.category : 'Other',
+      directCode,
+      codeUrl,
+      thumbnailUrl: (item.thumbnail_url || '').trim() || null,
       notes: (item.notes || '').trim() || null,
-      position: parseInt(item.position) || 0,
-      created_by: currentUser.id
+      position: parseInt(item.position) || 0
     };
   }).filter(Boolean);
 
+  if (items.length === 0) { toast('Aucun item valide. Erreurs : ' + errors.slice(0, 3).join(' · '), 'error', 10000); return; }
+
+  // Modal de progression
+  const progressBd = document.createElement('div');
+  progressBd.className = 'modal-backdrop';
+  progressBd.innerHTML = `
+    <div class="modal" style="max-width:500px">
+      <div class="modal-title">Import en cours...</div>
+      <div id="import-status" style="font-size:13px;color:var(--text-dim);margin-bottom:10px">Préparation...</div>
+      <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+        <div id="import-bar" style="height:100%;width:0%;background:var(--gold);transition:width 0.2s"></div>
+      </div>
+      <div id="import-summary" style="margin-top:14px;font-size:12px;color:var(--text-dim);line-height:1.6"></div>
+    </div>
+  `;
+  document.getElementById('modal-container').appendChild(progressBd);
+  const setStatus = (msg) => { progressBd.querySelector('#import-status').textContent = msg; };
+  const setProgress = (n, total) => { progressBd.querySelector('#import-bar').style.width = Math.round((n/total)*100) + '%'; };
+
+  let okCount = 0;
+  const importErrors = [];
+  const rows = [];
+
+  // Étape 1 : fetch les codes (depuis code_url) en parallèle limité (concurrency 5)
+  setStatus('Téléchargement des codes...');
+  await processInBatches(items, 5, async (item, i) => {
+    setProgress(i, items.length * 2); // 0-50% = fetch codes
+    let code = item.directCode;
+    if (!code && item.codeUrl) {
+      try {
+        const res = await fetch(item.codeUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        code = await res.text();
+      } catch (e) {
+        importErrors.push(`${item.name} : code fetch échoué (${e.message})`);
+        return;
+      }
+    }
+    if (!code || !code.trim()) {
+      importErrors.push(`${item.name} : code vide`);
+      return;
+    }
+    rows.push({
+      _item: item,
+      workspace_id: currentWorkspaceId,
+      name: item.name,
+      category: item.category,
+      code: code.trim(),
+      notes: item.notes,
+      position: item.position,
+      created_by: currentUser.id
+    });
+  });
+
   if (rows.length === 0) {
-    toast('Aucun item valide. Erreurs : ' + errors.join(' · '), 'error', 10000);
+    progressBd.remove();
+    toast('Aucun code récupéré. Erreurs : ' + importErrors.slice(0, 3).join(' · '), 'error', 10000);
     return;
   }
 
-  toast(`Import de ${rows.length} section(s)...`, 'info');
-  const { error } = await sb.from('sections').insert(rows);
-  if (error) { toast('Erreur DB : ' + error.message, 'error', 8000); return; }
+  // Étape 2 : insert toutes les sections en DB (sans thumbnails)
+  setStatus(`Insertion en DB (${rows.length} sections)...`);
+  const dbPayload = rows.map(({ _item, ...row }) => row);
+  const { data: inserted, error: errIns } = await sb.from('sections').insert(dbPayload).select();
+  if (errIns) {
+    progressBd.remove();
+    toast('Erreur DB : ' + errIns.message, 'error', 10000);
+    return;
+  }
+  okCount = inserted.length;
+  // Map ID inséré → item original (par ordre)
+  const insertedById = inserted.map((row, i) => ({ row, item: rows[i]._item }));
 
-  const errorMsg = errors.length > 0 ? ` (${errors.length} item(s) ignoré(s))` : '';
-  toast(`${rows.length} section(s) importée(s)${errorMsg}`, 'success', 5000);
+  // Étape 3 : fetch + upload des thumbnails (concurrency 3)
+  const withThumbs = insertedById.filter(x => x.item.thumbnailUrl);
+  if (withThumbs.length > 0) {
+    setStatus(`Upload des thumbnails (${withThumbs.length})...`);
+    let processed = 0;
+    await processInBatches(withThumbs, 3, async (entry) => {
+      try {
+        const res = await fetch(entry.item.thumbnailUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        const ct = blob.type || 'image/png';
+        const ext = ct.split('/')[1]?.split(';')[0] || 'png';
+        const path = `${entry.row.id}-${Date.now()}.${ext}`;
+        const { error: errUp } = await sb.storage.from('section-thumbnails').upload(path, blob, { contentType: ct, upsert: true });
+        if (errUp) throw errUp;
+        await sb.from('sections').update({ thumbnail_path: path }).eq('id', entry.row.id);
+      } catch (e) {
+        importErrors.push(`${entry.item.name} : thumbnail (${e.message})`);
+      } finally {
+        processed++;
+        setProgress(items.length + processed, items.length * 2);
+      }
+    });
+  }
+
+  // Récap
+  progressBd.remove();
+  const errCount = importErrors.length;
+  const summary = `${okCount} section(s) importée(s)${errCount > 0 ? ` · ${errCount} erreur(s)` : ''}`;
+  if (errCount > 0) {
+    await modal(`
+      <div class="modal-title">Import terminé : ${escapeHtml(summary)}</div>
+      <div class="text-sm text-dim mb-md">${okCount} sections OK. Voici les erreurs (les sections concernées sont quand même créées sans thumbnail si c'était l'image qui a planté) :</div>
+      <div style="max-height:300px;overflow-y:auto;background:var(--bg-input);border-radius:6px;padding:10px;font-size:12px;line-height:1.5;font-family:'JetBrains Mono',monospace">${importErrors.map(e => '• ' + escapeHtml(e)).join('<br>')}</div>
+      <div class="modal-actions"><button class="btn" data-modal-ok>OK</button></div>
+    `);
+  } else {
+    toast(summary, 'success', 5000);
+  }
   render();
+}
+
+// Helper : exécute des promesses en batch avec concurrency limit
+async function processInBatches(items, concurrency, fn) {
+  const queue = [...items];
+  const workers = Array(Math.min(concurrency, queue.length)).fill(null).map(async () => {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      const i = items.length - queue.length - 1;
+      try { await fn(item, i); } catch (e) { console.warn('[batch worker]', e); }
+    }
+  });
+  await Promise.all(workers);
 }
 
 /* ============================================================
