@@ -2204,6 +2204,7 @@ async function uploadFinishedFlow(productId) {
 
 async function uploadFinishedVideos(productId, countryId, filesArr) {
   if (!driveState.connected) { toast('Drive non connecté pour ce workspace. Reconnecte-toi.', 'error', 6000); return; }
+  try { await ensureDriveReady(); } catch (e) { toast('Drive : ' + e.message, 'error'); return; }
   toast(`Upload de ${filesArr.length} vidéo(s)...`, 'info');
   const { data: prod } = await sb.from('products').select('*').eq('id', productId).single();
   if (!prod?.drive_folder_id) { toast('Pas de dossier Drive sur ce produit', 'error'); return; }
@@ -4639,6 +4640,7 @@ async function driveSetFolderColor(fileId, colorRgb) {
 async function syncOneCountryFolderColor(product, countryId, isCut) {
   if (!driveState.connected || !product?.drive_folder_id) return false;
   try {
+    await ensureDriveReady();
     const folder = await driveFindFolder(countryId, product.drive_folder_id);
     if (!folder) return false;
     const color = isCut ? DRIVE_COLOR_CUT : DRIVE_COLOR_ACTIVE;
@@ -4660,6 +4662,7 @@ async function syncProductFolderColors(product, countries) {
     toast('Pas de dossier Drive pour ce produit', 'warn');
     return;
   }
+  try { await ensureDriveReady(); } catch (e) { toast('Drive : ' + e.message, 'error'); return; }
   const cuts = product.cut_countries || [];
   const enabled = (product.enabled_countries?.length ? product.enabled_countries : countries.map(c => c.id));
 
@@ -4727,6 +4730,7 @@ function driveUploadWithProgress(file, parentId, name, onProgress) {
 // Crée toute la structure Drive pour un produit
 async function createProductDriveStructure(product, countries) {
   if (!driveState.connected || !driveState.accessToken) throw new Error('Pas connecté à Drive');
+  await ensureDriveReady(); // s'assure que gapi.client.drive a bien le token OAuth
   const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).single();
   const rootId = cfg?.root_folder_id;
   if (!rootId) throw new Error('Dossier racine Drive non configuré');
@@ -4813,6 +4817,7 @@ async function uploadFilesWithProgressUI(files, parentId, options = {}) {
 
 async function uploadToProductFolder(productId, files, targetFolderName) {
   console.log('[UPLOAD] Start', { productId, targetFolderName, fileCount: files.length });
+  await ensureDriveReady();
   const filesArr = Array.from(files);
   console.log('[UPLOAD] Files:', filesArr.map(f => f.name));
   const { data: product } = await sb.from('products').select('*').eq('id', productId).single();
@@ -5038,6 +5043,7 @@ function extractGapiError(e) {
 async function syncDriveAll() {
   if (isSyncing) { toast('Sync déjà en cours...', 'warn'); return; }
   if (!driveState.connected) { toast('Pas connecté à Drive', 'error'); return; }
+  try { await ensureDriveReady(); } catch (e) { toast('Drive : ' + e.message, 'error'); return; }
   isSyncing = true;
   const btn = document.getElementById('btn-sync-now');
   if (btn) { btn.disabled = true; btn.textContent = ' Sync en cours...'; }
@@ -5081,6 +5087,7 @@ async function syncDriveAll() {
 async function shareAllMastersPublicly() {
   if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+  try { await ensureDriveReady(); } catch (e) { toast('Drive : ' + e.message, 'error'); return; }
 
   toast('Partage des masters en cours...', 'info', 5000);
   // RLS filtre déjà par workspace_member, donc on peut récupérer toutes les ads
