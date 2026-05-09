@@ -555,14 +555,22 @@ function eurToLocal(amountEur, country) {
 }
 
 // "Psych pricing" : arrondit DOWN au plus proche endpoint (k * increment - subtract).
-// Ex EUR (50, 0.10) : 620 → 599.90 ; 689 → 649.90
-// Ex CZK (50, 1)    : 1519 → 1499 ; 1675 → 1649
+// Ex EUR (50, 0.10) : 620 → 599.90 ; 689 → 649.90 ; 34.90 → 29.90 (fallback /5)
+// Ex CZK (50, 1)    : 1519 → 1499 ; 1675 → 1649 ; 30 → 29
 // Ex HUF (1000, 10) : 19500 → 18990
 function psychPrice(amount, increment, subtract) {
   if (!amount || amount <= 0) return null;
+  // 1er essai : increment principal (ex EUR : endpoints à 49.90, 99.90, 149.90...)
   const k = Math.floor((amount + subtract) / increment);
-  if (k < 1) return null;
-  return k * increment - subtract;
+  if (k >= 1) return k * increment - subtract;
+  // Fallback : pour les petits prix sous le 1er endpoint, on utilise un increment/5
+  // (ex EUR : endpoints à 9.90, 19.90, 29.90, 39.90 → couvre les prix 10-49)
+  const smaller = increment / 5;
+  if (smaller > 0) {
+    const k2 = Math.floor((amount + subtract) / smaller);
+    if (k2 >= 1) return k2 * smaller - subtract;
+  }
+  return null;
 }
 
 // ROAS BE par pays : combien de € de revenu il faut générer pour chaque € de pub dépensé
