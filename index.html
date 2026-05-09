@@ -2740,6 +2740,8 @@ async function editProductFlow(productId) {
   if (!product) return;
   const enabled = (product.enabled_countries && product.enabled_countries.length) ? [...product.enabled_countries] : allCountries.map(c => c.id);
   const status = product.status || 'approved';
+  // Object mutable pour les COGS par pays (overrides du COGS global)
+  const cogsByCountry = (product.cogs_by_country && typeof product.cogs_by_country === 'object') ? { ...product.cogs_by_country } : {};
   const countriesHtml = allCountries.map(c => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
       <input type="checkbox" data-edit-country-check="${c.id}" ${enabled.includes(c.id) ? 'checked' : ''} style="margin:0;accent-color:${c.color}">
@@ -2848,7 +2850,7 @@ async function editProductFlow(productId) {
         const cid = cb.dataset.editCountryCheck;
         if (cb.checked) { if (!enabled.includes(cid)) enabled.push(cid); }
         else { const i = enabled.indexOf(cid); if (i >= 0) enabled.splice(i, 1); }
-        renderPricingBreakdown(bd, allCountries, enabled);
+        renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
       });
     });
 
@@ -2856,14 +2858,14 @@ async function editProductFlow(productId) {
     ['basePrice', 'basePriceCurrency', 'cogs', 'cogsCurrency', 'pspFeesPct', 'otherFeesEur'].forEach(field => {
       const el = bd.querySelector(`[data-field="${field}"]`);
       if (!el) return;
-      const update = () => renderPricingBreakdown(bd, allCountries, enabled);
+      const update = () => renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
       el.addEventListener('input', update);
       el.addEventListener('change', update);
       el.addEventListener('blur', update);
     });
 
     // Render initial
-    renderPricingBreakdown(bd, allCountries, enabled);
+    renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
 
     // Backdrop click → cancel
     bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
@@ -2910,6 +2912,7 @@ async function editProductFlow(productId) {
     base_price_currency: fields.basePriceCurrency || 'EUR',
     cogs,
     cogs_currency: fields.cogsCurrency || 'USD',
+    cogs_by_country: cogsByCountry,
     psp_fees_pct: isNaN(pspFeesPct) ? 3 : pspFeesPct,
     other_fees_eur: isNaN(otherFeesEur) ? 0 : otherFeesEur
   };
@@ -2948,7 +2951,8 @@ function buildRatesMap(allCountries) {
 }
 
 // Rend le tableau de breakdown pricing dans le modal d'édition produit (mis à jour live)
-function renderPricingBreakdown(bd, allCountries, enabled) {
+function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
+  cogsByCountry = cogsByCountry || {};
   const wrap = bd.querySelector('#pricing-breakdown');
   if (!wrap) return;
   const basePrice = parseFloat(bd.querySelector('[data-field="basePrice"]')?.value);
@@ -2965,18 +2969,23 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
   }
 
   const hasPrice = basePrice && !isNaN(basePrice) && basePrice > 0;
-  const hasCogs = cogs && !isNaN(cogs) && cogs > 0;
+  const hasGlobalCogs = cogs && !isNaN(cogs) && cogs > 0;
   const rates = buildRatesMap(allCountries);
   const basePriceEur = hasPrice ? priceToEur(basePrice, basePriceCurrency, rates) : 0;
-  const cogsEur = hasCogs ? priceToEur(cogs, cogsCurrency, rates) : 0;
   const psp = isNaN(pspFeesPct) ? 3 : pspFeesPct;
 
+  // Pour chaque pays : COGS effectif = override per-country s'il est défini, sinon le COGS global, sinon 0
   const rows = activeCountries.map(c => {
-    if (!hasPrice) return { c, localFromEur: null, localPsych: null, roas: null };
+    const perCountryCogs = cogsByCountry[c.id];
+    const hasOverride = perCountryCogs != null && !isNaN(perCountryCogs) && perCountryCogs > 0;
+    const effectiveCogsValue = hasOverride ? perCountryCogs : (hasGlobalCogs ? cogs : 0);
+    const effectiveCogsEur = priceToEur(effectiveCogsValue, cogsCurrency, rates);
+
+    if (!hasPrice) return { c, localFromEur: null, localPsych: null, roas: null, perCountryCogs, hasOverride };
     const localFromEur = eurToLocal(basePriceEur, c);
     const localPsych = psychPrice(localFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
-    const roas = computeRoasBE({ localPrice: localPsych, country: c, cogsEur, pspPct: psp, otherFeesEur });
-    return { c, localFromEur, localPsych, roas };
+    const roas = computeRoasBE({ localPrice: localPsych, country: c, cogsEur: effectiveCogsEur, pspPct: psp, otherFeesEur });
+    return { c, localFromEur, localPsych, roas, perCountryCogs, hasOverride };
   });
 
   // Calcul du ROAS BE moyen (pour le résumé en haut)
@@ -2987,11 +2996,12 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
     avgRoas > 1.5 ? 'var(--orange)' :
     'var(--green)';
 
+  const hasAnyCogs = hasGlobalCogs || Object.keys(cogsByCountry).length > 0;
   const summaryNote = !hasPrice
     ? '<span style="color:var(--orange)">Renseigne le prix de vente pour calculer</span>'
-    : !hasCogs
-      ? '<span style="color:var(--orange)">Renseigne le COGS — ROAS BE actuel optimiste (sans coût d\'achat)</span>'
-      : '<span style="color:var(--text-dim)">ROAS BE moyen sur tous les pays activés</span>';
+    : !hasAnyCogs
+      ? '<span style="color:var(--orange)">Renseigne le COGS (global ou par pays) — ROAS BE actuel optimiste</span>'
+      : '<span style="color:var(--text-dim)">ROAS BE moyen sur tous les pays activés. Clique sur une cellule COGS pour override par pays.</span>';
 
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 14px;background:var(--bg);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:10px">
@@ -3010,6 +3020,7 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
             <th class="ad-col" style="padding-left:12px">Pays</th>
             <th>Converti</th>
             <th>Prix psych</th>
+            <th title="COGS par pays (override du COGS global)">COGS (${escapeHtml(cogsCurrency)})</th>
             <th>ROAS BE</th>
           </tr>
         </thead>
@@ -3021,11 +3032,15 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
               r.roas > 1.8 ? 'var(--red)' :
               r.roas > 1.5 ? 'var(--orange)' :
               'var(--green)';
+            const cogsPlaceholder = hasGlobalCogs ? cogs : '';
+            const cogsValueAttr = (r.perCountryCogs != null && !isNaN(r.perCountryCogs)) ? r.perCountryCogs : '';
+            const cogsBg = r.hasOverride ? 'background:rgba(200,165,90,0.10);border-color:var(--gold)' : '';
             return `
-              <tr>
+              <tr data-row-country="${r.c.id}">
                 <td class="ad-col" style="padding-left:12px">${flagImg(r.c.id)}<strong>${r.c.id}</strong> <span class="text-dim">${escapeHtml(r.c.currency_code || 'EUR')}</span></td>
                 <td class="text-dim">${r.localFromEur == null ? '—' : escapeHtml(fmtCurrency(r.localFromEur, r.c))}</td>
                 <td><strong>${r.localPsych == null ? '—' : escapeHtml(fmtCurrency(r.localPsych, r.c))}</strong></td>
+                <td><input type="number" step="0.01" data-cogs-country="${r.c.id}" value="${cogsValueAttr}" placeholder="${cogsPlaceholder}" style="width:80px;padding:4px 8px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);${cogsBg};border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace" title="${r.hasOverride ? 'Override actif (clique pour modifier)' : 'COGS global appliqué — clique pour override'}"></td>
                 <td style="color:${roasColor};font-weight:700;font-family:'JetBrains Mono',monospace">${roasStr}</td>
               </tr>
             `;
@@ -3037,6 +3052,24 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
       ROAS BE = prix / contribution (prix - PSP% - autres frais - COGS). TVA non comptée. <span style="color:var(--green)">Vert ≤ 1.5</span> · <span style="color:var(--orange)">Orange 1.51 - 1.8</span> · <span style="color:var(--red)">Rouge > 1.8 (difficile)</span>
     </div>
   `;
+
+  // Attache les handlers d'édition du COGS par pays — focus preservation pour pas perdre le curseur
+  wrap.querySelectorAll('[data-cogs-country]').forEach(input => {
+    input.addEventListener('input', () => {
+      const cid = input.dataset.cogsCountry;
+      const v = parseFloat(input.value);
+      if (!isNaN(v) && v > 0) cogsByCountry[cid] = v;
+      else delete cogsByCountry[cid];
+      // Re-render en préservant le focus + position du curseur
+      const cursor = input.selectionStart;
+      renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
+      const newInput = bd.querySelector(`[data-cogs-country="${cid}"]`);
+      if (newInput) {
+        newInput.focus();
+        try { newInput.setSelectionRange(cursor, cursor); } catch (e) {}
+      }
+    });
+  });
 }
 
 async function addAdFlow(productId) {
