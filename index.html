@@ -8,10 +8,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://apis.google.com/js/api.js" async defer></script>
+<!-- Chart.js : chargé en lazy uniquement sur la page Analytics (gain ~80 KB au login) -->
+<!-- Google Identity + gapi : chargés en lazy au 1er besoin Drive (gain ~150 KB pour les users qui ne touchent jamais Drive) -->
+
 <style>
 :root{
   --bg:#08080c;--bg-card:#12121a;--bg-card-hover:#1a1a24;--bg-input:#0c0c12;
@@ -537,6 +537,44 @@ let userWorkspaces = []; // [{ workspace_id, role, workspaces: { id, name, slug 
 /* ============================================================
    UTILITIES
    ============================================================ */
+// === Lazy-loaders pour les libs lourdes ===
+let _chartJsPromise = null;
+function loadChartJs() {
+  if (window.Chart) return Promise.resolve();
+  if (_chartJsPromise) return _chartJsPromise;
+  _chartJsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Chart.js failed to load'));
+    document.head.appendChild(s);
+  });
+  return _chartJsPromise;
+}
+
+let _googleLibsPromise = null;
+function loadGoogleLibs() {
+  if (window.gapi && window.google?.accounts?.oauth2) return Promise.resolve();
+  if (_googleLibsPromise) return _googleLibsPromise;
+  _googleLibsPromise = new Promise((resolve, reject) => {
+    let gsi = false, gapiL = false;
+    const check = () => { if (gsi && gapiL) resolve(); };
+    const sGsi = document.createElement('script');
+    sGsi.src = 'https://accounts.google.com/gsi/client';
+    sGsi.async = true; sGsi.defer = true;
+    sGsi.onload = () => { gsi = true; check(); };
+    sGsi.onerror = () => reject(new Error('GSI failed'));
+    const sGapi = document.createElement('script');
+    sGapi.src = 'https://apis.google.com/js/api.js';
+    sGapi.async = true; sGapi.defer = true;
+    sGapi.onload = () => { gapiL = true; check(); };
+    sGapi.onerror = () => reject(new Error('gapi failed'));
+    document.head.appendChild(sGsi);
+    document.head.appendChild(sGapi);
+  });
+  return _googleLibsPromise;
+}
+
 function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function fmt(n) { return Number(n || 0).toLocaleString('fr-FR'); }
 function pct(a, b) { return b === 0 ? 0 : Math.round((a / b) * 100); }
@@ -769,6 +807,7 @@ async function switchWorkspace(workspaceId) {
   currentWorkspaceId = workspaceId;
   currentWorkspace = { id: m.workspaces.id, name: m.workspaces.name, slug: m.workspaces.slug, role: m.role };
   localStorage.setItem('currentWorkspaceId', currentWorkspaceId);
+  bustFetchAllCache(); // Workspace différent → données différentes
   toast(`Switch vers ${m.workspaces.name}`, 'success');
 
   // 3. Recharge les notifs du nouveau workspace
@@ -888,7 +927,10 @@ function getRoute() {
 }
 function navigate(route) { location.hash = '#' + route; }
 
-async function render() {
+async function render(e) {
+  // Si render() est appelé depuis le code (après une mutation), bust le cache pour avoir des données fraîches.
+  // Si appelé via hashchange (navigation), on garde le cache (les données n'ont pas changé).
+  if (!(e instanceof Event)) bustFetchAllCache();
   const { page, params } = getRoute();
 
   // Si page_builder : restriction à Pages + Formations + Tools
@@ -959,9 +1001,19 @@ window.addEventListener('hashchange', render);
 /* ============================================================
    DATA HELPERS
    ============================================================ */
-async function fetchAll() {
-  //  Filtre explicite par workspace courant (RLS ne suffit pas si user dans plusieurs workspaces)
+// === Cache fetchAll : évite de re-tirer 4 queries Supabase à chaque navigation ===
+// TTL court (15s) pour rester frais ; les writes peuvent appeler bustFetchAllCache() pour forcer un refresh.
+let _fetchAllCache = null;
+const FETCH_ALL_TTL_MS = 15000;
+function bustFetchAllCache() { _fetchAllCache = null; }
+
+async function fetchAll(opts = {}) {
   const wsId = currentWorkspaceId;
+  const now = Date.now();
+  if (!opts.force && _fetchAllCache && _fetchAllCache.wsId === wsId && (now - _fetchAllCache.ts) < FETCH_ALL_TTL_MS) {
+    return _fetchAllCache.data;
+  }
+  //  Filtre explicite par workspace courant (RLS ne suffit pas si user dans plusieurs workspaces)
   const [countriesR, productsR, adsR, adCountriesR] = await Promise.all([
     sb.from('countries').select('*').order('sort_order'),
     sb.from('products').select('*').eq('workspace_id', wsId).order('id'),
@@ -969,15 +1021,26 @@ async function fetchAll() {
     sb.from('ad_countries').select('*').eq('workspace_id', wsId)
   ]);
   // Filtre : on cache les ads source='script' qui n'ont pas encore de master uploadé
-  // (ils sont gérés exclusivement dans l'onglet Scripts tant qu'ils ne sont pas produits)
   const adsAll = adsR.data || [];
   const ads = adsAll.filter(a => a.source !== 'script' || a.master_file_id);
-  return {
+  const adCountries = adCountriesR.data || [];
+
+  // Index pré-calculé pour O(1) lookup au lieu de .find() partout (gain énorme sur Analytics)
+  const acByAdCountry = {};
+  adCountries.forEach(ac => {
+    if (!acByAdCountry[ac.ad_id]) acByAdCountry[ac.ad_id] = {};
+    acByAdCountry[ac.ad_id][ac.country_id] = ac;
+  });
+
+  const data = {
     countries: countriesR.data || [],
     products: productsR.data || [],
     ads,
-    adCountries: adCountriesR.data || []
+    adCountries,
+    acByAdCountry
   };
+  _fetchAllCache = { wsId, ts: now, data };
+  return data;
 }
 
 function canEdit() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'ads_translator'); }
@@ -3145,7 +3208,10 @@ function destroyCharts() {
 
 async function renderAnalytics(el) {
   destroyCharts();
-  const { countries, products, ads, adCountries } = await fetchAll();
+  // Charge Chart.js uniquement quand on entre sur Analytics (lazy-load)
+  el.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  await loadChartJs();
+  const { countries, products, ads, adCountries, acByAdCountry } = await fetchAll();
   const total = ads.length * countries.length;
   const doneTrad = adCountries.filter(x => x.trad).length;
   const doneMeta = adCountries.filter(x => x.meta).length;
@@ -3256,8 +3322,8 @@ async function renderAnalytics(el) {
     data: {
       labels: products.map(p => p.id),
       datasets: [
-        { label: 'Traductions', data: products.map(p => { let c = 0; const pAds = ads.filter(a => a.product_id === p.id); pAds.forEach(ad => countries.forEach(co => { const ac = adCountries.find(x => x.ad_id === ad.id && x.country_id === co.id); if (ac?.trad) c++; })); return c; }), backgroundColor: '#34d39988', borderColor: '#34d399', borderWidth: 1 },
-        { label: 'Meta lancées', data: products.map(p => { let c = 0; const pAds = ads.filter(a => a.product_id === p.id); pAds.forEach(ad => countries.forEach(co => { const ac = adCountries.find(x => x.ad_id === ad.id && x.country_id === co.id); if (ac?.meta) c++; })); return c; }), backgroundColor: '#60a5fa88', borderColor: '#60a5fa', borderWidth: 1 }
+        { label: 'Traductions', data: products.map(p => { let c = 0; const pAds = ads.filter(a => a.product_id === p.id); pAds.forEach(ad => countries.forEach(co => { const ac = acByAdCountry[ad.id]?.[co.id]; if (ac?.trad) c++; })); return c; }), backgroundColor: '#34d39988', borderColor: '#34d399', borderWidth: 1 },
+        { label: 'Meta lancées', data: products.map(p => { let c = 0; const pAds = ads.filter(a => a.product_id === p.id); pAds.forEach(ad => countries.forEach(co => { const ac = acByAdCountry[ad.id]?.[co.id]; if (ac?.meta) c++; })); return c; }), backgroundColor: '#60a5fa88', borderColor: '#60a5fa', borderWidth: 1 }
       ]
     },
     options: Object.assign({}, baseOpts, { indexAxis: 'y' })
@@ -3762,7 +3828,10 @@ function clearStoredToken() {
   } catch (e) {}
 }
 
-function waitForGoogleLibs() {
+async function waitForGoogleLibs() {
+  // Lazy-load les scripts Google si pas encore chargés (gain ~150 KB au login pour les users qui ne touchent pas Drive)
+  await loadGoogleLibs();
+  // Au cas où onload firerait avant la dispo complète des objets globaux, on attend un peu
   return new Promise(resolve => {
     const check = () => {
       if (window.gapi && window.google?.accounts?.oauth2) resolve();
