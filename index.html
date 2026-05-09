@@ -7313,7 +7313,7 @@ const SECTION_CATEGORIES = [
   'Bonuses',
   'Trust badges',
   'Footer',
-  'Other'
+  'Sections'
 ];
 
 function canManageSections() {
@@ -7586,7 +7586,7 @@ async function editSectionFlow(existing) {
       const file = bd.querySelector('#section-thumb-input')?.files?.[0] || null;
       close({
         name,
-        category: bd.querySelector('[data-field="category"]')?.value || 'Other',
+        category: bd.querySelector('[data-field="category"]')?.value || 'Sections',
         code,
         notes: (bd.querySelector('[data-field="notes"]')?.value || '').trim() || null,
         position: parseInt(bd.querySelector('[data-field="position"]')?.value) || 0,
@@ -7729,7 +7729,7 @@ async function bulkImportSectionsFlow() {
     return {
       idx: i + 1,
       name,
-      category: validCats.has(item.category) ? item.category : 'Other',
+      category: validCats.has(item.category) ? item.category : 'Sections',
       directCode,
       codeUrl,
       thumbnailUrl: (item.thumbnail_url || '').trim() || null,
