@@ -1217,7 +1217,9 @@ async function renderAds(el) {
   });
 
   // Pré-calcul des stats par produit (pour pouvoir filtrer les "100% finis")
-  const productStats = products.map(p => {
+  // Safety net : re-filtre status='approved' en cas de cache obsolète
+  const approvedOnly = products.filter(p => p.status === 'approved');
+  const productStats = approvedOnly.map(p => {
     const pAds = adsByProduct[p.id] || [];
     const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
     const cuts = p.cut_countries || [];
@@ -1360,8 +1362,10 @@ async function renderProduits(el) {
     pagesByProduct[p.product_id][p.country_id] = p.status;
   });
 
+  // Safety net : on re-filtre par status en cas de cache obsolète
+  const approvedOnly = products.filter(p => p.status === 'approved');
   // Pré-calcul des stats par produit (pour pouvoir filtrer "prêts à lancer")
-  const productStats = products.map(p => {
+  const productStats = approvedOnly.map(p => {
     const pAds = adsByProduct[p.id] || [];
     const enabled = (p.enabled_countries && p.enabled_countries.length) ? p.enabled_countries : countries.map(c => c.id);
     const cuts = p.cut_countries || [];
