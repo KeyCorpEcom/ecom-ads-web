@@ -2995,7 +2995,12 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
 
     if (!hasPrice) return { c, localFromEur: null, localPsych: null, roas: null, perCountryCogs, hasOverride };
     const localFromEur = eurToLocal(basePriceEur, c);
-    const localPsych = psychPrice(localFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
+    // Si la devise du pays = devise du prix base → pas de psych (le prix de base est déjà la valeur voulue)
+    // Sinon, applique le psych pour avoir une jolie valeur après conversion
+    const sameCurrency = (c.currency_code || 'EUR') === basePriceCurrency;
+    const localPsych = sameCurrency
+      ? Math.round(localFromEur * 100) / 100
+      : psychPrice(localFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
     const roas = computeRoasBE({ localPrice: localPsych, country: c, cogsEur: effectiveCogsEur, pspPct: psp, otherFeesEur });
     return { c, localFromEur, localPsych, roas, perCountryCogs, hasOverride };
   });
