@@ -7350,7 +7350,12 @@ async function renderSections(el) {
         <div class="page-title">Bibliothèque de sections</div>
         <div class="page-subtitle">${allSections.length} section${allSections.length > 1 ? 's' : ''} disponible${allSections.length > 1 ? 's' : ''}${activeCat !== 'all' ? ` · ${visible.length} dans "${escapeHtml(activeCat)}"` : ''}</div>
       </div>
-      ${canManageSections() ? '<button class="btn" id="btn-new-section">+ Nouvelle section</button>' : ''}
+      ${canManageSections() ? `
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-secondary" id="btn-bulk-import">Importer en masse</button>
+          <button class="btn" id="btn-new-section">+ Nouvelle section</button>
+        </div>
+      ` : ''}
     </div>
 
     <div class="section-cat-tabs">
@@ -7412,6 +7417,7 @@ async function renderSections(el) {
   // Boutons gestion (admin + page_builder)
   if (canManageSections()) {
     document.getElementById('btn-new-section')?.addEventListener('click', () => editSectionFlow(null));
+    document.getElementById('btn-bulk-import')?.addEventListener('click', () => bulkImportSectionsFlow());
     el.querySelectorAll('[data-edit-section]').forEach(b => b.addEventListener('click', async (e) => {
       e.stopPropagation();
       const { data: full } = await sb.from('sections').select('*').eq('id', b.dataset.editSection).single();
@@ -7655,6 +7661,95 @@ async function deleteSectionFlow(s) {
   }
   await sb.from('sections').delete().eq('id', s.id);
   toast('Section supprimée', 'success');
+  render();
+}
+
+// Import en masse : l'admin colle un JSON array, on insère tout d'un coup.
+// Pas de gestion des thumbnails ici (à faire en édition individuelle après si besoin).
+async function bulkImportSectionsFlow() {
+  if (!canManageSections()) { toast('Permission refusée', 'error'); return; }
+
+  const sampleJson = `[
+  {
+    "name": "Hero with countdown",
+    "category": "Hero",
+    "code": "<section>...</section>",
+    "notes": "Replace {{ countdown_date }} placeholder"
+  },
+  {
+    "name": "FAQ accordion",
+    "category": "FAQ",
+    "code": "<details>...</details>"
+  }
+]`;
+
+  const r = await modal(`
+    <div class="modal-title">Importer en masse</div>
+    <div class="text-sm text-dim mb-md" style="line-height:1.6">
+      Colle un tableau JSON de sections. Chaque objet doit avoir <span class="mono">name</span>, <span class="mono">category</span>, <span class="mono">code</span> (obligatoires) et <span class="mono">notes</span> (optionnel).<br>
+      <strong>Catégories valides :</strong> ${SECTION_CATEGORIES.join(', ')} (tout autre fallback sur "Other").
+    </div>
+    <div class="input-group">
+      <label class="input-label">JSON</label>
+      <textarea class="input" data-field="json" style="min-height:280px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.4" placeholder='${escapeHtml(sampleJson)}'></textarea>
+      <div class="input-hint">Astuce : passe ton contenu Discord à Claude/ChatGPT en lui demandant de le formater dans ce JSON. Les images preview ne sont pas importées via JSON — édite chaque section après pour ajouter une image si besoin.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Importer</button>
+    </div>
+  `);
+  if (!r || !r.json) return;
+
+  // Parse JSON
+  let parsed;
+  try {
+    parsed = JSON.parse(r.json);
+  } catch (e) {
+    toast('JSON invalide : ' + e.message, 'error', 8000);
+    return;
+  }
+  if (!Array.isArray(parsed)) {
+    toast('Le JSON doit être un tableau []', 'error');
+    return;
+  }
+  if (parsed.length === 0) {
+    toast('Tableau vide — rien à importer', 'warn');
+    return;
+  }
+
+  // Validate + clean each entry
+  const validCats = new Set(SECTION_CATEGORIES);
+  const errors = [];
+  const rows = parsed.map((item, i) => {
+    if (!item || typeof item !== 'object') { errors.push(`Item ${i+1} : pas un objet`); return null; }
+    const name = (item.name || '').trim();
+    const code = (item.code || '').trim();
+    if (!name) { errors.push(`Item ${i+1} : "name" manquant`); return null; }
+    if (!code) { errors.push(`Item ${i+1} : "code" manquant (${name})`); return null; }
+    const category = validCats.has(item.category) ? item.category : 'Other';
+    return {
+      workspace_id: currentWorkspaceId,
+      name,
+      category,
+      code,
+      notes: (item.notes || '').trim() || null,
+      position: parseInt(item.position) || 0,
+      created_by: currentUser.id
+    };
+  }).filter(Boolean);
+
+  if (rows.length === 0) {
+    toast('Aucun item valide. Erreurs : ' + errors.join(' · '), 'error', 10000);
+    return;
+  }
+
+  toast(`Import de ${rows.length} section(s)...`, 'info');
+  const { error } = await sb.from('sections').insert(rows);
+  if (error) { toast('Erreur DB : ' + error.message, 'error', 8000); return; }
+
+  const errorMsg = errors.length > 0 ? ` (${errors.length} item(s) ignoré(s))` : '';
+  toast(`${rows.length} section(s) importée(s)${errorMsg}`, 'success', 5000);
   render();
 }
 
