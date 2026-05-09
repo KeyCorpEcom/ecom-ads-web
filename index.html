@@ -2983,8 +2983,8 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
   const validRoas = rows.map(r => r.roas).filter(r => r != null && r !== Infinity);
   const avgRoas = validRoas.length > 0 ? (validRoas.reduce((a, b) => a + b, 0) / validRoas.length) : null;
   const avgColor = avgRoas == null ? 'var(--text-mute)' :
-    avgRoas > 3 ? 'var(--red)' :
-    avgRoas > 2 ? 'var(--orange)' :
+    avgRoas > 1.8 ? 'var(--red)' :
+    avgRoas > 1.5 ? 'var(--orange)' :
     'var(--green)';
 
   const summaryNote = !hasPrice
@@ -3018,8 +3018,8 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
             const roasStr = (r.roas == null) ? '—' : (r.roas === Infinity ? '∞ perte' : r.roas.toFixed(2));
             const roasColor = (r.roas == null) ? 'var(--text-mute)' :
               r.roas === Infinity ? 'var(--red)' :
-              r.roas > 3 ? 'var(--red)' :
-              r.roas > 2 ? 'var(--orange)' :
+              r.roas > 1.8 ? 'var(--red)' :
+              r.roas > 1.5 ? 'var(--orange)' :
               'var(--green)';
             return `
               <tr>
@@ -3034,7 +3034,7 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
       </table>
     </div>
     <div class="text-sm text-dim" style="margin-top:8px;font-size:11px">
-      ROAS BE = prix / contribution (prix - PSP% - autres frais - COGS). TVA non comptée. <span style="color:var(--green)">Vert ≤ 2</span> · <span style="color:var(--orange)">Orange 2-3</span> · <span style="color:var(--red)">Rouge > 3 (difficile)</span>
+      ROAS BE = prix / contribution (prix - PSP% - autres frais - COGS). TVA non comptée. <span style="color:var(--green)">Vert ≤ 1.5</span> · <span style="color:var(--orange)">Orange 1.51 - 1.8</span> · <span style="color:var(--red)">Rouge > 1.8 (difficile)</span>
     </div>
   `;
 }
