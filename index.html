@@ -567,17 +567,16 @@ function psychPrice(amount, increment, subtract) {
 
 // ROAS BE par pays : combien de € de revenu il faut générer pour chaque € de pub dépensé
 // pour atteindre le break-even (zéro profit, zéro perte).
-// Inputs : prix local (déjà psych), country (pour rate + VAT), cogs en EUR, frais PSP %, autres frais EUR
+// La TVA n'est PAS comptée dans le calcul (par choix produit).
+// Formule : contribution = prix - psp%*prix - autres_frais - cogs ; ROAS BE = prix / contribution
 function computeRoasBE({ localPrice, country, cogsEur, pspPct, otherFeesEur }) {
   if (!localPrice || localPrice <= 0) return null;
   const rate = country.exchange_rate || 1;
-  const vat = (country.vat_pct || 0) / 100;
   const psp = (pspPct || 0) / 100;
   const localPriceEur = localPrice / rate;
-  // revenu net en EUR = prix HT - frais PSP - autres frais
-  const revenueNetEur = localPriceEur / (1 + vat) - psp * localPriceEur - (otherFeesEur || 0);
+  const revenueNetEur = localPriceEur * (1 - psp) - (otherFeesEur || 0);
   const contribution = revenueNetEur - (cogsEur || 0);
-  if (contribution <= 0) return Infinity; // perte sur chaque vente, ROAS BE infini = jamais rentable
+  if (contribution <= 0) return Infinity; // perte sur chaque vente → jamais rentable
   return localPriceEur / contribution;
 }
 
@@ -2853,11 +2852,14 @@ async function editProductFlow(productId) {
       });
     });
 
-    // Live update breakdown on input change
+    // Live update breakdown : on écoute input (chaque keystroke) ET change (blur, validation)
     ['basePrice', 'basePriceCurrency', 'cogs', 'cogsCurrency', 'pspFeesPct', 'otherFeesEur'].forEach(field => {
       const el = bd.querySelector(`[data-field="${field}"]`);
-      if (el) el.addEventListener('input', () => renderPricingBreakdown(bd, allCountries, enabled));
-      if (el && el.tagName === 'SELECT') el.addEventListener('change', () => renderPricingBreakdown(bd, allCountries, enabled));
+      if (!el) return;
+      const update = () => renderPricingBreakdown(bd, allCountries, enabled);
+      el.addEventListener('input', update);
+      el.addEventListener('change', update);
+      el.addEventListener('blur', update);
     });
 
     // Render initial
@@ -2956,32 +2958,51 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
   const pspFeesPct = parseFloat(bd.querySelector('[data-field="pspFeesPct"]')?.value);
   const otherFeesEur = parseFloat(bd.querySelector('[data-field="otherFeesEur"]')?.value) || 0;
 
-  if (!basePrice || isNaN(basePrice) || basePrice <= 0) {
-    wrap.innerHTML = '<div class="text-sm text-dim" style="padding:14px;text-align:center;background:var(--bg);border-radius:6px">Renseigne le prix de vente pour voir le pricing par pays.</div>';
-    return;
-  }
-
-  const rates = buildRatesMap(allCountries);
-  const basePriceEur = priceToEur(basePrice, basePriceCurrency, rates);
-  const cogsEur = priceToEur(cogs, cogsCurrency, rates);
-
   const activeCountries = (allCountries || []).filter(c => enabled.includes(c.id));
   if (activeCountries.length === 0) {
-    wrap.innerHTML = '<div class="text-sm text-dim">Aucun pays activé. Coche les marchés ci-dessus.</div>';
+    wrap.innerHTML = '<div class="text-sm text-dim" style="padding:14px;text-align:center;background:var(--bg);border-radius:6px">Aucun pays activé. Coche au moins un marché pour voir le pricing.</div>';
     return;
   }
 
+  const hasPrice = basePrice && !isNaN(basePrice) && basePrice > 0;
+  const hasCogs = cogs && !isNaN(cogs) && cogs > 0;
+  const rates = buildRatesMap(allCountries);
+  const basePriceEur = hasPrice ? priceToEur(basePrice, basePriceCurrency, rates) : 0;
+  const cogsEur = hasCogs ? priceToEur(cogs, cogsCurrency, rates) : 0;
   const psp = isNaN(pspFeesPct) ? 3 : pspFeesPct;
 
   const rows = activeCountries.map(c => {
+    if (!hasPrice) return { c, localFromEur: null, localPsych: null, roas: null };
     const localFromEur = eurToLocal(basePriceEur, c);
     const localPsych = psychPrice(localFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
-    const roas = computeRoasBE({ localPrice: localPsych, country: c, cogsEur: cogsEur || 0, pspPct: psp, otherFeesEur });
+    const roas = computeRoasBE({ localPrice: localPsych, country: c, cogsEur, pspPct: psp, otherFeesEur });
     return { c, localFromEur, localPsych, roas };
   });
 
+  // Calcul du ROAS BE moyen (pour le résumé en haut)
+  const validRoas = rows.map(r => r.roas).filter(r => r != null && r !== Infinity);
+  const avgRoas = validRoas.length > 0 ? (validRoas.reduce((a, b) => a + b, 0) / validRoas.length) : null;
+  const avgColor = avgRoas == null ? 'var(--text-mute)' :
+    avgRoas > 3 ? 'var(--red)' :
+    avgRoas > 2 ? 'var(--orange)' :
+    'var(--green)';
+
+  const summaryNote = !hasPrice
+    ? '<span style="color:var(--orange)">Renseigne le prix de vente pour calculer</span>'
+    : !hasCogs
+      ? '<span style="color:var(--orange)">Renseigne le COGS — ROAS BE actuel optimiste (sans coût d\'achat)</span>'
+      : '<span style="color:var(--text-dim)">ROAS BE moyen sur tous les pays activés</span>';
+
   wrap.innerHTML = `
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Pricing par pays (en direct)</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 14px;background:var(--bg);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:10px">
+      <div>
+        <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:4px">ROAS BE moyen</div>
+        <div style="font-size:24px;font-weight:800;font-family:'JetBrains Mono',monospace;color:${avgColor};line-height:1">${avgRoas == null ? '—' : avgRoas.toFixed(2)}</div>
+      </div>
+      <div style="font-size:11px;line-height:1.5;text-align:right;flex:1;min-width:200px">${summaryNote}</div>
+    </div>
+
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Détail par pays</div>
     <div style="overflow-x:auto;border:1px solid var(--border-soft);border-radius:8px">
       <table class="ads-table" style="width:100%;font-size:12px;margin:0">
         <thead>
@@ -2989,7 +3010,6 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
             <th class="ad-col" style="padding-left:12px">Pays</th>
             <th>Converti</th>
             <th>Prix psych</th>
-            <th>VAT</th>
             <th>ROAS BE</th>
           </tr>
         </thead>
@@ -3004,9 +3024,8 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
             return `
               <tr>
                 <td class="ad-col" style="padding-left:12px">${flagImg(r.c.id)}<strong>${r.c.id}</strong> <span class="text-dim">${escapeHtml(r.c.currency_code || 'EUR')}</span></td>
-                <td class="text-dim">${escapeHtml(fmtCurrency(r.localFromEur, r.c))}</td>
-                <td><strong>${escapeHtml(fmtCurrency(r.localPsych, r.c))}</strong></td>
-                <td>${r.c.vat_pct ?? 0}%</td>
+                <td class="text-dim">${r.localFromEur == null ? '—' : escapeHtml(fmtCurrency(r.localFromEur, r.c))}</td>
+                <td><strong>${r.localPsych == null ? '—' : escapeHtml(fmtCurrency(r.localPsych, r.c))}</strong></td>
                 <td style="color:${roasColor};font-weight:700;font-family:'JetBrains Mono',monospace">${roasStr}</td>
               </tr>
             `;
@@ -3015,7 +3034,7 @@ function renderPricingBreakdown(bd, allCountries, enabled) {
       </table>
     </div>
     <div class="text-sm text-dim" style="margin-top:8px;font-size:11px">
-      ROAS BE = ratio prix / contribution. <span style="color:var(--green)">Vert ≤ 2</span> · <span style="color:var(--orange)">Orange 2-3</span> · <span style="color:var(--red)">Rouge > 3 (difficile)</span>
+      ROAS BE = prix / contribution (prix - PSP% - autres frais - COGS). TVA non comptée. <span style="color:var(--green)">Vert ≤ 2</span> · <span style="color:var(--orange)">Orange 2-3</span> · <span style="color:var(--red)">Rouge > 3 (difficile)</span>
     </div>
   `;
 }
