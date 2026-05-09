@@ -1073,17 +1073,15 @@ async function fetchAll(opts = {}) {
     sb.from('ads').select('*').eq('workspace_id', wsId).order('position'),
     sb.from('ad_countries').select('*').eq('workspace_id', wsId)
   ]);
-  // Pour les non-admins : cacher les produits draft (pas encore validés via le workflow pricing).
-  // Admin voit tout (avec filtre UI séparé pour basculer).
+  // On cache TOUJOURS les drafts dans fetchAll (admin y accède via l'onglet "Drafts" dédié sur /produits).
+  // Les drafts ne sont pas des "vraies données" pour Dashboard/Analytics/Ads/Pages — ils attendent validation.
   const productsAll = productsR.data || [];
-  const products = isAdmin() ? productsAll : productsAll.filter(p => p.status === 'approved');
+  const products = productsAll.filter(p => p.status === 'approved');
   const approvedIds = new Set(products.map(p => p.id));
-  // Filtre : on cache les ads source='script' qui n'ont pas encore de master uploadé
-  // ET les ads de produits non-approuvés (pour les non-admins)
   const adsAll = adsR.data || [];
   const ads = adsAll
-    .filter(a => a.source !== 'script' || a.master_file_id)
-    .filter(a => isAdmin() || approvedIds.has(a.product_id));
+    .filter(a => a.source !== 'script' || a.master_file_id) // scripts pas encore produits
+    .filter(a => approvedIds.has(a.product_id)); // ads de produits drafts cachées
   const adCountries = adCountriesR.data || [];
 
   // Index pré-calculé pour O(1) lookup au lieu de .find() partout (gain énorme sur Analytics)
@@ -1321,6 +1319,21 @@ async function renderAds(el) {
 }
 
 async function renderProduits(el) {
+  // Vue active : 'approved' (default) ou 'drafts' (onglet dédié, admin only)
+  const view = (isAdmin() && localStorage.getItem('produits_view')) || 'approved';
+
+  // Compteur de drafts (toujours fetché pour afficher le badge sur l'onglet, admin only)
+  let draftsCount = 0;
+  if (isAdmin()) {
+    const { count } = await sb.from('products').select('id', { count: 'exact', head: true }).eq('workspace_id', currentWorkspaceId).eq('status', 'draft');
+    draftsCount = count || 0;
+  }
+
+  // Si vue Drafts → render dédié simplifié et early return
+  if (view === 'drafts' && isAdmin()) {
+    return renderProduitsDrafts(el, draftsCount);
+  }
+
   const { countries, products, ads, adCountries } = await fetchAll();
   const { data: pagesAll } = await sb.from('product_pages').select('product_id, country_id, status').eq('workspace_id', currentWorkspaceId);
   const adsByProduct = {};
@@ -1377,7 +1390,7 @@ async function renderProduits(el) {
     <div class="page-head">
       <div>
         <div class="page-title"> Produits</div>
-        <div class="page-subtitle">${fmt(products.length)} produit(s) · ${fmt(ads.length)} ads${readyCount > 0 ? ` · <span style="color:var(--gold);font-weight:600">${readyCount} prêt${readyCount > 1 ? 's' : ''} à lancer</span>` : ''}</div>
+        <div class="page-subtitle">${fmt(products.length)} produit(s) approuvé(s) · ${fmt(ads.length)} ads${readyCount > 0 ? ` · <span style="color:var(--gold);font-weight:600">${readyCount} prêt${readyCount > 1 ? 's' : ''} à lancer</span>` : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         ${readyCount > 0 || onlyReady ? `
@@ -1389,6 +1402,12 @@ async function renderProduits(el) {
         ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
       </div>
     </div>
+    ${isAdmin() ? `
+      <div class="copy-tabs" style="margin-bottom:18px">
+        <button type="button" class="copy-tab active" data-pview="approved">Approuvés (${products.length})</button>
+        <button type="button" class="copy-tab" data-pview="drafts">Drafts ${draftsCount > 0 ? `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#000;font-size:10px;font-weight:700;margin-left:6px;padding:0 5px">${draftsCount}</span>` : '(0)'}</button>
+      </div>
+    ` : ''}
     ${products.length === 0 ? `
       <div class="empty">
         <div class="empty-icon"></div>
@@ -1459,6 +1478,98 @@ async function renderProduits(el) {
     localStorage.setItem('products_only_ready', e.target.checked ? 'true' : 'false');
     render();
   });
+  // Tab switch (Approuvés / Drafts)
+  el.querySelectorAll('[data-pview]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem('produits_view', btn.dataset.pview);
+      render();
+    });
+  });
+}
+
+// Vue dédiée aux produits en draft (admin only) — en attente de pricing/COGS pour validation
+async function renderProduitsDrafts(el, draftsCount) {
+  const { data: drafts } = await sb.from('products')
+    .select('*')
+    .eq('workspace_id', currentWorkspaceId)
+    .eq('status', 'draft')
+    .order('created_at', { ascending: false });
+
+  // Compteur des approuvés pour le badge de l'autre onglet
+  const { count: approvedCount } = await sb.from('products').select('id', { count: 'exact', head: true }).eq('workspace_id', currentWorkspaceId).eq('status', 'approved');
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Drafts</div>
+        <div class="page-subtitle">${draftsCount} produit${draftsCount > 1 ? 's' : ''} en attente de pricing + validation</div>
+      </div>
+      <button class="btn" id="btn-new-product">+ Nouveau produit</button>
+    </div>
+
+    <div class="copy-tabs" style="margin-bottom:18px">
+      <button type="button" class="copy-tab" data-pview="approved">Approuvés (${approvedCount || 0})</button>
+      <button type="button" class="copy-tab active" data-pview="drafts">Drafts <span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#000;font-size:10px;font-weight:700;margin-left:6px;padding:0 5px">${draftsCount}</span></button>
+    </div>
+
+    ${(drafts || []).length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-icon"></div>
+        <div class="empty-title">Aucun produit en draft</div>
+        <div class="empty-text">Les nouveaux produits que tu crées atterrissent ici en attendant le pricing + validation.</div>
+      </div>
+    ` : `
+      <div class="product-grid">
+        ${(drafts || []).map(p => {
+          const priority = p.priority || 'normal';
+          const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
+          const hasPrice = !!p.base_price;
+          const hasCogs = !!p.cogs;
+          const ageDays = Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000);
+          return `
+            <div class="product-card" data-edit-draft="${escapeHtml(p.id)}" style="border-left:4px solid var(--orange);cursor:pointer">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
+                <div class="product-card-title">${escapeHtml(p.id)}</div>
+                <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>
+                  ${priorityBadge(priority)}
+                </div>
+              </div>
+              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}créé il y a ${ageDays === 0 ? 'aujourd\'hui' : ageDays + ' jour' + (ageDays > 1 ? 's' : '')}</div>
+
+              <div style="margin-top:12px;display:flex;flex-direction:column;gap:6px;font-size:12px">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="color:${hasPrice ? 'var(--green)' : 'var(--text-mute)'};font-weight:700">${hasPrice ? '✓' : '○'}</span>
+                  <span style="color:${hasPrice ? 'var(--text)' : 'var(--text-dim)'}">Prix de vente : ${hasPrice ? `<strong>${p.base_price} ${escapeHtml(p.base_price_currency || 'EUR')}</strong>` : '<em>à renseigner</em>'}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="color:${hasCogs ? 'var(--green)' : 'var(--text-mute)'};font-weight:700">${hasCogs ? '✓' : '○'}</span>
+                  <span style="color:${hasCogs ? 'var(--text)' : 'var(--text-dim)'}">COGS : ${hasCogs ? `<strong>${p.cogs} ${escapeHtml(p.cogs_currency || 'USD')}</strong>` : '<em>en attente de l\'agent</em>'}</span>
+                </div>
+              </div>
+
+              <div style="margin-top:14px;padding:10px 12px;background:var(--bg-input);border-radius:6px;border-left:3px solid var(--orange);font-size:11px;line-height:1.5;color:var(--text-dim)">
+                ${hasPrice && hasCogs
+                  ? '<strong style="color:var(--green)">Prêt à valider.</strong> Clique pour ouvrir le détail et lancer.'
+                  : 'Clique pour <strong>compléter le pricing</strong> et calculer le ROAS BE.'}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-edit-draft]').forEach(c => {
+    c.addEventListener('click', () => editProductFlow(c.dataset.editDraft));
+  });
+  el.querySelectorAll('[data-pview]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem('produits_view', btn.dataset.pview);
+      render();
+    });
+  });
+  document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
 }
 
 function computeDefaultMaster(enabledCountries) {
