@@ -2977,6 +2977,16 @@ async function editProductFlow(productId) {
           <input class="input" data-field="concurrentPageUrl" value="${escapeHtml(product.concurrent_page_url || '')}" placeholder="https://concurrent.com/products/...">
         </div>
 
+        <div style="padding:14px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft);margin-bottom:14px">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none">
+            <input type="checkbox" data-field="passedTesting" ${product.passed_testing ? 'checked' : ''} style="margin:4px 0 0 0;accent-color:var(--gold);flex-shrink:0">
+            <div>
+              <div style="font-weight:600">Validé post-testing — apparaît dans Scripts</div>
+              <div class="text-sm text-dim" style="margin-top:2px;line-height:1.5">Coche cette case quand le produit a prouvé sa rentabilité en testing. Il sera alors visible dans l'onglet <strong>Scripts</strong> où tu pourras lui ajouter des scripts pour scaler avec tes propres ads.</div>
+            </div>
+          </label>
+        </div>
+
         <div style="padding:16px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft);margin-bottom:14px">
           <div style="font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px"> Pricing</div>
 
@@ -3062,9 +3072,11 @@ async function editProductFlow(productId) {
       btn.addEventListener('click', () => {
         const action = btn.dataset.action;
         if (action === 'cancel') return close(null);
-        // Capture all fields
+        // Capture all fields (checkboxes via .checked, autres via .value)
         const fields = {};
-        bd.querySelectorAll('[data-field]').forEach(f => { fields[f.dataset.field] = f.value; });
+        bd.querySelectorAll('[data-field]').forEach(f => {
+          fields[f.dataset.field] = (f.type === 'checkbox') ? f.checked : f.value;
+        });
         close({ action, fields });
       });
     });
@@ -3089,6 +3101,8 @@ async function editProductFlow(productId) {
   const cogs = parseFloat(fields.cogs) || null;
   const pspFeesPct = parseFloat(fields.pspFeesPct);
   const otherFeesEur = parseFloat(fields.otherFeesEur);
+  // Checkbox "passed_testing" : valeur "on" si cochée, undefined si décochée
+  const passedTesting = fields.passedTesting === 'on' || fields.passedTesting === true;
   const payload = {
     name: (fields.name || '').trim() || product.id,
     drive_folder_id: (fields.driveFolderId || '').trim() || null,
@@ -3101,7 +3115,8 @@ async function editProductFlow(productId) {
     cogs_currency: fields.cogsCurrency || 'USD',
     cogs_by_country: cogsByCountry,
     psp_fees_pct: isNaN(pspFeesPct) ? 3 : pspFeesPct,
-    other_fees_eur: isNaN(otherFeesEur) ? 0 : otherFeesEur
+    other_fees_eur: isNaN(otherFeesEur) ? 0 : otherFeesEur,
+    passed_testing: passedTesting
   };
 
   if (action === 'approve') {
@@ -8149,10 +8164,10 @@ async function renderScriptsList(el) {
     return renderScriptsDrafts(el, draftsCount);
   }
 
-  // On lit UNIQUEMENT les ads source='script' (le pipeline scripts est indépendant des concurrent ads)
-  // Les drafts sont cachés ici aussi — ils ne devraient pas avoir de scripts à produire
+  // On lit UNIQUEMENT les produits validés POST-testing (= rentables, prêts à scaler)
+  // + les ads source='script' (pipeline scripts indépendant)
   const [{ data: products }, { data: scripts }] = await Promise.all([
-    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').order('created_at', { ascending: false }),
+    sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').eq('passed_testing', true).order('created_at', { ascending: false }),
     sb.from('ads').select('id, product_id, name, master_file_id, position').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
   ]);
 
@@ -8209,7 +8224,7 @@ async function renderScriptsList(el) {
     ` : ''}
 
     ${productStats.length === 0 ? `
-      <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun produit</div><div class="empty-text">${isAdminUser ? 'Crée d\'abord un produit dans l\'onglet Produits.' : 'L\'admin doit d\'abord créer un produit.'}</div></div>
+      <div class="empty" style="padding:60px 20px"><div class="empty-icon"></div><div class="empty-title">Aucun produit validé post-testing</div><div class="empty-text">${isAdminUser ? 'Pour qu\'un produit apparaisse ici, va sur sa page → Éditer → coche "Validé post-testing". Réservé aux produits qui ont prouvé leur rentabilité en testing.' : 'L\'admin n\'a pas encore validé de produit post-testing.'}</div></div>
     ` : visibleStats.length === 0 ? `
       <div class="empty" style="padding:60px 20px">
         <div class="empty-title">${isVideoEd ? 'Aucun script à produire pour l\'instant' : 'Tout est produit !'}</div>
