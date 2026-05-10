@@ -225,6 +225,12 @@ a{color:var(--gold);text-decoration:none}
 .ad-download-icon.disabled{opacity:0.25;cursor:not-allowed;pointer-events:none}
 .ad-download-icon svg{width:12px;height:12px;display:block}
 .check-cell.master.clickable{cursor:pointer}
+.ad-trans-toggle{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:0.5px;cursor:pointer;border:1px solid;vertical-align:middle;user-select:none;transition:filter 0.15s}
+.ad-trans-toggle.voice{background:rgba(96,165,250,0.12);color:var(--blue);border-color:rgba(96,165,250,0.35)}
+.ad-trans-toggle.subs_only{background:rgba(192,132,252,0.15);color:var(--purple);border-color:rgba(192,132,252,0.4)}
+.ad-trans-toggle:hover{filter:brightness(1.3)}
+.ad-trans-toggle.readonly{cursor:default}
+.ad-trans-toggle.readonly:hover{filter:none}
 .check-cell.master.clickable:hover .check-icon.master.checked{transform:scale(1.08);box-shadow:0 0 0 2px rgba(200,165,90,0.4)}
 .ad-link-icon{display:inline-block;margin-left:6px;cursor:pointer;font-size:13px;text-decoration:none}
 .ad-link-icon:hover{transform:scale(1.15)}
@@ -1965,6 +1971,16 @@ async function renderProduit(el, productId) {
                 <td class="ad-col">
                   ${escapeHtml(ad.name)}
                   ${ad.source === 'script' ? `<span title="Cette ad vient d'un script original" style="display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;background:rgba(192,132,252,0.15);color:var(--purple);font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle">S</span>` : ''}
+                  ${(() => {
+                    const tt = ad.translation_type || 'voice';
+                    const label = tt === 'subs_only' ? 'SUBS' : 'VOIX';
+                    const tooltip = isAdmin()
+                      ? (tt === 'subs_only' ? 'Sous-titres uniquement (clique pour passer en voix off)' : 'Voix off à traduire (clique pour passer en sous-titres uniquement)')
+                      : (tt === 'subs_only' ? 'Sous-titres uniquement — pas de voix à doubler' : 'Voix off à traduire + sous-titres en langue cible');
+                    const cls = isAdmin() ? '' : ' readonly';
+                    const dataAttr = isAdmin() ? `data-toggle-trans="${ad.id}"` : '';
+                    return `<span class="ad-trans-toggle ${tt}${cls}" ${dataAttr} title="${tooltip}">${label}</span>`;
+                  })()}
                   <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? 'Voir / Éditer Ad Copy' : 'Ajouter Ad Copy (titre, description)'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                   ${(() => {
@@ -2222,6 +2238,21 @@ async function renderProduit(el, productId) {
       e.stopPropagation();
       if (!canEdit()) { toast('Permission refusée', 'error'); return; }
       editAdCopyFlow(icon.dataset.adCopy);
+    });
+  });
+
+  // Translation type toggle (admin only) : voice ↔ subs_only
+  el.querySelectorAll('[data-toggle-trans]').forEach(span => {
+    span.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+      const adId = span.dataset.toggleTrans;
+      const { data: ad } = await sb.from('ads').select('translation_type').eq('id', adId).single();
+      const newType = (ad?.translation_type === 'subs_only') ? 'voice' : 'subs_only';
+      const { error } = await sb.from('ads').update({ translation_type: newType }).eq('id', adId);
+      if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      toast(newType === 'subs_only' ? 'Sous-titres uniquement — pas de doublage voix' : 'Voix off à traduire', 'success', 3000);
+      render();
     });
   });
 
