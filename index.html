@@ -2113,19 +2113,30 @@ async function renderProduit(el, productId) {
                   const pv = (pvByAd[ad.id] || {})[c.id];
                   const isCut = (product.cut_countries || []).includes(c.id);
                   if (!isCut) { rowTotal += 2; if (ac.trad) rowDone++; if (ac.meta) rowDone++; }
+                  // Pays source : la langue du master vient de ce pays (juste sous-titres natifs à ajouter,
+                  // pas de HeyGen). On l'indique par un point violet dans le coin de la cellule Trad.
+                  const isSourceCountry = ad.source_country && ad.source_country === c.id;
                   // État Trad : approved (vert) > rejected (rouge) > pending (jaune) > vide
                   let tradState = 'empty';
                   let tradTooltip = isCut ? 'Marché coupé' : 'Aucune vidéo';
                   if (ac.trad) { tradState = 'approved'; tradTooltip = 'Validée'; }
                   else if (pv?.status === 'rejected') { tradState = 'rejected'; tradTooltip = 'Rejetée — clique pour voir le feedback'; }
                   else if (pv?.status === 'pending') { tradState = 'pending'; tradTooltip = 'En attente de validation — clique pour valider/rejeter'; }
+                  if (isSourceCountry && !isCut) {
+                    tradTooltip = `[Pays source] Master en langue native — l'ads_translator ajoute juste les sous-titres ${c.id}. ${tradTooltip}`;
+                  }
                   const cellClickable = !isCut && (tradState === 'pending' || tradState === 'rejected' || tradState === 'approved');
                   // Couleur du carré (style identique aux cases Meta) — pas de fond sur la cellule entière
                   const tradBg = { empty: 'var(--bg-input)', pending: '#fbbf24', approved: '#34d399', rejected: '#f87171' }[tradState];
                   const tradBorder = { empty: 'var(--border)', pending: '#fbbf24', approved: '#34d399', rejected: '#f87171' }[tradState];
+                  // Petit point violet en haut à droite si pays source (sans toucher au carré central)
+                  const sourceMarker = (isSourceCountry && !isCut)
+                    ? `<span style="position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--purple);box-shadow:0 0 0 1.5px var(--bg)" title="Pays source"></span>`
+                    : '';
                   return `
-                    <td class="check-cell ${cellClickable ? '' : 'auto'} ${isCut ? 'cut' : ''}" ${cellClickable ? `data-validate-trad="${ad.id}|${c.id}|${tradState}" style="cursor:pointer"` : ''} title="${escapeHtml(tradTooltip)}">
+                    <td class="check-cell ${cellClickable ? '' : 'auto'} ${isCut ? 'cut' : ''}" style="position:relative${cellClickable ? ';cursor:pointer' : ''}" ${cellClickable ? `data-validate-trad="${ad.id}|${c.id}|${tradState}"` : ''} title="${escapeHtml(tradTooltip)}">
                       <span class="check-icon" style="background:${tradBg};border-color:${tradBorder}"></span>
+                      ${sourceMarker}
                     </td>
                     <td class="check-cell ${canEdit() && !isCut ? '' : 'readonly'} ${isCut ? 'cut' : ''}" ${isCut ? '' : `data-toggle-meta="${ad.id}|${c.id}"`} title="${isCut ? 'Marché coupé — réactive-le pour éditer' : (canEdit() ? 'Clique pour toggle ou drag pour multi-sélection' : 'Lecture seule')}">
                       <span class="check-icon meta ${ac.meta ? 'checked' : ''}"></span>
@@ -8387,11 +8398,16 @@ async function renderScriptDetail(el, productId) {
         <a class="btn btn-ghost btn-sm" href="#scripts" style="margin-bottom:8px">← Scripts</a>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <div class="page-title mono" style="color:var(--gold)">${escapeHtml(product.id)}<span style="color:var(--text);font-family:'Outfit',sans-serif;font-size:18px;font-weight:500"> · ${escapeHtml(product.name || '')}</span></div>
-          ${priorityBadge(priority)}
+          ${isAdminUser
+            ? `<span id="prio-badge-clickable" title="Cliquer pour modifier la priorité et les paramètres" style="cursor:pointer">${priorityBadge(priority)}</span>`
+            : priorityBadge(priority)}
         </div>
         <div class="page-subtitle">${todoScripts.length} script(s) à produire · ${doneScripts.length} fait(s)</div>
       </div>
-      ${isAdminUser ? `<button class="btn btn-sm" id="btn-new-script">+ Nouveau script</button>` : ''}
+      ${isAdminUser ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" id="btn-edit-product-from-scripts" title="Éditer marchés, priorité, pricing, etc.">⚙ Paramètres</button>
+        <button class="btn btn-sm" id="btn-new-script">+ Nouveau script</button>
+      </div>` : ''}
     </div>
 
     <div class="copy-tabs">
@@ -8447,11 +8463,14 @@ async function renderScriptDetail(el, productId) {
           actionBtns.push(`<button class="btn btn-ghost btn-sm" data-delete-script="${s.id}" style="color:var(--red)">Supprimer</button>`);
         }
 
+        const srcCountry = s.source_country || 'FR';
+        const srcBadge = `<span title="Pays source — le master sera produit en langue ${escapeHtml(srcCountry)}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:5px;background:rgba(192,132,252,0.12);color:var(--purple);font-size:10px;font-weight:700;letter-spacing:0.4px">SRC ${escapeHtml(srcCountry)}</span>`;
         return `
           <div class="script-ad-row ${rowClass}">
             <div class="script-ad-head">
               <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                 <span class="script-ad-name">${escapeHtml(s.name)}</span>
+                ${srcBadge}
                 ${statusBadge}
               </div>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
@@ -8492,6 +8511,8 @@ async function renderScriptDetail(el, productId) {
 
   // Boutons admin
   document.getElementById('btn-new-script')?.addEventListener('click', () => createScriptFlow(productId));
+  document.getElementById('btn-edit-product-from-scripts')?.addEventListener('click', () => editProductFlow(productId));
+  document.getElementById('prio-badge-clickable')?.addEventListener('click', () => editProductFlow(productId));
   el.querySelectorAll('[data-edit-script]').forEach(btn => btn.addEventListener('click', () => editAdScriptFlow(btn.dataset.editScript)));
   el.querySelectorAll('[data-delete-script]').forEach(btn => btn.addEventListener('click', () => deleteScriptFlow(btn.dataset.deleteScript)));
 
@@ -8709,11 +8730,28 @@ async function editAdScriptFlow(adId) {
   const { data: ad } = await sb.from('ads').select('*').eq('id', adId).single();
   if (!ad) { toast('Ad introuvable', 'error'); return; }
 
+  // Pays disponibles pour ce produit
+  const { data: product } = await sb.from('products').select('enabled_countries').eq('id', ad.product_id).maybeSingle();
+  const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
+  const enabled = (product?.enabled_countries?.length ? product.enabled_countries : (countriesAll || []).map(c => c.id));
+  const currentSrc = ad.source_country || 'FR';
+  const sourceCountryOptions = (countriesAll || [])
+    .filter(c => enabled.includes(c.id))
+    .map(c => `<option value="${escapeHtml(c.id)}"${c.id === currentSrc ? ' selected' : ''}>${escapeHtml(c.id)} — ${escapeHtml(c.name || c.id)}</option>`)
+    .join('');
+
   const r = await modal(`
     <div class="modal-title">Script — ${escapeHtml(ad.name)}</div>
     <div class="text-sm text-dim mb-md">Le script que le video editor verra pour produire cette vidéo. Texte libre — angle, hook, copy, idées B-rolls, etc.</div>
     <div class="input-group">
-      <textarea class="input" data-field="script" style="min-height:240px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ...">${escapeHtml(ad.script || '')}</textarea>
+      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Pays source (langue du master produit)</label>
+      <select class="input" data-field="source_country" style="margin-bottom:14px">
+        ${sourceCountryOptions}
+      </select>
+    </div>
+    <div class="input-group">
+      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Script</label>
+      <textarea class="input" data-field="script" style="min-height:220px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ...">${escapeHtml(ad.script || '')}</textarea>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
@@ -8722,7 +8760,8 @@ async function editAdScriptFlow(adId) {
   `);
   if (!r) return;
   const script = (r.script || '').trim() || null;
-  const { error } = await sb.from('ads').update({ script }).eq('id', adId);
+  const source_country = (r.source_country || 'FR').trim();
+  const { error } = await sb.from('ads').update({ script, source_country }).eq('id', adId);
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
   toast('Script enregistré', 'success');
   render();
@@ -8741,11 +8780,30 @@ async function createScriptFlow(productId) {
   const nextN = maxN + 1;
   const newName = `Script ${nextN}`;
 
+  // Pays disponibles pour ce produit (pour choisir le pays source)
+  const { data: product } = await sb.from('products').select('enabled_countries').eq('id', productId).maybeSingle();
+  const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
+  const enabled = (product?.enabled_countries?.length ? product.enabled_countries : (countriesAll || []).map(c => c.id));
+  const sourceCountryOptions = (countriesAll || [])
+    .filter(c => enabled.includes(c.id))
+    .map(c => `<option value="${escapeHtml(c.id)}"${c.id === 'FR' ? ' selected' : ''}>${escapeHtml(c.id)} — ${escapeHtml(c.name || c.id)}</option>`)
+    .join('');
+
   const r = await modal(`
     <div class="modal-title">Nouveau script — ${escapeHtml(newName)}</div>
     <div class="text-sm text-dim mb-md">Rédige le script que le video editor suivra pour produire cette vidéo. Tu pourras l'éditer plus tard.</div>
     <div class="input-group">
-      <textarea class="input" data-field="script" style="min-height:240px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" autofocus placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ..."></textarea>
+      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Pays source (langue du master produit)</label>
+      <select class="input" data-field="source_country" style="margin-bottom:4px">
+        ${sourceCountryOptions}
+      </select>
+      <div class="text-sm text-dim" style="font-size:11px;line-height:1.5;margin-bottom:14px">
+        Le video_editor produit le master dans cette langue. L'ads_translator ajoute ensuite les sous-titres natifs pour ce pays, et HeyGen + sous-titres locaux pour les autres.
+      </div>
+    </div>
+    <div class="input-group">
+      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Script</label>
+      <textarea class="input" data-field="script" style="min-height:220px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" autofocus placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ..."></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
@@ -8754,16 +8812,18 @@ async function createScriptFlow(productId) {
   `);
   if (!r) return;
   const script = (r.script || '').trim() || null;
+  const source_country = (r.source_country || 'FR').trim();
   const { error } = await sb.from('ads').insert({
     product_id: productId,
     name: newName,
     position: nextN,
     source: 'script',
+    source_country,
     script,
     workspace_id: currentWorkspaceId
   });
   if (error) { toast('Erreur création : ' + error.message, 'error'); return; }
-  toast(`${newName} créé`, 'success');
+  toast(`${newName} créé (source ${source_country})`, 'success');
   render();
 }
 
