@@ -8533,9 +8533,17 @@ async function ensureDriveReady() {
   return true;
 }
 
-async function loadBRollsTab(product, isAdminUser) {
+// Stack de navigation pour les B-Rolls (chemin de dossiers en cours)
+let _brollsNavPath = [];
+
+async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
   const wrap = document.getElementById('tab-brolls');
   if (!wrap) return;
+
+  // Gestion de la navigation : 'reset' = retour racine, 'up' = remonter d'un cran, {id,name} = entrer dans un dossier
+  if (navAction === 'reset') _brollsNavPath = [];
+  else if (navAction === 'up') _brollsNavPath.pop();
+  else if (navAction && typeof navAction === 'object' && navAction.id) _brollsNavPath.push(navAction);
 
   if (!product.drive_folder_id) {
     wrap.innerHTML = `
@@ -8562,16 +8570,15 @@ async function loadBRollsTab(product, isAdminUser) {
   wrap.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
 
   try {
-    // Assure que gapi.client.drive est dispo (peut ne pas l'être si on vient de restaurer le token)
     await ensureDriveReady();
 
-    // Trouve / crée le sous-dossier B-Rolls
-    let bRollsFolder = await driveFindFolder(B_ROLLS_FOLDER_NAME, product.drive_folder_id);
-    if (!bRollsFolder && isAdminUser) {
-      bRollsFolder = await driveCreateFolder(B_ROLLS_FOLDER_NAME, product.drive_folder_id);
+    // Trouve / crée le sous-dossier B-Rolls racine
+    let bRollsRoot = await driveFindFolder(B_ROLLS_FOLDER_NAME, product.drive_folder_id);
+    if (!bRollsRoot && isAdminUser) {
+      bRollsRoot = await driveCreateFolder(B_ROLLS_FOLDER_NAME, product.drive_folder_id);
       toast('Dossier B-Rolls créé sur Drive', 'success');
     }
-    if (!bRollsFolder) {
+    if (!bRollsRoot) {
       wrap.innerHTML = `
         <div class="empty" style="padding:40px 20px">
           <div class="empty-title">Dossier B-Rolls introuvable</div>
@@ -8580,48 +8587,108 @@ async function loadBRollsTab(product, isAdminUser) {
       `;
       return;
     }
-    const folderUrl = `https://drive.google.com/drive/folders/${bRollsFolder.id}`;
-    const files = await driveListFolderContent(bRollsFolder.id);
-    const realFiles = files.filter(f => f.mimeType !== 'application/vnd.google-apps.folder');
+
+    // Détermine le dossier courant à lister selon la navigation
+    const currentFolder = _brollsNavPath.length > 0
+      ? _brollsNavPath[_brollsNavPath.length - 1]
+      : { id: bRollsRoot.id, name: B_ROLLS_FOLDER_NAME };
+
+    const folderUrl = `https://drive.google.com/drive/folders/${currentFolder.id}`;
+    const all = await driveListFolderContent(currentFolder.id);
+    const folders = all.filter(f => f.mimeType === 'application/vnd.google-apps.folder').sort((a, b) => a.name.localeCompare(b.name));
+    const realFiles = all.filter(f => f.mimeType !== 'application/vnd.google-apps.folder').sort((a, b) => a.name.localeCompare(b.name));
+
+    // Breadcrumb
+    const breadcrumbItems = [{ id: bRollsRoot.id, name: B_ROLLS_FOLDER_NAME }, ..._brollsNavPath];
+    const breadcrumb = breadcrumbItems.map((item, i) => {
+      const isLast = i === breadcrumbItems.length - 1;
+      const depthFromRoot = i; // 0 = racine
+      return isLast
+        ? `<span style="font-weight:600;color:var(--text)">${escapeHtml(item.name)}</span>`
+        : `<a href="#" data-broll-jump="${depthFromRoot}" style="color:var(--blue);text-decoration:underline">${escapeHtml(item.name)}</a>`;
+    }).join(' <span style="color:var(--text-mute)">/</span> ');
 
     wrap.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
-        <div class="text-sm text-dim">${realFiles.length} fichier(s) dans <span class="mono">${escapeHtml(B_ROLLS_FOLDER_NAME)}</span></div>
-        <a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ouvrir le dossier dans Drive ↗</a>
+        <div class="text-sm" style="font-family:'JetBrains Mono',monospace">${breadcrumb}</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          ${_brollsNavPath.length > 0 ? '<button class="btn btn-ghost btn-sm" data-broll-up>← Remonter</button>' : ''}
+          <a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ouvrir dans Drive ↗</a>
+        </div>
       </div>
-      ${realFiles.length === 0 ? `
+
+      ${folders.length === 0 && realFiles.length === 0 ? `
         <div class="empty" style="padding:40px 20px">
-          <div class="empty-title">Aucun B-Roll uploadé</div>
-          <div class="empty-text">Uploade tes fichiers vidéo / image directement dans le dossier Drive ci-dessus.</div>
+          <div class="empty-title">Dossier vide</div>
+          <div class="empty-text">Uploade tes fichiers ou crée des sous-dossiers (catégories) directement sur Drive.</div>
         </div>
       ` : `
-        <div>
-          ${realFiles.map(f => {
-            const isVideo = (f.mimeType || '').startsWith('video/');
-            const isImage = (f.mimeType || '').startsWith('image/');
-            const icon = isVideo
-              ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`
-              : isImage
-                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
-                : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-            const viewUrl = `https://drive.google.com/file/d/${f.id}/view`;
-            return `
-              <div class="broll-row">
-                <div class="broll-icon">${icon}</div>
-                <div class="broll-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
-                <div class="broll-actions">
-                  <a href="${escapeHtml(viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir</a>
-                  <button class="btn btn-secondary btn-sm" data-download-broll="${f.id}" data-broll-name="${escapeHtml(f.name)}">Télécharger</button>
-                </div>
+        ${folders.length > 0 ? `
+          <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Catégories (${folders.length})</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:18px">
+            ${folders.map(f => `
+              <div data-broll-folder-id="${f.id}" data-broll-folder-name="${escapeHtml(f.name)}" style="padding:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
+                <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <div style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
               </div>
-            `;
-          }).join('')}
-        </div>
+            `).join('')}
+          </div>
+        ` : ''}
+
+        ${realFiles.length > 0 ? `
+          <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Fichiers (${realFiles.length})</div>
+          <div>
+            ${realFiles.map(f => {
+              const isVideo = (f.mimeType || '').startsWith('video/');
+              const isImage = (f.mimeType || '').startsWith('image/');
+              const icon = isVideo
+                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`
+                : isImage
+                  ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+                  : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+              const viewUrl = `https://drive.google.com/file/d/${f.id}/view`;
+              return `
+                <div class="broll-row">
+                  <div class="broll-icon">${icon}</div>
+                  <div class="broll-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+                  <div class="broll-actions">
+                    <a href="${escapeHtml(viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir</a>
+                    <button class="btn btn-secondary btn-sm" data-download-broll="${f.id}" data-broll-name="${escapeHtml(f.name)}">Télécharger</button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        ` : ''}
       `}
     `;
 
+    // Handlers
     wrap.querySelectorAll('[data-download-broll]').forEach(btn => {
       btn.addEventListener('click', () => downloadDriveFile(btn.dataset.downloadBroll, btn.dataset.brollName));
+    });
+
+    // Click sur un dossier (catégorie) → entrer dedans
+    wrap.querySelectorAll('[data-broll-folder-id]').forEach(card => {
+      card.addEventListener('click', () => {
+        loadBRollsTab(product, isAdminUser, { id: card.dataset.brollFolderId, name: card.dataset.brollFolderName });
+      });
+    });
+
+    // Bouton "Remonter" → pop la nav stack
+    wrap.querySelector('[data-broll-up]')?.addEventListener('click', () => {
+      loadBRollsTab(product, isAdminUser, 'up');
+    });
+
+    // Click sur un breadcrumb → tronque la stack au niveau cliqué
+    wrap.querySelectorAll('[data-broll-jump]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const depth = parseInt(link.dataset.brollJump, 10);
+        // depth 0 = racine = path vide ; depth N = on garde N items dans la stack (sans la racine)
+        _brollsNavPath = _brollsNavPath.slice(0, depth);
+        loadBRollsTab(product, isAdminUser, null); // null = pas d'action de nav, juste re-render avec la stack mise à jour
+      });
     });
   } catch (e) {
     console.error('[BROLLS load]', e);
