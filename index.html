@@ -2295,7 +2295,12 @@ async function renderProduit(el, productId) {
       if (!driveState.connected || !canEdit()) return;
       if (e.target.tagName !== 'INPUT') fileInput?.click();
     });
-    fileInput?.addEventListener('change', (e) => { handleFiles(e.target.files); e.target.value = ''; });
+    fileInput?.addEventListener('change', (e) => {
+      // Snapshot synchronously avant de clear l'input (sinon FileList est vidé pendant les awaits)
+      const filesArr = Array.from(e.target.files);
+      e.target.value = '';
+      handleFiles(filesArr);
+    });
     // Drag & drop
     dz.addEventListener('dragover', (e) => {
       e.preventDefault();
@@ -2312,7 +2317,8 @@ async function renderProduit(el, productId) {
       e.preventDefault();
       dz.style.borderColor = '';
       dz.style.background = '';
-      handleFiles(e.dataTransfer.files);
+      // Snapshot synchronously — DataTransfer.files peut être éphémère après l'event handler
+      handleFiles(Array.from(e.dataTransfer.files));
     });
   });
 
