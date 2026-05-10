@@ -1613,6 +1613,13 @@ function computeDefaultMaster(enabledCountries) {
 async function newProductFlow() {
   if (!isAdmin()) { toast('Seul un admin peut créer un produit', 'error'); return; }
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
+  // Auto-suggest le prochain ID F0001/F0002/... basé sur les produits existants du workspace
+  const { data: existingProducts } = await sb.from('products').select('id').eq('workspace_id', currentWorkspaceId);
+  const maxN = (existingProducts || []).reduce((m, p) => {
+    const match = (p.id || '').match(/^F0*(\d+)$/i);
+    return match ? Math.max(m, parseInt(match[1], 10)) : m;
+  }, 0);
+  const suggestedId = `F${String(maxN + 1).padStart(4, '0')}`;
   const selectedCountries = allCountries.map(c => c.id);
   let concurrentFiles = [];
   const countriesHtml = allCountries.map(c => `
@@ -1626,7 +1633,7 @@ async function newProductFlow() {
     <div class="modal-title">Créer un produit</div>
     <div class="input-group">
       <label class="input-label">Code produit</label>
-      <input class="input mono" data-field="id" placeholder="F0001" autofocus>
+      <input class="input mono" data-field="id" value="${suggestedId}" placeholder="F0001" autofocus>
       <div class="input-hint">Format recommandé : F0001, F0002, etc.</div>
     </div>
     <div class="input-group">
@@ -3743,6 +3750,7 @@ async function deleteProductWithDriveOption(productId) {
   // 2. Supprimer le dossier Drive si demandé
   if (deleteDrive && hasDriveFolder && driveState.connected) {
     try {
+      await ensureDriveReady();
       await driveTrashFolder(product.drive_folder_id);
       toast(' Dossier Drive mis à la corbeille', 'success');
       await logSync(` Dossier Drive de ${productId} mis à la corbeille`, 'info');
