@@ -9168,13 +9168,14 @@ async function openVoiceSettingsFlow() {
   const jwt = await getCallerJwt();
   if (!jwt) { toast('Session expirée', 'error'); return; }
 
-  // État local du modal (sélection en cours + filtres)
+  // État local du modal (sélection en cours + filtres + favoris)
   const state = {
     selectedFemale: current?.voice_id_female || null,
     selectedFemaleName: current?.voice_name_female || null,
     selectedMale: current?.voice_id_male || null,
     selectedMaleName: current?.voice_name_male || null,
     voices: [],
+    favorites: Array.isArray(current?.favorite_voices) ? [...current.favorite_voices] : [],
     loading: false,
     filters: {
       language: 'fr',  // par défaut on cherche du FR (langue de prod)
@@ -9182,6 +9183,32 @@ async function openVoiceSettingsFlow() {
       featured: false,
       search: ''
     }
+  };
+
+  // Helpers favoris
+  const isFavorite = (voiceId) => state.favorites.some(f => f.voice_id === voiceId);
+  const toggleFavorite = async (voice) => {
+    if (isFavorite(voice.voice_id)) {
+      state.favorites = state.favorites.filter(f => f.voice_id !== voice.voice_id);
+    } else {
+      // Snapshot des metadata utiles pour affichage rapide
+      state.favorites.push({
+        voice_id: voice.voice_id,
+        name: voice.name || voice.voice_id,
+        gender: voice.gender || null,
+        accent: voice.accent || null,
+        language: voice.language || null,
+        preview_url: voice.preview_url || null,
+        description: (voice.description || '').slice(0, 120)
+      });
+    }
+    // Auto-save immédiat (pas besoin de cliquer Enregistrer)
+    await sb.from('workspace_voice_settings').upsert({
+      workspace_id: currentWorkspaceId,
+      favorite_voices: state.favorites,
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser.id
+    }, { onConflict: 'workspace_id' });
   };
 
   const currentModel = current?.model_id || 'eleven_multilingual_v2';
@@ -9277,38 +9304,53 @@ async function openVoiceSettingsFlow() {
   const currentFEl = bd.querySelector('#vs-current-f');
   const currentMEl = bd.querySelector('#vs-current-m');
 
+  function renderVoiceRow(v, opts = {}) {
+    const isF = state.selectedFemale === v.voice_id;
+    const isM = state.selectedMale === v.voice_id;
+    const fav = isFavorite(v.voice_id);
+    const meta = [];
+    if (v.gender) meta.push(v.gender);
+    if (v.accent) meta.push(v.accent);
+    if (v.language) meta.push(v.language.toUpperCase());
+    if (v.age) meta.push(v.age);
+    const bg = opts.isFavSection ? 'rgba(250,204,21,0.06)' : ((isF || isM) ? 'rgba(192,132,252,0.10)' : 'transparent');
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:${bg};border-bottom:1px solid var(--border-soft)">
+        ${v.preview_url ? `<audio controls preload="none" src="${escapeHtml(v.preview_url)}" style="height:32px;width:200px;flex-shrink:0"></audio>` : '<div style="width:200px;flex-shrink:0;color:var(--text-mute);font-size:11px;text-align:center">no preview</div>'}
+        <div style="flex:1;min-width:120px">
+          <div style="font-weight:600;font-size:13px">${escapeHtml(v.name || v.voice_id)}</div>
+          <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${meta.map(escapeHtml).join(' · ') || '—'}</div>
+          ${v.description ? `<div style="font-size:11px;color:var(--text-mute);margin-top:2px;font-style:italic">${escapeHtml(String(v.description).slice(0, 80))}${String(v.description).length > 80 ? '...' : ''}</div>` : ''}
+        </div>
+        <button class="btn btn-sm btn-ghost" data-fav-toggle="${escapeHtml(v.voice_id)}" title="${fav ? 'Retirer des favoris' : 'Ajouter aux favoris'}" style="${fav ? 'color:#facc15' : 'color:var(--text-mute)'};font-size:16px;padding:4px 8px">${fav ? '★' : '☆'}</button>
+        <button class="btn btn-sm ${isF ? '' : 'btn-ghost'}" data-pick-f="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" title="Définir comme voix ♀ par défaut">${isF ? '♀ ✓' : 'Set ♀'}</button>
+        <button class="btn btn-sm ${isM ? '' : 'btn-ghost'}" data-pick-m="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" title="Définir comme voix ♂ par défaut">${isM ? '♂ ✓' : 'Set ♂'}</button>
+      </div>
+    `;
+  }
+
   function renderList() {
     if (state.loading) {
       listEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
       return;
     }
-    if (state.voices.length === 0) {
-      listEl.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text-dim)">Aucune voix avec ces filtres. Élargis la recherche.</div>';
-      return;
-    }
-    listEl.innerHTML = state.voices.map(v => {
-      const isF = state.selectedFemale === v.voice_id;
-      const isM = state.selectedMale === v.voice_id;
-      const meta = [];
-      if (v.gender) meta.push(v.gender);
-      if (v.accent) meta.push(v.accent);
-      if (v.language) meta.push(v.language.toUpperCase());
-      if (v.age) meta.push(v.age);
-      return `
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;${(isF || isM) ? 'background:rgba(192,132,252,0.10);' : 'background:transparent;'}border-bottom:1px solid var(--border-soft)">
-          ${v.preview_url ? `<audio controls preload="none" src="${escapeHtml(v.preview_url)}" style="height:32px;width:200px;flex-shrink:0"></audio>` : '<div style="width:200px;flex-shrink:0;color:var(--text-mute);font-size:11px;text-align:center">no preview</div>'}
-          <div style="flex:1;min-width:120px">
-            <div style="font-weight:600;font-size:13px">${escapeHtml(v.name || v.voice_id)}</div>
-            <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${meta.map(escapeHtml).join(' · ') || '—'}</div>
-            ${v.description ? `<div style="font-size:11px;color:var(--text-mute);margin-top:2px;font-style:italic">${escapeHtml(v.description.slice(0, 80))}${v.description.length > 80 ? '...' : ''}</div>` : ''}
-          </div>
-          <button class="btn btn-sm ${isF ? '' : 'btn-ghost'}" data-pick-f="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" title="Définir comme voix ♀ par défaut">${isF ? '♀ ✓' : 'Set ♀'}</button>
-          <button class="btn btn-sm ${isM ? '' : 'btn-ghost'}" data-pick-m="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" title="Définir comme voix ♂ par défaut">${isM ? '♂ ✓' : 'Set ♂'}</button>
-        </div>
-      `;
-    }).join('');
+    // Voix de la recherche en cours, mais on enlève les doublons avec les favoris (affichés au-dessus)
+    const favIds = new Set(state.favorites.map(f => f.voice_id));
+    const searchResults = state.voices.filter(v => !favIds.has(v.voice_id));
 
-    // Wire pick buttons
+    const favSection = state.favorites.length > 0 ? `
+      <div style="padding:8px 10px;font-size:11px;font-weight:700;letter-spacing:0.5px;color:#facc15;background:rgba(250,204,21,0.08);border-radius:6px 6px 0 0">★ FAVORIS (${state.favorites.length})</div>
+      ${state.favorites.map(v => renderVoiceRow(v, { isFavSection: true })).join('')}
+    ` : '';
+
+    const resultsSection = searchResults.length > 0 ? `
+      ${state.favorites.length > 0 ? `<div style="padding:8px 10px;font-size:11px;font-weight:700;letter-spacing:0.5px;color:var(--text-dim);margin-top:6px">RÉSULTATS (${searchResults.length})</div>` : ''}
+      ${searchResults.map(v => renderVoiceRow(v)).join('')}
+    ` : (state.favorites.length === 0 ? '<div style="text-align:center;padding:40px 20px;color:var(--text-dim)">Aucune voix avec ces filtres. Élargis la recherche.</div>' : '');
+
+    listEl.innerHTML = favSection + resultsSection;
+
+    // Wire pick / favorite buttons
     listEl.querySelectorAll('[data-pick-f]').forEach(b => b.addEventListener('click', () => {
       state.selectedFemale = b.dataset.pickF;
       state.selectedFemaleName = b.dataset.name;
@@ -9319,6 +9361,14 @@ async function openVoiceSettingsFlow() {
       state.selectedMale = b.dataset.pickM;
       state.selectedMaleName = b.dataset.name;
       currentMEl.textContent = state.selectedMaleName || state.selectedMale;
+      renderList();
+    }));
+    listEl.querySelectorAll('[data-fav-toggle]').forEach(b => b.addEventListener('click', async () => {
+      const vid = b.dataset.favToggle;
+      // Cherche la voix dans state.voices OU state.favorites pour récupérer ses metadata
+      const v = state.voices.find(x => x.voice_id === vid) || state.favorites.find(x => x.voice_id === vid);
+      if (!v) return;
+      await toggleFavorite(v);
       renderList();
     }));
   }
@@ -9379,6 +9429,7 @@ async function openVoiceSettingsFlow() {
         voice_id_male: state.selectedMale || null,
         voice_name_female: state.selectedFemaleName || null,
         voice_name_male: state.selectedMaleName || null,
+        favorite_voices: state.favorites,
         model_id: bd.querySelector('#vs-model').value || 'eleven_multilingual_v2',
         stability: parseFloat(bd.querySelector('#vs-stability').value) || 0.75,
         similarity: parseFloat(bd.querySelector('#vs-similarity').value) || 0.5,
