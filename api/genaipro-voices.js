@@ -34,15 +34,17 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Admin only' });
   }
 
-  // === 2. Récupère les voix avec les filtres optionnels (search, gender, limit) ===
-  const search = (req.query.search || '').toString().trim();
-  const gender = (req.query.gender || '').toString().trim(); // 'female' ou 'male' ou ''
-  const limit = Math.min(parseInt(req.query.limit || '100', 10), 100);
-
+  // === 2. Récupère les voix avec tous les filtres possibles ===
+  // Doc: page_size (max 100), page (0-indexed), search, gender, age, accent, language, locale, category, featured
+  const passthrough = ['search', 'gender', 'age', 'accent', 'language', 'locale', 'category', 'featured', 'sort', 'use_cases', 'descriptives'];
   const params = new URLSearchParams();
-  params.set('limit', String(limit));
-  if (search) params.set('search', search);
-  if (gender) params.set('gender', gender);
+  const pageSize = Math.min(parseInt(req.query.page_size || req.query.limit || '100', 10), 100);
+  params.set('page_size', String(pageSize));
+  if (req.query.page) params.set('page', String(req.query.page));
+  for (const key of passthrough) {
+    const v = (req.query[key] || '').toString().trim();
+    if (v) params.set(key, v);
+  }
 
   const url = `https://genaipro.io/api/v1/labs/voices?${params.toString()}`;
   const upstream = await fetch(url, {

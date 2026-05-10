@@ -9160,7 +9160,7 @@ async function loadVoiceSettings() {
   return data || null;
 }
 
-// Modal admin : pick des voix ♀ et ♂ + modèle
+// Modal admin : browser de voix avec filtres + preview audio inline + sélection ♀/♂
 async function openVoiceSettingsFlow() {
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
 
@@ -9168,121 +9168,233 @@ async function openVoiceSettingsFlow() {
   const jwt = await getCallerJwt();
   if (!jwt) { toast('Session expirée', 'error'); return; }
 
-  // Fetch des voix dispo (admin only côté serveur)
-  let voices = [];
-  let credits = null;
-  try {
-    const r = await fetch('/api/genaipro-voices?limit=100', { headers: { 'Authorization': `Bearer ${jwt}` } });
-    if (!r.ok) {
-      const err = await r.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${r.status}`);
+  // État local du modal (sélection en cours + filtres)
+  const state = {
+    selectedFemale: current?.voice_id_female || null,
+    selectedFemaleName: current?.voice_name_female || null,
+    selectedMale: current?.voice_id_male || null,
+    selectedMaleName: current?.voice_name_male || null,
+    voices: [],
+    loading: false,
+    filters: {
+      language: 'fr',  // par défaut on cherche du FR (langue de prod)
+      gender: '',
+      featured: false,
+      search: ''
     }
-    const j = await r.json();
-    voices = j.voices || j.data || j.items || (Array.isArray(j) ? j : []);
-  } catch (e) {
-    console.error('[voice settings load]', e);
-    toast('Erreur chargement voix : ' + e.message, 'error', 8000);
-    return;
-  }
-
-  // On split les voix par genre
-  const female = voices.filter(v => /female/i.test(v.gender || ''));
-  const male = voices.filter(v => /male/i.test(v.gender || '') && !/female/i.test(v.gender || ''));
-  const unisex = voices.filter(v => !/female/i.test(v.gender || '') && !/male/i.test(v.gender || ''));
-
-  const renderOpts = (list, currentId) => list.map(v => `
-    <option value="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" ${v.voice_id === currentId ? 'selected' : ''}>
-      ${escapeHtml(v.name || v.voice_id)}${v.accent ? ` · ${escapeHtml(v.accent)}` : ''}${v.locale ? ` · ${escapeHtml(v.locale)}` : ''}
-    </option>
-  `).join('');
+  };
 
   const currentModel = current?.model_id || 'eleven_multilingual_v2';
 
-  const r = await modal(`
-    <div class="modal-title">🎤 Settings voix (GenAIPro)</div>
-    <div class="text-sm text-dim mb-md">Choisis 1 voix ♀ et 1 voix ♂ par défaut. Le video_editor / admin pourra en changer ponctuellement par script.</div>
+  // Crée le backdrop manuellement (besoin de re-render dynamique de la liste)
+  const container = document.getElementById('modal-container');
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.innerHTML = `
+    <div class="modal" style="max-width:880px;max-height:90vh;display:flex;flex-direction:column">
+      <div class="modal-title">🎤 Settings voix (GenAIPro)</div>
+      <div class="text-sm text-dim mb-md">Filtre les voix puis assigne 1 ♀ et 1 ♂ comme défauts. Clique ▶ pour écouter avant.</div>
 
-    <div class="input-group">
-      <label class="input-label">Voix ♀ (femme)</label>
-      <select class="input" data-field="voice_id_female">
-        ${current?.voice_id_female && !female.find(v => v.voice_id === current.voice_id_female) ? `<option value="${escapeHtml(current.voice_id_female)}" selected>${escapeHtml(current.voice_name_female || current.voice_id_female)} (actuel)</option>` : ''}
-        ${renderOpts(female, current?.voice_id_female)}
-        ${unisex.length > 0 ? `<optgroup label="Unisex / autre">${renderOpts(unisex, current?.voice_id_female)}</optgroup>` : ''}
-      </select>
-    </div>
+      <!-- Filtres -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:flex-end">
+        <div style="flex:1;min-width:180px">
+          <label class="input-label" style="font-size:11px">Recherche (nom)</label>
+          <input class="input" id="vs-search" placeholder="Ex: Charlotte, Antoni..." value="${escapeHtml(state.filters.search)}">
+        </div>
+        <div style="width:120px">
+          <label class="input-label" style="font-size:11px">Langue</label>
+          <select class="input" id="vs-language">
+            <option value="">Toutes</option>
+            <option value="fr" selected>FR</option>
+            <option value="en">EN</option>
+            <option value="es">ES</option>
+            <option value="it">IT</option>
+            <option value="de">DE</option>
+            <option value="pt">PT</option>
+            <option value="nl">NL</option>
+            <option value="pl">PL</option>
+          </select>
+        </div>
+        <div style="width:120px">
+          <label class="input-label" style="font-size:11px">Genre</label>
+          <select class="input" id="vs-gender">
+            <option value="">Tous</option>
+            <option value="female">Femme</option>
+            <option value="male">Homme</option>
+          </select>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;padding:8px 12px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border)">
+          <input type="checkbox" id="vs-featured" style="accent-color:var(--gold)"> Featured
+        </label>
+        <button class="btn btn-sm" id="vs-refresh">Rafraîchir</button>
+      </div>
 
-    <div class="input-group">
-      <label class="input-label">Voix ♂ (homme)</label>
-      <select class="input" data-field="voice_id_male">
-        ${current?.voice_id_male && !male.find(v => v.voice_id === current.voice_id_male) ? `<option value="${escapeHtml(current.voice_id_male)}" selected>${escapeHtml(current.voice_name_male || current.voice_id_male)} (actuel)</option>` : ''}
-        ${renderOpts(male, current?.voice_id_male)}
-        ${unisex.length > 0 ? `<optgroup label="Unisex / autre">${renderOpts(unisex, current?.voice_id_male)}</optgroup>` : ''}
-      </select>
-    </div>
+      <!-- Liste voix scrollable -->
+      <div id="vs-list" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px;min-height:280px;max-height:380px;background:var(--bg-input)"></div>
 
-    <div class="input-group">
-      <label class="input-label">Modèle</label>
-      <select class="input" data-field="model_id">
-        ${VOICE_MODEL_OPTIONS.map(m => `<option value="${m.id}" ${m.id === currentModel ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
-      </select>
-      <div class="text-sm text-dim" style="font-size:11px;line-height:1.5;margin-top:6px">
-        Multilingual v2 = best for ads. Turbo v2.5 = moitié prix, qualité quasi-équivalente. V3 = bleeding edge.
+      <!-- Sélection en cours -->
+      <div style="display:flex;gap:14px;margin-top:14px;padding:12px;background:rgba(192,132,252,0.06);border:1px solid var(--purple);border-radius:8px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:11px;color:var(--text-dim);font-weight:600;letter-spacing:0.5px;margin-bottom:4px">VOIX ♀</div>
+          <div id="vs-current-f" style="font-size:13px;font-weight:600">${state.selectedFemaleName ? escapeHtml(state.selectedFemaleName) : '<span style="color:var(--text-dim);font-weight:400">aucune</span>'}</div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:11px;color:var(--text-dim);font-weight:600;letter-spacing:0.5px;margin-bottom:4px">VOIX ♂</div>
+          <div id="vs-current-m" style="font-size:13px;font-weight:600">${state.selectedMaleName ? escapeHtml(state.selectedMaleName) : '<span style="color:var(--text-dim);font-weight:400">aucune</span>'}</div>
+        </div>
+      </div>
+
+      <!-- Modèle + paramètres avancés (collapsible) -->
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-weight:600;font-size:13px;padding:6px 0">⚙ Modèle & paramètres avancés</summary>
+        <div style="padding-top:10px">
+          <div class="input-group">
+            <label class="input-label">Modèle</label>
+            <select class="input" id="vs-model">
+              ${VOICE_MODEL_OPTIONS.map(m => `<option value="${m.id}" ${m.id === currentModel ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="grid-2">
+            <div class="input-group"><label class="input-label">Stabilité</label><input class="input" id="vs-stability" type="number" step="0.05" min="0" max="1" value="${current?.stability ?? 0.75}"></div>
+            <div class="input-group"><label class="input-label">Similarité</label><input class="input" id="vs-similarity" type="number" step="0.05" min="0" max="1" value="${current?.similarity ?? 0.5}"></div>
+          </div>
+          <div class="grid-2">
+            <div class="input-group"><label class="input-label">Style</label><input class="input" id="vs-style" type="number" step="0.05" min="0" max="1" value="${current?.style ?? 0}"></div>
+            <div class="input-group"><label class="input-label">Vitesse</label><input class="input" id="vs-speed" type="number" step="0.05" min="0.7" max="1.2" value="${current?.speed ?? 1}"></div>
+          </div>
+        </div>
+      </details>
+
+      <div class="modal-actions" style="margin-top:14px">
+        <button class="btn btn-secondary" id="vs-cancel">Annuler</button>
+        <button class="btn" id="vs-save">Enregistrer</button>
       </div>
     </div>
+  `;
+  container.appendChild(bd);
 
-    <div class="grid-2">
-      <div class="input-group">
-        <label class="input-label">Stabilité (0-1)</label>
-        <input class="input" type="number" step="0.05" min="0" max="1" data-field="stability" value="${current?.stability ?? 0.75}">
-      </div>
-      <div class="input-group">
-        <label class="input-label">Similarité (0-1)</label>
-        <input class="input" type="number" step="0.05" min="0" max="1" data-field="similarity" value="${current?.similarity ?? 0.5}">
-      </div>
-    </div>
-    <div class="grid-2">
-      <div class="input-group">
-        <label class="input-label">Style (0-1)</label>
-        <input class="input" type="number" step="0.05" min="0" max="1" data-field="style" value="${current?.style ?? 0}">
-      </div>
-      <div class="input-group">
-        <label class="input-label">Vitesse (0.7-1.2)</label>
-        <input class="input" type="number" step="0.05" min="0.7" max="1.2" data-field="speed" value="${current?.speed ?? 1}">
-      </div>
-    </div>
+  const listEl = bd.querySelector('#vs-list');
+  const currentFEl = bd.querySelector('#vs-current-f');
+  const currentMEl = bd.querySelector('#vs-current-m');
 
-    <div class="modal-actions">
-      <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>Enregistrer</button>
-    </div>
-  `);
-  if (!r) return;
+  function renderList() {
+    if (state.loading) {
+      listEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+      return;
+    }
+    if (state.voices.length === 0) {
+      listEl.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text-dim)">Aucune voix avec ces filtres. Élargis la recherche.</div>';
+      return;
+    }
+    listEl.innerHTML = state.voices.map(v => {
+      const isF = state.selectedFemale === v.voice_id;
+      const isM = state.selectedMale === v.voice_id;
+      const meta = [];
+      if (v.gender) meta.push(v.gender);
+      if (v.accent) meta.push(v.accent);
+      if (v.language) meta.push(v.language.toUpperCase());
+      if (v.age) meta.push(v.age);
+      return `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;${(isF || isM) ? 'background:rgba(192,132,252,0.10);' : 'background:transparent;'}border-bottom:1px solid var(--border-soft)">
+          ${v.preview_url ? `<audio controls preload="none" src="${escapeHtml(v.preview_url)}" style="height:32px;width:200px;flex-shrink:0"></audio>` : '<div style="width:200px;flex-shrink:0;color:var(--text-mute);font-size:11px;text-align:center">no preview</div>'}
+          <div style="flex:1;min-width:120px">
+            <div style="font-weight:600;font-size:13px">${escapeHtml(v.name || v.voice_id)}</div>
+            <div style="font-size:11px;color:var(--text-dim);margin-top:2px">${meta.map(escapeHtml).join(' · ') || '—'}</div>
+            ${v.description ? `<div style="font-size:11px;color:var(--text-mute);margin-top:2px;font-style:italic">${escapeHtml(v.description.slice(0, 80))}${v.description.length > 80 ? '...' : ''}</div>` : ''}
+          </div>
+          <button class="btn btn-sm ${isF ? '' : 'btn-ghost'}" data-pick-f="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" title="Définir comme voix ♀ par défaut">${isF ? '♀ ✓' : 'Set ♀'}</button>
+          <button class="btn btn-sm ${isM ? '' : 'btn-ghost'}" data-pick-m="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" title="Définir comme voix ♂ par défaut">${isM ? '♂ ✓' : 'Set ♂'}</button>
+        </div>
+      `;
+    }).join('');
 
-  // On récupère le name de la voix sélectionnée pour stocker en cache (évite refaire un appel API juste pour l'affichage)
-  const findName = (voiceId) => {
-    const v = voices.find(x => x.voice_id === voiceId);
-    return v?.name || null;
-  };
+    // Wire pick buttons
+    listEl.querySelectorAll('[data-pick-f]').forEach(b => b.addEventListener('click', () => {
+      state.selectedFemale = b.dataset.pickF;
+      state.selectedFemaleName = b.dataset.name;
+      currentFEl.textContent = state.selectedFemaleName || state.selectedFemale;
+      renderList();
+    }));
+    listEl.querySelectorAll('[data-pick-m]').forEach(b => b.addEventListener('click', () => {
+      state.selectedMale = b.dataset.pickM;
+      state.selectedMaleName = b.dataset.name;
+      currentMEl.textContent = state.selectedMaleName || state.selectedMale;
+      renderList();
+    }));
+  }
 
-  const payload = {
-    workspace_id: currentWorkspaceId,
-    voice_id_female: r.voice_id_female || null,
-    voice_id_male: r.voice_id_male || null,
-    voice_name_female: findName(r.voice_id_female) || current?.voice_name_female || null,
-    voice_name_male: findName(r.voice_id_male) || current?.voice_name_male || null,
-    model_id: r.model_id || 'eleven_multilingual_v2',
-    stability: parseFloat(r.stability ?? 0.75),
-    similarity: parseFloat(r.similarity ?? 0.5),
-    style: parseFloat(r.style ?? 0),
-    speed: parseFloat(r.speed ?? 1),
-    use_speaker_boost: true,
-    updated_at: new Date().toISOString(),
-    updated_by: currentUser.id
-  };
+  async function fetchVoices() {
+    state.loading = true;
+    renderList();
+    const params = new URLSearchParams();
+    params.set('page_size', '50');
+    if (state.filters.language) params.set('language', state.filters.language);
+    if (state.filters.gender) params.set('gender', state.filters.gender);
+    if (state.filters.featured) params.set('featured', 'true');
+    if (state.filters.search) params.set('search', state.filters.search);
+    try {
+      const r = await fetch(`/api/genaipro-voices?${params.toString()}`, { headers: { 'Authorization': `Bearer ${jwt}` } });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${r.status}`);
+      }
+      const j = await r.json();
+      state.voices = j.voices || j.data || j.items || (Array.isArray(j) ? j : []);
+    } catch (e) {
+      console.error('[fetchVoices]', e);
+      toast('Erreur chargement : ' + e.message, 'error', 6000);
+      state.voices = [];
+    }
+    state.loading = false;
+    renderList();
+  }
 
-  const { error } = await sb.from('workspace_voice_settings').upsert(payload, { onConflict: 'workspace_id' });
-  if (error) { toast('Erreur sauvegarde : ' + error.message, 'error'); return; }
-  toast('Settings voix enregistrés', 'success');
+  // Wire filtres
+  bd.querySelector('#vs-search').addEventListener('input', (e) => {
+    state.filters.search = e.target.value;
+    clearTimeout(state._searchTimer);
+    state._searchTimer = setTimeout(fetchVoices, 400);
+  });
+  bd.querySelector('#vs-language').addEventListener('change', (e) => { state.filters.language = e.target.value; fetchVoices(); });
+  bd.querySelector('#vs-gender').addEventListener('change', (e) => { state.filters.gender = e.target.value; fetchVoices(); });
+  bd.querySelector('#vs-featured').addEventListener('change', (e) => { state.filters.featured = e.target.checked; fetchVoices(); });
+  bd.querySelector('#vs-refresh').addEventListener('click', fetchVoices);
+
+  // Initial fetch
+  fetchVoices();
+
+  // Cancel / Save
+  return new Promise((resolve) => {
+    const cleanup = () => { container.removeChild(bd); resolve(null); };
+    bd.querySelector('#vs-cancel').addEventListener('click', cleanup);
+    bd.addEventListener('click', (e) => { if (e.target === bd) cleanup(); });
+
+    bd.querySelector('#vs-save').addEventListener('click', async () => {
+      if (!state.selectedFemale && !state.selectedMale) {
+        toast('Sélectionne au moins une voix', 'warn'); return;
+      }
+      const payload = {
+        workspace_id: currentWorkspaceId,
+        voice_id_female: state.selectedFemale || null,
+        voice_id_male: state.selectedMale || null,
+        voice_name_female: state.selectedFemaleName || null,
+        voice_name_male: state.selectedMaleName || null,
+        model_id: bd.querySelector('#vs-model').value || 'eleven_multilingual_v2',
+        stability: parseFloat(bd.querySelector('#vs-stability').value) || 0.75,
+        similarity: parseFloat(bd.querySelector('#vs-similarity').value) || 0.5,
+        style: parseFloat(bd.querySelector('#vs-style').value) || 0,
+        speed: parseFloat(bd.querySelector('#vs-speed').value) || 1,
+        use_speaker_boost: true,
+        updated_at: new Date().toISOString(),
+        updated_by: currentUser.id
+      };
+      const { error } = await sb.from('workspace_voice_settings').upsert(payload, { onConflict: 'workspace_id' });
+      if (error) { toast('Erreur sauvegarde : ' + error.message, 'error'); return; }
+      toast('Settings voix enregistrés', 'success');
+      container.removeChild(bd);
+      resolve(payload);
+    });
+  });
 }
 
 // Génère la voix d'un script via GenAIPro et upload sur Drive
