@@ -1423,7 +1423,7 @@ async function renderProduits(el) {
     <div class="page-head">
       <div>
         <div class="page-title"> Produits</div>
-        <div class="page-subtitle">${fmt(products.length)} produit(s) approuvé(s) · ${fmt(ads.length)} ads${readyCount > 0 ? ` · <span style="color:var(--gold);font-weight:600">${readyCount} prêt${readyCount > 1 ? 's' : ''} à lancer</span>` : ''}</div>
+        <div class="page-subtitle">${fmt(approvedOnly.length)} produit(s) approuvé(s) · ${fmt(ads.length)} ads${readyCount > 0 ? ` · <span style="color:var(--gold);font-weight:600">${readyCount} prêt${readyCount > 1 ? 's' : ''} à lancer</span>` : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         ${readyCount > 0 || onlyReady ? `
@@ -1437,7 +1437,7 @@ async function renderProduits(el) {
     </div>
     ${isAdmin() ? `
       <div class="copy-tabs" style="margin-bottom:18px">
-        <button type="button" class="copy-tab active" data-pview="approved">Approuvés (${products.length})</button>
+        <button type="button" class="copy-tab active" data-pview="approved">Approuvés (${approvedOnly.length})</button>
         <button type="button" class="copy-tab" data-pview="drafts">Drafts ${draftsCount > 0 ? `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#000;font-size:10px;font-weight:700;margin-left:6px;padding:0 5px">${draftsCount}</span>` : '(0)'}</button>
       </div>
     ` : ''}
