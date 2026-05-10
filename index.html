@@ -4120,6 +4120,22 @@ function pageStatusBadge(status) {
 }
 
 async function renderPagesHome(el) {
+  // Vue active : 'approved' (default) ou 'drafts' (admin only)
+  const view = (isAdmin() && localStorage.getItem('pages_view')) || 'approved';
+
+  // Compteur de drafts (admin only) — pour le badge sur l'onglet
+  let draftsCount = 0;
+  if (isAdmin()) {
+    const { count } = await sb.from('products').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', currentWorkspaceId).eq('status', 'draft');
+    draftsCount = count || 0;
+  }
+
+  // Si vue Drafts → render dédié et early return
+  if (view === 'drafts' && isAdmin()) {
+    return renderPagesDrafts(el, draftsCount);
+  }
+
   const [{ data: products }, { data: countriesAll }, { data: pages }] = await Promise.all([
     sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').order('created_at', { ascending: false }),
     sb.from('countries').select('*').order('sort_order'),
@@ -4180,6 +4196,12 @@ async function renderPagesHome(el) {
         <a class="btn btn-secondary btn-sm" href="#sections" title="Bibliothèque de sections réutilisables">Sections ↗</a>
       </div>
     </div>
+    ${isAdmin() ? `
+      <div class="copy-tabs" style="margin-bottom:18px">
+        <button type="button" class="copy-tab active" data-pgview="approved">Approuvés (${productRows.length})</button>
+        <button type="button" class="copy-tab" data-pgview="drafts">Drafts ${draftsCount > 0 ? `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#000;font-size:10px;font-weight:700;margin-left:6px;padding:0 5px">${draftsCount}</span>` : '(0)'}</button>
+      </div>
+    ` : ''}
 
     ${visibleRows.length === 0 ? `
       <div class="empty" style="padding:60px 20px">
@@ -4239,6 +4261,86 @@ async function renderPagesHome(el) {
 
   el.querySelectorAll('[data-open-product]').forEach(card => {
     card.addEventListener('click', () => navigate('pages/' + card.dataset.openProduct));
+  });
+
+  // Tab switch (Approuvés / Drafts)
+  el.querySelectorAll('[data-pgview]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem('pages_view', btn.dataset.pgview);
+      render();
+    });
+  });
+}
+
+// Vue dédiée aux produits draft sur la page Product Page — admin only.
+// Permet d'aller voir/préparer un produit draft avant validation pricing.
+async function renderPagesDrafts(el, draftsCount) {
+  const { data: drafts } = await sb.from('products')
+    .select('*')
+    .eq('workspace_id', currentWorkspaceId)
+    .eq('status', 'draft')
+    .order('created_at', { ascending: false });
+
+  // Compteur des approuvés pour le badge de l'autre onglet
+  const { count: approvedCount } = await sb.from('products').select('id', { count: 'exact', head: true })
+    .eq('workspace_id', currentWorkspaceId).eq('status', 'approved');
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title"> Product Page</div>
+        <div class="page-subtitle">${draftsCount} produit(s) en draft (admin only) — clique pour préparer la landing avant validation</div>
+      </div>
+      <a class="btn btn-secondary btn-sm" href="#sections" title="Bibliothèque de sections réutilisables">Sections ↗</a>
+    </div>
+
+    <div class="copy-tabs" style="margin-bottom:18px">
+      <button type="button" class="copy-tab" data-pgview="approved">Approuvés (${approvedCount || 0})</button>
+      <button type="button" class="copy-tab active" data-pgview="drafts">Drafts <span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#000;font-size:10px;font-weight:700;margin-left:6px;padding:0 5px">${draftsCount}</span></button>
+    </div>
+
+    ${(drafts || []).length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-icon"></div>
+        <div class="empty-title">Aucun produit en draft</div>
+        <div class="empty-text">Crée un produit pour le voir ici.</div>
+      </div>
+    ` : `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${(drafts || []).map(p => {
+          const priority = p.priority || 'normal';
+          const priorityColor = PRIORITY_META[priority]?.color || '#60a5fa';
+          const concurrentUrl = p.concurrent_page_url ? normalizeUrl(p.concurrent_page_url) : null;
+          return `
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-left:4px solid var(--orange);border-radius:10px;padding:14px 16px;cursor:pointer" data-open-pages-draft="${escapeHtml(p.id)}" onmouseover="this.style.background='var(--bg-input)'" onmouseout="this.style.background='var(--bg-card)'">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                  <span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>
+                  ${priorityBadge(priority)}
+                  <span class="mono" style="color:var(--gold);font-weight:700;font-size:15px">${escapeHtml(p.id)}</span>
+                  <span style="color:var(--text-dim)">·</span>
+                  <span style="color:var(--text);font-weight:500">${escapeHtml(p.name || '')}</span>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--text-dim)">
+                <div>${concurrentUrl ? `<a href="${escapeHtml(concurrentUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color:var(--blue);text-decoration:underline">URL concurrent ↗</a>` : '<span style="color:var(--red)">Pas d\'URL concurrent encore</span>'}</div>
+                <div>Clique pour aller à la page produit</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-open-pages-draft]').forEach(c => {
+    c.addEventListener('click', () => navigate('pages/' + c.dataset.openPagesDraft));
+  });
+  el.querySelectorAll('[data-pgview]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem('pages_view', btn.dataset.pgview);
+      render();
+    });
   });
 }
 
