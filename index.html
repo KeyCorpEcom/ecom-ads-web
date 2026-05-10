@@ -118,8 +118,8 @@ a{color:var(--gold);text-decoration:none}
 .product-card:hover{background:var(--bg-card-hover);border-color:var(--gold);transform:translateY(-2px)}
 .product-card-title{font-size:18px;font-weight:700;color:var(--gold);margin-bottom:4px;font-family:'JetBrains Mono',monospace}
 .product-card-sub{font-size:12px;color:var(--text-dim);margin-bottom:14px}
-.ready-to-launch-badge{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:8px;background:linear-gradient(135deg,var(--gold),#e0c078);color:#0a0a0a;font-size:11px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;margin:6px 0 10px;box-shadow:0 0 0 0 rgba(200,165,90,0.5);animation:pulseLaunch 2s ease-in-out infinite}
-@keyframes pulseLaunch{0%,100%{box-shadow:0 0 0 0 rgba(200,165,90,0.5)}50%{box-shadow:0 0 0 8px rgba(200,165,90,0)}}
+.ready-to-launch-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 7px;border-radius:5px;background:rgba(200,165,90,0.12);color:var(--gold);font-size:10px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;margin:0;border:1px solid rgba(200,165,90,0.35);animation:pulseLaunch 2.5s ease-in-out infinite}
+@keyframes pulseLaunch{0%,100%{opacity:1}50%{opacity:0.6}}
 
 /* Users table (admin) */
 .users-table{width:100%;border-collapse:collapse}
@@ -1460,13 +1460,12 @@ async function renderProduits(el) {
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
                 <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  ${readyToLaunch ? `<span class="ready-to-launch-badge" title="Master + Trad + Landing Pages 100% — il ne reste qu'à lancer sur Meta">À lancer</span>` : ''}
                   ${p.status === 'draft' ? '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>' : ''}
                   ${priorityBadge(priority)}
                 </div>
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
-
-              ${readyToLaunch ? `<div class="ready-to-launch-badge">🚀 À lancer sur Meta</div>` : ''}
 
               <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
                 <div>
