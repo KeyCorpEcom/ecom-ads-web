@@ -8224,6 +8224,7 @@ async function renderScriptsList(el) {
           <input type="checkbox" id="toggle-scripts-hide-done" ${hideDone ? 'checked' : ''} style="accent-color:var(--gold)">
           <span>Masquer les produits 100% produits</span>
         </label>
+        ${isAdminUser ? '<button class="btn btn-ghost btn-sm" id="btn-voice-settings" title="Configurer les voix GenAIPro pour la génération TTS">🎤 Voix</button>' : ''}
         ${isAdminUser ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
       </div>
     </div>
@@ -8281,6 +8282,7 @@ async function renderScriptsList(el) {
     render();
   });
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+  document.getElementById('btn-voice-settings')?.addEventListener('click', openVoiceSettingsFlow);
   // Tab switch (Validés / Drafts)
   el.querySelectorAll('[data-svview]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -8458,6 +8460,22 @@ async function renderScriptDetail(el, productId) {
             actionBtns.push(`<button class="btn btn-sm" data-upload-script-master="${s.id}" data-script-name="${escapeHtml(s.name)}">Uploader la vidéo produite</button>`);
           }
         }
+        // Boutons génération voix TTS (admin + video_editor) — disponibles dès qu'un script texte est rédigé
+        if ((isAdminUser || isVideoEd) && script) {
+          const hasVoice = !!s.voice_file_id;
+          const voiceGender = s.voice_gender;
+          const voiceLabel = hasVoice
+            ? `🔊 Voix générée${voiceGender ? ` (${voiceGender})` : ''}`
+            : '🔊 Générer voix';
+          if (hasVoice) {
+            actionBtns.push(`<a href="https://drive.google.com/file/d/${s.voice_file_id}/view" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" title="Écouter la voix générée">${voiceLabel} ↗</a>`);
+            actionBtns.push(`<button class="btn btn-ghost btn-sm" data-gen-voice-f="${s.id}" title="Régénérer en voix ♀">♀</button>`);
+            actionBtns.push(`<button class="btn btn-ghost btn-sm" data-gen-voice-m="${s.id}" title="Régénérer en voix ♂">♂</button>`);
+          } else {
+            actionBtns.push(`<button class="btn btn-ghost btn-sm" data-gen-voice-f="${s.id}" title="Générer la voix ♀ via GenAIPro">🔊 ♀</button>`);
+            actionBtns.push(`<button class="btn btn-ghost btn-sm" data-gen-voice-m="${s.id}" title="Générer la voix ♂ via GenAIPro">🔊 ♂</button>`);
+          }
+        }
         if (isAdminUser) {
           actionBtns.push(`<button class="btn btn-ghost btn-sm" data-edit-script="${s.id}">${script ? 'Éditer script' : '+ Écrire script'}</button>`);
           actionBtns.push(`<button class="btn btn-ghost btn-sm" data-delete-script="${s.id}" style="color:var(--red)">Supprimer</button>`);
@@ -8487,6 +8505,13 @@ async function renderScriptDetail(el, productId) {
               ? `<div class="script-text">${escapeHtml(script)}</div>`
               : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Écrire script"' : 'Le script sera ajouté par l\'admin'}</div>`
             }
+            ${s.voice_file_id ? `
+              <div style="margin-top:10px;padding:10px 12px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:6px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <div style="font-size:11px;color:var(--purple);font-weight:700;letter-spacing:0.5px">VOIX ${escapeHtml(s.voice_gender || '?')}</div>
+                <audio controls preload="none" style="flex:1;min-width:240px;max-width:480px;height:34px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(s.voice_file_id)}"></audio>
+                <span style="font-size:11px;color:var(--text-dim)">${s.voice_generated_at ? new Date(s.voice_generated_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
+              </div>
+            ` : ''}
           </div>
         `;
       }).join('')}
@@ -8527,6 +8552,14 @@ async function renderScriptDetail(el, productId) {
   });
   el.querySelectorAll('[data-reject-script]').forEach(btn => {
     btn.addEventListener('click', () => rejectScriptMasterFlow(btn.dataset.rejectScript));
+  });
+
+  // Boutons génération voix TTS (admin + video_editor)
+  el.querySelectorAll('[data-gen-voice-f]').forEach(btn => {
+    btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceF, 'F'));
+  });
+  el.querySelectorAll('[data-gen-voice-m]').forEach(btn => {
+    btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceM, 'M'));
   });
 
   // Charger B-rolls si onglet actif
@@ -9101,6 +9134,321 @@ async function rejectScriptMasterFlow(scriptId) {
 
   toast(`${scriptAd.name} rejeté — l'editor peut re-uploader`, 'success');
   render();
+}
+
+/* ============================================================
+   VOICE GENERATION (GenAIPro Labs / TTS)
+   ============================================================ */
+
+const SCRIPTS_VOICES_FOLDER = 'voices';
+const VOICE_MODEL_OPTIONS = [
+  { id: 'eleven_multilingual_v2', label: 'Multilingual v2 — qualité max', desc: '29 langues, qualité top, ~1 crédit/char' },
+  { id: 'eleven_v3',              label: 'V3 — dernière gen', desc: 'Modèle le plus récent' },
+  { id: 'eleven_turbo_v2_5',      label: 'Turbo v2.5 — moitié prix', desc: 'Bonne qualité, ~0.5 crédit/char' },
+  { id: 'eleven_flash_v2_5',      label: 'Flash v2.5 — ultra rapide', desc: 'Latence minimale' }
+];
+
+// Récupère le JWT Supabase pour appeler nos endpoints serverless
+async function getCallerJwt() {
+  const { data: { session } } = await sb.auth.getSession();
+  return session?.access_token || null;
+}
+
+// Charge les settings voix du workspace courant (null si jamais configuré)
+async function loadVoiceSettings() {
+  const { data } = await sb.from('workspace_voice_settings').select('*').eq('workspace_id', currentWorkspaceId).maybeSingle();
+  return data || null;
+}
+
+// Modal admin : pick des voix ♀ et ♂ + modèle
+async function openVoiceSettingsFlow() {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  const current = await loadVoiceSettings();
+  const jwt = await getCallerJwt();
+  if (!jwt) { toast('Session expirée', 'error'); return; }
+
+  // Fetch des voix dispo (admin only côté serveur)
+  let voices = [];
+  let credits = null;
+  try {
+    const r = await fetch('/api/genaipro-voices?limit=100', { headers: { 'Authorization': `Bearer ${jwt}` } });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    const j = await r.json();
+    voices = j.voices || j.data || j.items || (Array.isArray(j) ? j : []);
+  } catch (e) {
+    console.error('[voice settings load]', e);
+    toast('Erreur chargement voix : ' + e.message, 'error', 8000);
+    return;
+  }
+
+  // On split les voix par genre
+  const female = voices.filter(v => /female/i.test(v.gender || ''));
+  const male = voices.filter(v => /male/i.test(v.gender || '') && !/female/i.test(v.gender || ''));
+  const unisex = voices.filter(v => !/female/i.test(v.gender || '') && !/male/i.test(v.gender || ''));
+
+  const renderOpts = (list, currentId) => list.map(v => `
+    <option value="${escapeHtml(v.voice_id)}" data-name="${escapeHtml(v.name || '')}" ${v.voice_id === currentId ? 'selected' : ''}>
+      ${escapeHtml(v.name || v.voice_id)}${v.accent ? ` · ${escapeHtml(v.accent)}` : ''}${v.locale ? ` · ${escapeHtml(v.locale)}` : ''}
+    </option>
+  `).join('');
+
+  const currentModel = current?.model_id || 'eleven_multilingual_v2';
+
+  const r = await modal(`
+    <div class="modal-title">🎤 Settings voix (GenAIPro)</div>
+    <div class="text-sm text-dim mb-md">Choisis 1 voix ♀ et 1 voix ♂ par défaut. Le video_editor / admin pourra en changer ponctuellement par script.</div>
+
+    <div class="input-group">
+      <label class="input-label">Voix ♀ (femme)</label>
+      <select class="input" data-field="voice_id_female">
+        ${current?.voice_id_female && !female.find(v => v.voice_id === current.voice_id_female) ? `<option value="${escapeHtml(current.voice_id_female)}" selected>${escapeHtml(current.voice_name_female || current.voice_id_female)} (actuel)</option>` : ''}
+        ${renderOpts(female, current?.voice_id_female)}
+        ${unisex.length > 0 ? `<optgroup label="Unisex / autre">${renderOpts(unisex, current?.voice_id_female)}</optgroup>` : ''}
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Voix ♂ (homme)</label>
+      <select class="input" data-field="voice_id_male">
+        ${current?.voice_id_male && !male.find(v => v.voice_id === current.voice_id_male) ? `<option value="${escapeHtml(current.voice_id_male)}" selected>${escapeHtml(current.voice_name_male || current.voice_id_male)} (actuel)</option>` : ''}
+        ${renderOpts(male, current?.voice_id_male)}
+        ${unisex.length > 0 ? `<optgroup label="Unisex / autre">${renderOpts(unisex, current?.voice_id_male)}</optgroup>` : ''}
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Modèle</label>
+      <select class="input" data-field="model_id">
+        ${VOICE_MODEL_OPTIONS.map(m => `<option value="${m.id}" ${m.id === currentModel ? 'selected' : ''}>${escapeHtml(m.label)}</option>`).join('')}
+      </select>
+      <div class="text-sm text-dim" style="font-size:11px;line-height:1.5;margin-top:6px">
+        Multilingual v2 = best for ads. Turbo v2.5 = moitié prix, qualité quasi-équivalente. V3 = bleeding edge.
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="input-group">
+        <label class="input-label">Stabilité (0-1)</label>
+        <input class="input" type="number" step="0.05" min="0" max="1" data-field="stability" value="${current?.stability ?? 0.75}">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Similarité (0-1)</label>
+        <input class="input" type="number" step="0.05" min="0" max="1" data-field="similarity" value="${current?.similarity ?? 0.5}">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="input-group">
+        <label class="input-label">Style (0-1)</label>
+        <input class="input" type="number" step="0.05" min="0" max="1" data-field="style" value="${current?.style ?? 0}">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Vitesse (0.7-1.2)</label>
+        <input class="input" type="number" step="0.05" min="0.7" max="1.2" data-field="speed" value="${current?.speed ?? 1}">
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `);
+  if (!r) return;
+
+  // On récupère le name de la voix sélectionnée pour stocker en cache (évite refaire un appel API juste pour l'affichage)
+  const findName = (voiceId) => {
+    const v = voices.find(x => x.voice_id === voiceId);
+    return v?.name || null;
+  };
+
+  const payload = {
+    workspace_id: currentWorkspaceId,
+    voice_id_female: r.voice_id_female || null,
+    voice_id_male: r.voice_id_male || null,
+    voice_name_female: findName(r.voice_id_female) || current?.voice_name_female || null,
+    voice_name_male: findName(r.voice_id_male) || current?.voice_name_male || null,
+    model_id: r.model_id || 'eleven_multilingual_v2',
+    stability: parseFloat(r.stability ?? 0.75),
+    similarity: parseFloat(r.similarity ?? 0.5),
+    style: parseFloat(r.style ?? 0),
+    speed: parseFloat(r.speed ?? 1),
+    use_speaker_boost: true,
+    updated_at: new Date().toISOString(),
+    updated_by: currentUser.id
+  };
+
+  const { error } = await sb.from('workspace_voice_settings').upsert(payload, { onConflict: 'workspace_id' });
+  if (error) { toast('Erreur sauvegarde : ' + error.message, 'error'); return; }
+  toast('Settings voix enregistrés', 'success');
+}
+
+// Génère la voix d'un script via GenAIPro et upload sur Drive
+// gender = 'F' ou 'M'
+async function generateScriptVoiceFlow(scriptId, gender) {
+  if (!canProduceScripts()) { toast('Admin ou video_editor requis', 'error'); return; }
+  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+
+  // 1. Settings voix configurés ?
+  const settings = await loadVoiceSettings();
+  const voiceId = gender === 'F' ? settings?.voice_id_female : settings?.voice_id_male;
+  if (!settings || !voiceId) {
+    toast(`Configure d'abord la voix ${gender === 'F' ? '♀' : '♂'} dans 🎤 Settings voix`, 'warn', 6000);
+    return;
+  }
+
+  // 2. Récupère le script
+  const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
+  if (!scriptAd) { toast('Script introuvable', 'error'); return; }
+  if (!scriptAd.script || !scriptAd.script.trim()) {
+    toast('Le texte du script est vide — ajoute-le avant de générer la voix', 'warn', 6000);
+    return;
+  }
+  const { data: product } = await sb.from('products').select('*').eq('id', scriptAd.product_id).single();
+  if (!product?.drive_folder_id) { toast('Pas de dossier Drive sur le produit', 'error'); return; }
+
+  // 3. Confirm pour les longs scripts (limite genaipro = 5000 chars côté serveur)
+  const chars = scriptAd.script.trim().length;
+  if (chars > 4000) {
+    const ok = await confirmDialog(`Script long (${chars} caractères)`,
+      `Le script fait ${chars} caractères. La génération coûtera plus de crédits. Continuer ?`);
+    if (!ok) return;
+  }
+
+  // 4. Crée la tâche TTS
+  const jwt = await getCallerJwt();
+  if (!jwt) { toast('Session expirée', 'error'); return; }
+
+  toast(`Génération voix ${gender === 'F' ? '♀' : '♂'} en cours... (peut prendre 10-30s)`, 'info', 5000);
+
+  let taskId;
+  try {
+    const r = await fetch('/api/genaipro-tts-create', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: scriptAd.script,
+        voice_id: voiceId,
+        model_id: settings.model_id || 'eleven_multilingual_v2',
+        stability: settings.stability ?? 0.75,
+        similarity: settings.similarity ?? 0.5,
+        style: settings.style ?? 0,
+        speed: settings.speed ?? 1,
+        use_speaker_boost: settings.use_speaker_boost ?? true
+      })
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${r.status}`);
+    }
+    const j = await r.json();
+    taskId = j.task_id;
+  } catch (e) {
+    console.error('[tts-create]', e);
+    toast('Erreur création tâche : ' + e.message, 'error', 8000);
+    return;
+  }
+
+  // 5. Polling jusqu'à completion (toutes les 2.5s, timeout 3 min)
+  const maxAttempts = 72; // 72 * 2.5s = 3 min
+  let attempt = 0;
+  let resultUrl = null;
+  while (attempt < maxAttempts) {
+    await new Promise(r => setTimeout(r, 2500));
+    attempt++;
+    try {
+      const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}`, {
+        headers: { 'Authorization': `Bearer ${jwt}` }
+      });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j.status === 'completed' && j.result) {
+        resultUrl = j.result;
+        break;
+      }
+      if (j.status === 'failed' || j.status === 'error') {
+        throw new Error(`Tâche échouée : ${j.status}`);
+      }
+    } catch (e) {
+      console.warn('[tts-status poll]', attempt, e.message);
+    }
+  }
+
+  if (!resultUrl) {
+    toast('Timeout — la tâche n\'a pas terminé en 3 min. Vérifie tes credits GenAIPro.', 'error', 10000);
+    return;
+  }
+
+  // 6. Récupère le mp3 via le proxy serveur (bypass CORS)
+  toast('Téléchargement du mp3...', 'info', 3000);
+  let mp3Blob;
+  try {
+    const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}&fetch_mp3=1`, {
+      headers: { 'Authorization': `Bearer ${jwt}` }
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    mp3Blob = await r.blob();
+  } catch (e) {
+    console.error('[mp3 fetch]', e);
+    toast('Erreur récup mp3 : ' + e.message, 'error', 8000);
+    return;
+  }
+
+  // 7. Upload sur Drive : {produit}/01_Scripts/voices/{Script_Name} - {F|M}.mp3
+  toast('Upload sur Drive...', 'info', 3000);
+  let uploaded;
+  try {
+    await ensureDriveReady();
+    const scriptsFolder = await driveEnsureFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+    const voicesFolder = await driveEnsureFolder(SCRIPTS_VOICES_FOLDER, scriptsFolder.id);
+
+    // Si une voix précédente du même genre existe, on la trash (best effort)
+    if (scriptAd.voice_file_id && scriptAd.voice_gender === gender) {
+      try {
+        await gapi.client.drive.files.update({ fileId: scriptAd.voice_file_id, resource: { trashed: true }, supportsAllDrives: true });
+      } catch (e) { console.warn('[old voice trash]', e); }
+    }
+
+    const fileName = `${scriptAd.name} - ${gender}.mp3`;
+    // driveUploadFile attend un File-like avec .size, .type
+    const fileObj = new File([mp3Blob], fileName, { type: 'audio/mpeg' });
+    uploaded = await driveUploadFile(fileObj, voicesFolder.id, fileName);
+    if (!uploaded?.id) throw new Error('Upload Drive sans id');
+
+    // Auto-share pour preview inline
+    try {
+      await gapi.client.drive.permissions.create({
+        fileId: uploaded.id,
+        resource: { role: 'reader', type: 'anyone' }
+      });
+    } catch (e) { console.warn('[voice auto-share]', e); }
+  } catch (e) {
+    console.error('[voice upload Drive]', e);
+    toast('Erreur upload Drive : ' + extractGapiError(e), 'error', 8000);
+    return;
+  }
+
+  // 8. Update DB
+  const { error } = await sb.from('ads').update({
+    voice_file_id: uploaded.id,
+    voice_id: voiceId,
+    voice_gender: gender,
+    voice_task_id: taskId,
+    voice_generated_at: new Date().toISOString(),
+    voice_generated_by: currentUser.id
+  }).eq('id', scriptId);
+  if (error) { toast('Voix uploadée mais erreur DB : ' + error.message, 'error', 8000); return; }
+
+  toast(`Voix ${gender === 'F' ? '♀' : '♂'} générée et uploadée sur Drive ✓`, 'success', 5000);
+  render();
+}
+
+// Bouton helper pour ouvrir le mp3 voix dans un nouvel onglet
+function openVoicePreview(fileId) {
+  if (!fileId) return;
+  window.open(`https://drive.google.com/file/d/${fileId}/view`, '_blank', 'noopener,noreferrer');
 }
 
 /* ============================================================
