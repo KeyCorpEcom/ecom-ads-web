@@ -8133,6 +8133,22 @@ async function renderScriptsList(el) {
   const userRole = currentProfile?.role || 'viewer';
   const isAdminUser = userRole === 'admin';
 
+  // Vue active : 'approved' (default) ou 'drafts' (admin only)
+  const view = (isAdminUser && localStorage.getItem('scripts_view')) || 'approved';
+
+  // Compteur de drafts (admin only) — pour le badge sur l'onglet
+  let draftsCount = 0;
+  if (isAdminUser) {
+    const { count } = await sb.from('products').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', currentWorkspaceId).eq('status', 'draft');
+    draftsCount = count || 0;
+  }
+
+  // Si vue Drafts → render dédié et early return
+  if (view === 'drafts' && isAdminUser) {
+    return renderScriptsDrafts(el, draftsCount);
+  }
+
   // On lit UNIQUEMENT les ads source='script' (le pipeline scripts est indépendant des concurrent ads)
   // Les drafts sont cachés ici aussi — ils ne devraient pas avoir de scripts à produire
   const [{ data: products }, { data: scripts }] = await Promise.all([
@@ -8177,11 +8193,20 @@ async function renderScriptsList(el) {
         <div class="page-title">Scripts</div>
         <div class="page-subtitle">${totalTodo} script(s) à produire${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} produit${finishedCount > 1 ? 's' : ''} 100% produit${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
       </div>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
-        <input type="checkbox" id="toggle-scripts-hide-done" ${hideDone ? 'checked' : ''} style="accent-color:var(--gold)">
-        <span>Masquer les produits 100% produits</span>
-      </label>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
+          <input type="checkbox" id="toggle-scripts-hide-done" ${hideDone ? 'checked' : ''} style="accent-color:var(--gold)">
+          <span>Masquer les produits 100% produits</span>
+        </label>
+        ${isAdminUser ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
+      </div>
     </div>
+    ${isAdminUser ? `
+      <div class="copy-tabs" style="margin-bottom:18px">
+        <button type="button" class="copy-tab active" data-svview="approved">Validés post-testing (${productStats.length})</button>
+        <button type="button" class="copy-tab" data-svview="drafts">Drafts ${draftsCount > 0 ? `<span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#000;font-size:10px;font-weight:700;margin-left:6px;padding:0 5px">${draftsCount}</span>` : '(0)'}</button>
+      </div>
+    ` : ''}
 
     ${productStats.length === 0 ? `
       <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun produit</div><div class="empty-text">${isAdminUser ? 'Crée d\'abord un produit dans l\'onglet Produits.' : 'L\'admin doit d\'abord créer un produit.'}</div></div>
@@ -8228,6 +8253,93 @@ async function renderScriptsList(el) {
   document.getElementById('toggle-scripts-hide-done')?.addEventListener('change', (e) => {
     localStorage.setItem('scripts_hide_done', e.target.checked ? 'true' : 'false');
     render();
+  });
+  document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+  // Tab switch (Validés / Drafts)
+  el.querySelectorAll('[data-svview]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem('scripts_view', btn.dataset.svview);
+      render();
+    });
+  });
+}
+
+// Vue dédiée aux produits draft sur la page Scripts — admin only.
+async function renderScriptsDrafts(el, draftsCount) {
+  const { data: drafts } = await sb.from('products')
+    .select('*')
+    .eq('workspace_id', currentWorkspaceId)
+    .eq('status', 'draft')
+    .order('created_at', { ascending: false });
+
+  // Compte les scripts par draft (au cas où l'admin a déjà commencé)
+  const draftIds = (drafts || []).map(d => d.id);
+  let scriptsByDraft = {};
+  if (draftIds.length > 0) {
+    const { data: draftScripts } = await sb.from('ads').select('id, product_id, master_file_id').in('product_id', draftIds).eq('source', 'script');
+    (draftScripts || []).forEach(s => {
+      if (!scriptsByDraft[s.product_id]) scriptsByDraft[s.product_id] = [];
+      scriptsByDraft[s.product_id].push(s);
+    });
+  }
+
+  const { count: approvedCount } = await sb.from('products').select('id', { count: 'exact', head: true })
+    .eq('workspace_id', currentWorkspaceId).eq('status', 'approved');
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div>
+        <div class="page-title">Scripts</div>
+        <div class="page-subtitle">${draftsCount} produit(s) en draft (admin only) — valide-les avant de leur ajouter des scripts</div>
+      </div>
+      <button class="btn" id="btn-new-product">+ Nouveau produit</button>
+    </div>
+
+    <div class="copy-tabs" style="margin-bottom:18px">
+      <button type="button" class="copy-tab" data-svview="approved">Validés post-testing (${approvedCount || 0})</button>
+      <button type="button" class="copy-tab active" data-svview="drafts">Drafts <span style="display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--orange);color:#000;font-size:10px;font-weight:700;margin-left:6px;padding:0 5px">${draftsCount}</span></button>
+    </div>
+
+    ${(drafts || []).length === 0 ? `
+      <div class="empty" style="padding:60px 20px">
+        <div class="empty-icon"></div>
+        <div class="empty-title">Aucun produit en draft</div>
+        <div class="empty-text">Crée un produit avec "+ Nouveau produit" — il atterrira ici.</div>
+      </div>
+    ` : `
+      <div class="product-grid">
+        ${(drafts || []).map(p => {
+          const pScripts = scriptsByDraft[p.id] || [];
+          const priority = p.priority || 'normal';
+          return `
+            <div class="product-card" data-goto-draft="${escapeHtml(p.id)}" style="border-left:4px solid var(--orange);cursor:pointer">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
+                <div class="product-card-title">${escapeHtml(p.id)}</div>
+                <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>
+                  ${priorityBadge(priority)}
+                </div>
+              </div>
+              <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${pScripts.length} script${pScripts.length > 1 ? 's' : ''}</div>
+              <div style="margin-top:10px;padding:10px 12px;background:var(--bg-input);border-radius:8px;font-size:12px;line-height:1.5;color:var(--text-dim)">
+                Pricing à valider avant de pouvoir gérer les scripts. Clique pour ouvrir la page produit.
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `}
+  `;
+
+  el.querySelectorAll('[data-goto-draft]').forEach(c => {
+    c.addEventListener('click', () => navigate('scripts/' + c.dataset.gotoDraft));
+  });
+  document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+  el.querySelectorAll('[data-svview]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      localStorage.setItem('scripts_view', btn.dataset.svview);
+      render();
+    });
   });
 }
 
