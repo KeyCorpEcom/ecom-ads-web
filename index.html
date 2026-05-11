@@ -6534,8 +6534,10 @@ function lightMdToHtml(md) {
 }
 
 async function renderFormations(el) {
-  const userRole = currentProfile?.role || 'media_buyer';
-  const isAdminUser = userRole === 'admin';
+  const isAdminUser = isAdmin();
+  // Rôles effectifs du user (primary + extras) — une formation est visible si TAGGÉE pour au moins un de ses rôles
+  const userRoles = [currentProfile?.role, ...(Array.isArray(currentProfile?.extra_roles) ? currentProfile.extra_roles : [])].filter(Boolean);
+  if (userRoles.length === 0) userRoles.push('media_buyer'); // fallback historique
 
   // Charger catégories + formations
   const [{ data: cats }, { data: trainings }, { data: myViews }] = await Promise.all([
@@ -6544,9 +6546,9 @@ async function renderFormations(el) {
     sb.from('training_views').select('training_id').eq('user_id', currentUser.id)
   ]);
 
-  // Filtre formations par rôle
+  // Filtre formations par rôle (multi-rôles : visible si au moins un des rôles du user est taggé sur la formation)
   const visible = (trainings || []).filter(t =>
-    isAdminUser || (Array.isArray(t.roles) && t.roles.includes(userRole))
+    isAdminUser || (Array.isArray(t.roles) && t.roles.some(r => userRoles.includes(r)))
   );
   const viewedSet = new Set((myViews || []).map(v => v.training_id));
 
@@ -6579,7 +6581,7 @@ async function renderFormations(el) {
     <div class="page-head">
       <div>
         <div class="page-title">Formations</div>
-        <div class="page-subtitle">${visible.length} formation${visible.length > 1 ? 's' : ''} disponible${visible.length > 1 ? 's' : ''} ${isAdminUser ? '(admin : tu vois tout)' : `pour ton rôle <strong style="color:var(--gold)">${userRole.replace('_', ' ')}</strong>`}</div>
+        <div class="page-subtitle">${visible.length} formation${visible.length > 1 ? 's' : ''} disponible${visible.length > 1 ? 's' : ''} ${isAdminUser ? '(admin : tu vois tout)' : `pour ${userRoles.length > 1 ? `tes rôles <strong style="color:var(--gold)">${userRoles.map(r => r.replace('_', ' ')).join(', ')}</strong>` : `ton rôle <strong style="color:var(--gold)">${(userRoles[0] || '').replace('_', ' ')}</strong>`}`}</div>
       </div>
       ${isAdminUser ? `
         <div class="flex gap-sm">
@@ -6636,8 +6638,9 @@ async function renderFormations(el) {
 }
 
 async function renderFormationCategory(el, catId) {
-  const userRole = currentProfile?.role || 'media_buyer';
-  const isAdminUser = userRole === 'admin';
+  const isAdminUser = isAdmin();
+  const userRoles = [currentProfile?.role, ...(Array.isArray(currentProfile?.extra_roles) ? currentProfile.extra_roles : [])].filter(Boolean);
+  if (userRoles.length === 0) userRoles.push('media_buyer');
   const isOrphan = catId === '__none__';
 
   // Charge catégorie + formations + views
@@ -6656,7 +6659,7 @@ async function renderFormationCategory(el, catId) {
   }
 
   const visible = (trainingsRes.data || []).filter(t =>
-    isAdminUser || (Array.isArray(t.roles) && t.roles.includes(userRole))
+    isAdminUser || (Array.isArray(t.roles) && t.roles.some(r => userRoles.includes(r)))
   );
   const viewedSet = new Set((viewsRes.data || []).map(v => v.training_id));
 
@@ -6781,16 +6784,17 @@ function getVideoThumbnail(url) {
 }
 
 async function renderFormationDetail(el, trainingId) {
-  const userRole = currentProfile?.role || 'media_buyer';
-  const isAdminUser = userRole === 'admin';
+  const isAdminUser = isAdmin();
+  const userRoles = [currentProfile?.role, ...(Array.isArray(currentProfile?.extra_roles) ? currentProfile.extra_roles : [])].filter(Boolean);
+  if (userRoles.length === 0) userRoles.push('media_buyer');
 
   const { data: t } = await sb.from('trainings').select('*, training_categories(name)').eq('id', trainingId).maybeSingle();
   if (!t) {
     el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Formation introuvable</div></div>';
     return;
   }
-  // Vérifier accès rôle
-  if (!isAdminUser && (!Array.isArray(t.roles) || !t.roles.includes(userRole))) {
+  // Vérifier accès rôle (multi-rôles : ok si au moins un des rôles du user est taggé)
+  if (!isAdminUser && (!Array.isArray(t.roles) || !t.roles.some(r => userRoles.includes(r)))) {
     el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Accès refusé</div><div class="text-dim">Cette formation n\'est pas pour ton rôle.</div></div>';
     return;
   }
@@ -7342,13 +7346,14 @@ function toolIconHtml(t, opts = {}) {
 }
 
 async function renderTools(el) {
-  const userRole = currentProfile?.role || 'media_buyer';
-  const isAdminUser = userRole === 'admin';
+  const isAdminUser = isAdmin();
+  const userRoles = [currentProfile?.role, ...(Array.isArray(currentProfile?.extra_roles) ? currentProfile.extra_roles : [])].filter(Boolean);
+  if (userRoles.length === 0) userRoles.push('media_buyer');
 
   // RLS filtre déjà côté DB selon le rôle, mais on garde le check côté client par sécurité
   const { data: tools } = await sb.from('tools').select('*').order('position').order('name');
   const visible = (tools || []).filter(t =>
-    isAdminUser || (Array.isArray(t.roles) && t.roles.includes(userRole))
+    isAdminUser || (Array.isArray(t.roles) && t.roles.some(r => userRoles.includes(r)))
   );
 
   el.innerHTML = `
