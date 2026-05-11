@@ -1147,7 +1147,7 @@ function hasRole(r) {
 function canEdit() { return hasRole('admin') || hasRole('ads_translator'); }
 function isAdmin() { return hasRole('admin'); }
 function isVideoEditor() { return hasRole('video_editor'); }
-function canEditPages() { return hasRole('admin') || hasRole('ads_translator') || hasRole('page_builder'); }
+function canEditPages() { return hasRole('admin') || hasRole('page_builder'); }
 function canProduceScripts() { return hasRole('admin') || hasRole('video_editor'); }
 function isPageBuilder() { return hasRole('page_builder'); }
 
