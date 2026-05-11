@@ -27,12 +27,13 @@ export default async function handler(req, res) {
   if (!userRes.ok) return res.status(401).json({ error: 'Invalid session' });
   const user = await userRes.json();
 
-  const profileRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=role`, {
+  const profileRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=role,extra_roles`, {
     headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` }
   });
   const profiles = await profileRes.json();
-  const role = profiles?.[0]?.role;
-  if (!role || !['admin', 'video_editor'].includes(role)) {
+  const p = profiles?.[0];
+  const userRoles = p ? [p.role, ...(Array.isArray(p.extra_roles) ? p.extra_roles : [])].filter(Boolean) : [];
+  if (!userRoles.some(r => ['admin', 'video_editor'].includes(r))) {
     return res.status(403).json({ error: 'Admin ou video_editor uniquement' });
   }
 

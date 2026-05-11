@@ -26,11 +26,13 @@ export default async function handler(req, res) {
   if (!userRes.ok) return res.status(401).json({ error: 'Invalid session' });
   const user = await userRes.json();
 
-  const profileRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=role`, {
+  const profileRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=role,extra_roles`, {
     headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` }
   });
   const profiles = await profileRes.json();
-  if (!profiles[0] || profiles[0].role !== 'admin') {
+  const p = profiles?.[0];
+  const userRoles = p ? [p.role, ...(Array.isArray(p.extra_roles) ? p.extra_roles : [])].filter(Boolean) : [];
+  if (!userRoles.includes('admin')) {
     return res.status(403).json({ error: 'Admin only' });
   }
 

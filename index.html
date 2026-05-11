@@ -934,56 +934,52 @@ async function initApp(user) {
   // Affiche le switcher de workspace
   renderWorkspaceSwitcher();
 
-  // Page builder : cache tout sauf Pages + Sections + Formations + Tools (recherche cachée aussi)
-  if (profile.role === 'page_builder') {
-    const allowedRoutes = new Set(['pages', 'sections', 'formations', 'tools']);
-    document.querySelectorAll('.nav-item').forEach(el => {
-      // Cache la recherche (donne accès à tout le reste de l'app)
-      if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
-      if (!allowedRoutes.has(el.dataset.route)) el.style.display = 'none';
-    });
-    document.querySelectorAll('.nav-section-label').forEach(el => el.style.display = 'none');
-    // Force navigation to pages au login (sauf si déjà sur formations/tools)
-    const currentRoute = location.hash.slice(1).split('/')[0];
-    if (!allowedRoutes.has(currentRoute) && currentRoute !== 'formation') location.hash = '#pages';
-  }
-
-  // Ads Translator : cache tout sauf Ads + Drive + Formations + Tools
-  if (profile.role === 'ads_translator') {
-    const allowedRoutes = new Set(['ads', 'drive', 'formations', 'tools']);
-    document.querySelectorAll('.nav-item').forEach(el => {
-      // Cache la recherche (donne accès à tout le reste de l'app)
-      if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
-      const route = el.dataset.route;
-      // Cache les routes non-autorisées + tous les liens externes (P&L, SAV)
-      if (!route || !allowedRoutes.has(route)) {
-        el.style.display = 'none';
+  // Restriction nav par rôle — calcule l'UNION des routes autorisées si plusieurs rôles cumulés.
+  // Admin n'est jamais restreint.
+  if (profile.role !== 'admin' && !(Array.isArray(profile.extra_roles) && profile.extra_roles.includes('admin'))) {
+    const allRoles = [profile.role, ...(Array.isArray(profile.extra_roles) ? profile.extra_roles : [])].filter(Boolean);
+    const ROLE_NAV_ROUTES = {
+      page_builder:   ['pages', 'sections', 'formations', 'tools'],
+      ads_translator: ['ads', 'drive', 'formations', 'tools'],
+      video_editor:   ['scripts', 'drive', 'formations', 'tools'],
+      viewer:         ['ads', 'pages', 'drive', 'formations', 'tools']
+    };
+    const ROLE_FULL_ROUTES = {
+      page_builder:   ['pages', 'sections', 'formations', 'formation', 'tools', 'produit'],
+      ads_translator: ['ads', 'drive', 'formations', 'formation', 'produit', 'tools'],
+      video_editor:   ['scripts', 'drive', 'formations', 'formation', 'tools'],
+      viewer:         ['ads', 'pages', 'drive', 'formations', 'formation', 'produit', 'tools']
+    };
+    const allowedNav = new Set();
+    const allowedFull = new Set();
+    let hasAnyRestricted = false;
+    for (const r of allRoles) {
+      if (ROLE_NAV_ROUTES[r]) {
+        hasAnyRestricted = true;
+        ROLE_NAV_ROUTES[r].forEach(p => allowedNav.add(p));
+        ROLE_FULL_ROUTES[r].forEach(p => allowedFull.add(p));
       }
-    });
-    // Cache aussi le label "Admin" (déjà caché par défaut, mais sécurité)
-    const adminLabel = document.getElementById('nav-admin-label');
-    if (adminLabel) adminLabel.style.display = 'none';
-    // Force navigation vers Ads si l'user arrive sur une route interdite
-    const allowedFull = new Set(['ads', 'drive', 'formations', 'formation', 'produit', 'tools']);
-    const currentRoute = location.hash.slice(1).split('/')[0] || 'dashboard';
-    if (!allowedFull.has(currentRoute)) location.hash = '#ads';
-  }
-
-  // Video Editor : cache tout sauf Scripts + Drive + Formations + Tools
-  if (profile.role === 'video_editor') {
-    const allowedRoutes = new Set(['scripts', 'drive', 'formations', 'tools']);
-    document.querySelectorAll('.nav-item').forEach(el => {
-      if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
-      const route = el.dataset.route;
-      if (!route || !allowedRoutes.has(route)) {
-        el.style.display = 'none';
+    }
+    if (hasAnyRestricted) {
+      document.querySelectorAll('.nav-item').forEach(el => {
+        if (el.id === 'btn-open-cmdk') { el.style.display = 'none'; return; }
+        const route = el.dataset.route;
+        if (!route || !allowedNav.has(route)) el.style.display = 'none';
+      });
+      const adminLabel = document.getElementById('nav-admin-label');
+      if (adminLabel) adminLabel.style.display = 'none';
+      // Si page_builder est dans les rôles, on cache aussi les section-labels (par cohérence avec l'ancien comportement)
+      if (allRoles.includes('page_builder') && allRoles.length === 1) {
+        document.querySelectorAll('.nav-section-label').forEach(el => el.style.display = 'none');
       }
-    });
-    const adminLabel = document.getElementById('nav-admin-label');
-    if (adminLabel) adminLabel.style.display = 'none';
-    const allowedFull = new Set(['scripts', 'drive', 'formations', 'formation', 'tools']);
-    const currentRoute = location.hash.slice(1).split('/')[0] || 'dashboard';
-    if (!allowedFull.has(currentRoute)) location.hash = '#scripts';
+      // Force navigation vers la 1ère page autorisée si current pas dans la liste
+      const currentRoute = location.hash.slice(1).split('/')[0] || 'dashboard';
+      if (!allowedFull.has(currentRoute)) {
+        // Ordre de priorité du fallback selon les rôles
+        const fallback = ['ads', 'scripts', 'pages', 'drive', 'tools'].find(p => allowedNav.has(p)) || 'tools';
+        location.hash = '#' + fallback;
+      }
+    }
   }
 
   // Tentative reconnexion auto Drive (si déjà configuré)
@@ -1020,20 +1016,23 @@ async function render(e) {
   if (!(e instanceof Event)) bustFetchAllCache();
   const { page, params } = getRoute();
 
-  // Si page_builder : restriction à Pages + Sections + Formations + Tools
-  if (currentProfile?.role === 'page_builder' && !['pages', 'sections', 'formations', 'formation', 'tools'].includes(page)) {
-    navigate('pages');
-    return;
-  }
-  // Si ads_translator : restriction à Ads + Drive + Formations + détail produit + Tools
-  if (currentProfile?.role === 'ads_translator' && !['ads', 'drive', 'formations', 'formation', 'produit', 'tools'].includes(page)) {
-    navigate('ads');
-    return;
-  }
-  // Si video_editor : restriction à Scripts + Drive + Formations + Tools
-  if (currentProfile?.role === 'video_editor' && !['scripts', 'drive', 'formations', 'formation', 'tools'].includes(page)) {
-    navigate('scripts');
-    return;
+  // Restriction d'accès par rôle (union si plusieurs rôles cumulés).
+  // Admin n'est pas restreint. Sinon on calcule l'ensemble des pages autorisées
+  // selon les rôles que le user possède (role + extra_roles).
+  if (!isAdmin()) {
+    const allowedPages = new Set();
+    if (hasRole('ads_translator')) ['ads', 'drive', 'formations', 'formation', 'produit', 'tools'].forEach(p => allowedPages.add(p));
+    if (hasRole('video_editor'))   ['scripts', 'drive', 'formations', 'formation', 'tools'].forEach(p => allowedPages.add(p));
+    if (hasRole('page_builder'))   ['pages', 'page', 'sections', 'drive', 'formations', 'formation', 'tools', 'produit'].forEach(p => allowedPages.add(p));
+    if (hasRole('viewer'))         ['ads', 'pages', 'drive', 'formations', 'formation', 'tools', 'produit'].forEach(p => allowedPages.add(p));
+
+    // Si le user a au moins un rôle restreint et que la page demandée n'est pas dans l'union → redirige vers la 1ère page autorisée
+    if (allowedPages.size > 0 && !allowedPages.has(page)) {
+      // Priorité de redirect : ads > scripts > pages > drive (la 1ère page dispo dans cet ordre)
+      const fallback = ['ads', 'scripts', 'pages', 'drive', 'tools'].find(p => allowedPages.has(p)) || 'drive';
+      navigate(fallback);
+      return;
+    }
   }
 
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -1137,12 +1136,20 @@ async function fetchAll(opts = {}) {
   return data;
 }
 
-function canEdit() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'ads_translator'); }
-function isAdmin() { return currentProfile && currentProfile.role === 'admin'; }
-function isVideoEditor() { return currentProfile && currentProfile.role === 'video_editor'; }
-function canEditPages() { return currentProfile && ['admin', 'ads_translator', 'page_builder'].includes(currentProfile.role); }
-function canProduceScripts() { return currentProfile && (currentProfile.role === 'admin' || currentProfile.role === 'video_editor'); }
-function isPageBuilder() { return currentProfile && currentProfile.role === 'page_builder'; }
+// Multi-rôles : un user a 1 rôle primaire (role) + N rôles supplémentaires (extra_roles array).
+// hasRole() check les deux. Tous les helpers se basent dessus pour rester cohérents.
+function hasRole(r) {
+  if (!currentProfile) return false;
+  if (currentProfile.role === r) return true;
+  const extras = currentProfile.extra_roles;
+  return Array.isArray(extras) && extras.includes(r);
+}
+function canEdit() { return hasRole('admin') || hasRole('ads_translator'); }
+function isAdmin() { return hasRole('admin'); }
+function isVideoEditor() { return hasRole('video_editor'); }
+function canEditPages() { return hasRole('admin') || hasRole('ads_translator') || hasRole('page_builder'); }
+function canProduceScripts() { return hasRole('admin') || hasRole('video_editor'); }
+function isPageBuilder() { return hasRole('page_builder'); }
 
 /* ============================================================
    PAGE: DASHBOARD
@@ -3348,18 +3355,23 @@ async function renderUsers(el) {
           <tr>
             <th>Email</th>
             <th>Nom</th>
-            <th>Rôle</th>
+            <th>Rôle principal</th>
+            <th style="min-width:340px">Rôles supplémentaires</th>
             <th>Créé le</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          ${profiles.map(p => `
+          ${profiles.map(p => {
+            const extras = Array.isArray(p.extra_roles) ? p.extra_roles : [];
+            const allRoles = ['admin', 'ads_translator', 'video_editor', 'page_builder', 'viewer'];
+            const isMe = p.id === currentUser.id;
+            return `
             <tr>
-              <td>${escapeHtml(p.email)}${p.id === currentUser.id ? ' <span class="text-dim">(moi)</span>' : ''}</td>
+              <td>${escapeHtml(p.email)}${isMe ? ' <span class="text-dim">(moi)</span>' : ''}</td>
               <td>${escapeHtml(p.full_name || '—')}</td>
               <td>
-                <select class="role-select" data-user-role="${p.id}" ${p.id === currentUser.id ? 'disabled' : ''}>
+                <select class="role-select" data-user-role="${p.id}" ${isMe ? 'disabled' : ''}>
                   <option value="admin" ${p.role === 'admin' ? 'selected' : ''}>Admin</option>
                   <option value="ads_translator" ${p.role === 'ads_translator' ? 'selected' : ''}>Ads Translator</option>
                   <option value="video_editor" ${p.role === 'video_editor' ? 'selected' : ''}>Video Editor</option>
@@ -3367,12 +3379,24 @@ async function renderUsers(el) {
                   <option value="viewer" ${p.role === 'viewer' ? 'selected' : ''}>Viewer</option>
                 </select>
               </td>
+              <td>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">
+                  ${allRoles.filter(r => r !== p.role).map(r => {
+                    const checked = extras.includes(r);
+                    return `<label style="display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:14px;font-size:11px;cursor:${isMe ? 'not-allowed' : 'pointer'};user-select:none;background:${checked ? 'rgba(192,132,252,0.15)' : 'var(--bg-input)'};border:1px solid ${checked ? 'var(--purple)' : 'var(--border)'};color:${checked ? 'var(--purple)' : 'var(--text-dim)'};${isMe ? 'opacity:0.5' : ''}">
+                      <input type="checkbox" data-extra-role="${p.id}|${r}" ${checked ? 'checked' : ''} ${isMe ? 'disabled' : ''} style="margin:0;accent-color:var(--purple)">
+                      ${escapeHtml(r)}
+                    </label>`;
+                  }).join('')}
+                </div>
+              </td>
               <td class="text-sm text-dim">${new Date(p.created_at).toLocaleDateString('fr-FR')}</td>
               <td>
-                ${p.id !== currentUser.id ? `<button class="btn btn-ghost btn-sm" data-del-user="${p.id}" style="color:var(--red)">Supprimer</button>` : ''}
+                ${!isMe ? `<button class="btn btn-ghost btn-sm" data-del-user="${p.id}" style="color:var(--red)">Supprimer</button>` : ''}
               </td>
             </tr>
-          `).join('')}
+          `;
+          }).join('')}
         </tbody>
       </table>
     </div>
@@ -3391,9 +3415,29 @@ async function renderUsers(el) {
 
   document.getElementById('btn-invite-user')?.addEventListener('click', inviteUserFlow);
   el.querySelectorAll('[data-user-role]').forEach(s => s.addEventListener('change', async () => {
-    const { error } = await sb.from('profiles').update({ role: s.value }).eq('id', s.dataset.userRole);
+    // Quand on change le rôle primaire, on retire automatiquement ce rôle des extra_roles
+    // pour éviter d'avoir le même rôle dupliqué.
+    const userId = s.dataset.userRole;
+    const newRole = s.value;
+    const { data: p } = await sb.from('profiles').select('extra_roles').eq('id', userId).maybeSingle();
+    const cleanedExtras = (Array.isArray(p?.extra_roles) ? p.extra_roles : []).filter(r => r !== newRole);
+    const { error } = await sb.from('profiles').update({ role: newRole, extra_roles: cleanedExtras }).eq('id', userId);
     if (error) toast('Erreur : ' + error.message, 'error');
-    else toast('Rôle mis à jour', 'success');
+    else { toast('Rôle principal mis à jour', 'success'); render(); }
+  }));
+  // Checkbox des rôles supplémentaires
+  el.querySelectorAll('[data-extra-role]').forEach(cb => cb.addEventListener('change', async () => {
+    const [userId, role] = cb.dataset.extraRole.split('|');
+    const { data: p } = await sb.from('profiles').select('extra_roles').eq('id', userId).maybeSingle();
+    let extras = Array.isArray(p?.extra_roles) ? [...p.extra_roles] : [];
+    if (cb.checked) {
+      if (!extras.includes(role)) extras.push(role);
+    } else {
+      extras = extras.filter(r => r !== role);
+    }
+    const { error } = await sb.from('profiles').update({ extra_roles: extras }).eq('id', userId);
+    if (error) { toast('Erreur : ' + error.message, 'error'); cb.checked = !cb.checked; return; }
+    toast(`Rôle ${role} ${cb.checked ? 'ajouté' : 'retiré'}`, 'success');
   }));
   el.querySelectorAll('[data-del-user]').forEach(b => b.addEventListener('click', async () => {
     if (!await confirmDialog('Supprimer', 'Cet utilisateur perdra accès immédiatement.')) return;

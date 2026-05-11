@@ -34,12 +34,14 @@ export default async function handler(req, res) {
   }
   const callerUser = await checkUser.json();
 
-  // Vérifier que le caller est admin via la table profiles
-  const checkProfile = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${callerUser.id}&select=role`, {
+  // Vérifier que le caller est admin via la table profiles (role primaire OU dans extra_roles)
+  const checkProfile = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${callerUser.id}&select=role,extra_roles`, {
     headers: { 'apikey': SERVICE_KEY, 'Authorization': `Bearer ${SERVICE_KEY}` }
   });
   const profiles = await checkProfile.json();
-  if (!profiles[0] || profiles[0].role !== 'admin') {
+  const p = profiles?.[0];
+  const callerRoles = p ? [p.role, ...(Array.isArray(p.extra_roles) ? p.extra_roles : [])].filter(Boolean) : [];
+  if (!callerRoles.includes('admin')) {
     return res.status(403).json({ error: 'Admin only' });
   }
 
