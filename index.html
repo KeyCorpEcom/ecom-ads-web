@@ -7769,12 +7769,19 @@ async function renderSections(el) {
   const { data: sections } = await sb.from('sections')
     .select('*')
     .eq('workspace_id', currentWorkspaceId)
-    .order('position')
     .order('created_at', { ascending: false });
+
+  // Tri custom : position > 0 d'abord (1, 2, 3 = ordre d'affichage explicite),
+  // puis position = 0/null à la fin (= "non positionné", trié par date desc)
+  const allSections = (sections || []).slice().sort((a, b) => {
+    const pa = (a.position && a.position > 0) ? a.position : Infinity;
+    const pb = (b.position && b.position > 0) ? b.position : Infinity;
+    if (pa !== pb) return pa - pb;
+    return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+  });
 
   // Filtre par catégorie (state local en localStorage)
   const activeCat = localStorage.getItem('sections_filter_cat') || 'all';
-  const allSections = sections || [];
   const counts = { all: allSections.length };
   SECTION_CATEGORIES.forEach(c => { counts[c] = 0; });
   allSections.forEach(s => { counts[s.category] = (counts[s.category] || 0) + 1; });
@@ -7992,8 +7999,8 @@ async function editSectionFlow(existing) {
 
         <div class="input-group">
           <label class="input-label">Position</label>
-          <input class="input" type="number" data-field="position" value="${s.position || 0}">
-          <div class="input-hint">Plus petit = en haut.</div>
+          <input class="input" type="number" min="0" data-field="position" value="${s.position || 0}">
+          <div class="input-hint"><strong>1 = en haut</strong>, puis 2, 3… Laisse <strong>0</strong> pour ne pas trier (la section ira en bas dans l'ordre de création).</div>
         </div>
 
         <div class="modal-actions">
