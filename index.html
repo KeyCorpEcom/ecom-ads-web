@@ -2050,10 +2050,31 @@ async function renderProduit(el, productId) {
     </div>
 
     ${ads.length === 0 ? `
-      <div class="empty">
+      <div class="empty" style="padding:40px 20px">
         <div class="empty-icon"></div>
-        <div class="empty-title">Aucune ad pour l'instant</div>
-        <div class="empty-text">Upload des videos dans <strong>" Masters (nettoyés)"</strong> ci-dessous — les ads seront créées automatiquement.</div>
+        <div class="empty-title">Aucune ad pour ce produit</div>
+        <div class="empty-text" style="max-width:560px;margin:0 auto 18px;line-height:1.6">
+          ${isAdmin() ? `
+            Tu as 2 façons de créer des ads pour ce produit :
+            <div style="text-align:left;margin-top:14px;padding:14px;background:var(--bg-input);border-radius:8px;border-left:3px solid var(--blue)">
+              <strong style="color:var(--blue)">A) Importer des ads de concurrents</strong> (méthode classique)<br>
+              <span class="text-sm text-dim">Upload des vidéos de competitor ads dans la dropzone <strong>"Videos concurrent"</strong> ci-dessous. Chaque vidéo importée crée automatiquement une nouvelle ad (Ad 1, Ad 2…) que le video editor pourra ensuite nettoyer.</span>
+            </div>
+            ${product.passed_testing ? `
+              <div style="text-align:left;margin-top:10px;padding:14px;background:var(--bg-input);border-radius:8px;border-left:3px solid var(--purple)">
+                <strong style="color:var(--purple)">B) Créer des scripts originaux</strong> (produit validé post-testing ✓)<br>
+                <span class="text-sm text-dim">Va sur la <a href="#scripts/${escapeHtml(product.id)}" style="color:var(--purple);text-decoration:underline">page Scripts de ce produit</a> et clique <strong>+ Nouveau script</strong>. Le video editor produira la vidéo from-scratch.</span>
+              </div>
+            ` : `
+              <div style="text-align:left;margin-top:10px;padding:14px;background:var(--bg);border-radius:8px;border-left:3px solid var(--text-mute);opacity:0.7">
+                <strong style="color:var(--text-dim)">B) Créer des scripts originaux</strong> <span class="text-sm text-dim">(verrouillé — produit pas encore validé post-testing)</span><br>
+                <span class="text-sm text-dim">Une fois le produit prouvé rentable, coche "Validé post-testing" dans Éditer pour débloquer la création de scripts originaux.</span>
+              </div>
+            `}
+          ` : `
+            L'admin n'a pas encore importé d'ads concurrent ni créé de scripts pour ce produit.
+          `}
+        </div>
       </div>
     ` : `
       <div class="card" style="overflow-x:auto">
