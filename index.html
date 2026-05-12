@@ -3281,20 +3281,66 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
     </div>
   `;
 
-  // Attache les handlers d'édition du COGS par pays — focus preservation pour pas perdre le curseur
+  // Attache les handlers d'édition du COGS par pays — update SURGICAL (sans re-render)
+  // pour ne pas écraser ce que l'user tape (genre "34." qui deviendrait "34" en re-render).
   wrap.querySelectorAll('[data-cogs-country]').forEach(input => {
     input.addEventListener('input', () => {
       const cid = input.dataset.cogsCountry;
-      const v = parseFloat(String(input.value || '').replace(',', '.'));
-      if (!isNaN(v) && v > 0) cogsByCountry[cid] = v;
+      const raw = String(input.value || '').replace(',', '.');
+      const v = parseFloat(raw);
+      const validNumber = !isNaN(v) && v > 0;
+      if (validNumber) cogsByCountry[cid] = v;
       else delete cogsByCountry[cid];
-      // Re-render en préservant le focus + position du curseur
-      const cursor = input.selectionStart;
-      renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
-      const newInput = bd.querySelector(`[data-cogs-country="${cid}"]`);
-      if (newInput) {
-        newInput.focus();
-        try { newInput.setSelectionRange(cursor, cursor); } catch (e) {}
+
+      // Recalcule juste la ROW concernée + la moyenne, sans réécrire les inputs
+      const country = allCountries.find(c => c.id === cid);
+      if (!country) return;
+      const effectiveCogs = validNumber ? v : (hasGlobalCogs ? cogs : 0);
+      const effectiveCogsEur = priceToEur(effectiveCogs, cogsCurrency, rates);
+      const localFromEurNow = hasPrice ? eurToLocal(basePriceEur, country) : null;
+      const sameCurrency = (country.currency_code || 'EUR') === basePriceCurrency;
+      const localPsychNow = !hasPrice ? null : (sameCurrency
+        ? Math.round(localFromEurNow * 100) / 100
+        : psychPrice(localFromEurNow, country.psych_increment || 50, country.psych_subtract || 0.10));
+      const newRoas = !hasPrice ? null : computeRoasBE({ localPrice: localPsychNow, country, cogsEur: effectiveCogsEur, pspPct: psp, otherFeesEur });
+      // Update visuel de la cellule ROAS de cette row
+      const row = wrap.querySelector(`[data-row-country="${cid}"]`);
+      if (row) {
+        const roasCell = row.querySelector('td:last-child');
+        if (roasCell) {
+          const roasStr = (newRoas == null) ? '—' : (newRoas === Infinity ? '∞ perte' : newRoas.toFixed(2));
+          const roasColor = (newRoas == null) ? 'var(--text-mute)' :
+            newRoas === Infinity ? 'var(--red)' :
+            newRoas > 1.8 ? 'var(--red)' :
+            newRoas > 1.5 ? 'var(--orange)' :
+            'var(--green)';
+          roasCell.style.color = roasColor;
+          roasCell.textContent = roasStr;
+        }
+        // Bordure gold sur l'input si override actif
+        input.style.background = validNumber ? 'rgba(200,165,90,0.10)' : 'var(--bg-input)';
+        input.style.borderColor = validNumber ? 'var(--gold)' : 'var(--border)';
+      }
+      // Update du ROAS BE moyen (en haut du breakdown)
+      const allRoas = (allCountries || []).filter(c => enabled.includes(c.id)).map(c => {
+        const cc = cogsByCountry[c.id];
+        const hasOv = cc != null && !isNaN(cc) && cc > 0;
+        const effC = hasOv ? cc : (hasGlobalCogs ? cogs : 0);
+        const effCEur = priceToEur(effC, cogsCurrency, rates);
+        if (!hasPrice) return null;
+        const lFromEur = eurToLocal(basePriceEur, c);
+        const sC = (c.currency_code || 'EUR') === basePriceCurrency;
+        const lP = sC ? Math.round(lFromEur * 100) / 100 : psychPrice(lFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
+        return computeRoasBE({ localPrice: lP, country: c, cogsEur: effCEur, pspPct: psp, otherFeesEur });
+      }).filter(r => r != null && r !== Infinity);
+      const newAvg = allRoas.length > 0 ? (allRoas.reduce((a, b) => a + b, 0) / allRoas.length) : null;
+      const avgEl = wrap.querySelector('div[style*="font-size:24px"]');
+      if (avgEl) {
+        avgEl.textContent = newAvg == null ? '—' : newAvg.toFixed(2);
+        avgEl.style.color = newAvg == null ? 'var(--text-mute)' :
+          newAvg > 1.8 ? 'var(--red)' :
+          newAvg > 1.5 ? 'var(--orange)' :
+          'var(--green)';
       }
     });
   });
