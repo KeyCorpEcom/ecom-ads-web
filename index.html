@@ -3012,7 +3012,7 @@ async function editProductFlow(productId) {
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">Prix de vente base</label>
               <div style="display:flex;gap:8px">
-                <input class="input" type="number" step="0.01" data-field="basePrice" value="${product.base_price || ''}" placeholder="49.90" style="flex:1">
+                <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="basePrice" value="${product.base_price || ''}" placeholder="49.90" style="flex:1;text-align:left">
                 <select class="select" data-field="basePriceCurrency" style="width:90px">
                   <option value="EUR" ${(product.base_price_currency || 'EUR') === 'EUR' ? 'selected' : ''}>EUR</option>
                   <option value="USD" ${product.base_price_currency === 'USD' ? 'selected' : ''}>USD</option>
@@ -3023,7 +3023,7 @@ async function editProductFlow(productId) {
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">COGS (coût d'achat)</label>
               <div style="display:flex;gap:8px">
-                <input class="input" type="number" step="0.01" data-field="cogs" value="${product.cogs || ''}" placeholder="12.50" style="flex:1">
+                <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="cogs" value="${product.cogs || ''}" placeholder="12.50" style="flex:1;text-align:left">
                 <select class="select" data-field="cogsCurrency" style="width:90px">
                   <option value="USD" ${(product.cogs_currency || 'USD') === 'USD' ? 'selected' : ''}>USD</option>
                   <option value="EUR" ${product.cogs_currency === 'EUR' ? 'selected' : ''}>EUR</option>
@@ -3035,11 +3035,11 @@ async function editProductFlow(productId) {
           <div class="grid-2">
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">Frais PSP (%)</label>
-              <input class="input" type="number" step="0.1" data-field="pspFeesPct" value="${product.psp_fees_pct ?? 3}" placeholder="3">
+              <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="pspFeesPct" value="${product.psp_fees_pct ?? 3}" placeholder="3" style="text-align:left">
             </div>
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">Autres frais (EUR)</label>
-              <input class="input" type="number" step="0.01" data-field="otherFeesEur" value="${product.other_fees_eur ?? 0}" placeholder="0">
+              <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="otherFeesEur" value="${product.other_fees_eur ?? 0}" placeholder="0" style="text-align:left">
             </div>
           </div>
 
@@ -3112,13 +3112,14 @@ async function editProductFlow(productId) {
 
   if (enabled.length === 0) { toast('Au moins 1 marché requis', 'error'); return; }
 
-  // Build payload commun
+  // Build payload commun — parseFlex accepte les virgules (clavier FR) en plus des points
+  const parseFlex = (v) => parseFloat(String(v || '').replace(',', '.'));
   const priority = (fields.priority || 'normal');
   const concurrentPageUrl = (fields.concurrentPageUrl || '').trim() ? normalizeUrl(fields.concurrentPageUrl.trim()) : null;
-  const basePrice = parseFloat(fields.basePrice) || null;
-  const cogs = parseFloat(fields.cogs) || null;
-  const pspFeesPct = parseFloat(fields.pspFeesPct);
-  const otherFeesEur = parseFloat(fields.otherFeesEur);
+  const basePrice = parseFlex(fields.basePrice) || null;
+  const cogs = parseFlex(fields.cogs) || null;
+  const pspFeesPct = parseFlex(fields.pspFeesPct);
+  const otherFeesEur = parseFlex(fields.otherFeesEur);
   // Checkbox "passed_testing" : valeur "on" si cochée, undefined si décochée
   const passedTesting = fields.passedTesting === 'on' || fields.passedTesting === true;
   const payload = {
@@ -3175,12 +3176,14 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
   cogsByCountry = cogsByCountry || {};
   const wrap = bd.querySelector('#pricing-breakdown');
   if (!wrap) return;
-  const basePrice = parseFloat(bd.querySelector('[data-field="basePrice"]')?.value);
+  // Accepte les virgules (clavier FR) et les points indifféremment
+  const parseFlexFloat = (v) => parseFloat(String(v || '').replace(',', '.'));
+  const basePrice = parseFlexFloat(bd.querySelector('[data-field="basePrice"]')?.value);
   const basePriceCurrency = bd.querySelector('[data-field="basePriceCurrency"]')?.value || 'EUR';
-  const cogs = parseFloat(bd.querySelector('[data-field="cogs"]')?.value);
+  const cogs = parseFlexFloat(bd.querySelector('[data-field="cogs"]')?.value);
   const cogsCurrency = bd.querySelector('[data-field="cogsCurrency"]')?.value || 'USD';
-  const pspFeesPct = parseFloat(bd.querySelector('[data-field="pspFeesPct"]')?.value);
-  const otherFeesEur = parseFloat(bd.querySelector('[data-field="otherFeesEur"]')?.value) || 0;
+  const pspFeesPct = parseFlexFloat(bd.querySelector('[data-field="pspFeesPct"]')?.value);
+  const otherFeesEur = parseFlexFloat(bd.querySelector('[data-field="otherFeesEur"]')?.value) || 0;
 
   const activeCountries = (allCountries || []).filter(c => enabled.includes(c.id));
   if (activeCountries.length === 0) {
@@ -3265,7 +3268,7 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
                 <td class="ad-col" style="padding-left:12px">${flagImg(r.c.id)}<strong>${r.c.id}</strong> <span class="text-dim">${escapeHtml(r.c.currency_code || 'EUR')}</span></td>
                 <td class="text-dim">${r.localFromEur == null ? '—' : escapeHtml(fmtCurrency(r.localFromEur, r.c))}</td>
                 <td><strong>${r.localPsych == null ? '—' : escapeHtml(fmtCurrency(r.localPsych, r.c))}</strong></td>
-                <td><input type="number" step="0.01" data-cogs-country="${r.c.id}" value="${cogsValueAttr}" placeholder="${cogsPlaceholder}" style="width:80px;padding:4px 8px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);${cogsBg};border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace" title="${r.hasOverride ? 'Override actif (clique pour modifier)' : 'COGS global appliqué — clique pour override'}"></td>
+                <td><input type="text" inputmode="decimal" dir="ltr" data-cogs-country="${r.c.id}" value="${cogsValueAttr}" placeholder="${cogsPlaceholder}" style="width:80px;padding:4px 8px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);${cogsBg};border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;text-align:left" title="${r.hasOverride ? 'Override actif (clique pour modifier)' : 'COGS global appliqué — clique pour override'}"></td>
                 <td style="color:${roasColor};font-weight:700;font-family:'JetBrains Mono',monospace">${roasStr}</td>
               </tr>
             `;
@@ -3282,7 +3285,7 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
   wrap.querySelectorAll('[data-cogs-country]').forEach(input => {
     input.addEventListener('input', () => {
       const cid = input.dataset.cogsCountry;
-      const v = parseFloat(input.value);
+      const v = parseFloat(String(input.value || '').replace(',', '.'));
       if (!isNaN(v) && v > 0) cogsByCountry[cid] = v;
       else delete cogsByCountry[cid];
       // Re-render en préservant le focus + position du curseur
