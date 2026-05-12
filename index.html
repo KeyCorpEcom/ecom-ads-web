@@ -3025,8 +3025,8 @@ async function editProductFlow(productId) {
               <div style="display:flex;gap:8px">
                 <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="cogs" value="${product.cogs || ''}" placeholder="12.50" style="flex:1;text-align:left">
                 <select class="select" data-field="cogsCurrency" style="width:90px">
-                  <option value="USD" ${(product.cogs_currency || 'USD') === 'USD' ? 'selected' : ''}>USD</option>
-                  <option value="EUR" ${product.cogs_currency === 'EUR' ? 'selected' : ''}>EUR</option>
+                  <option value="EUR" ${(product.cogs_currency || 'EUR') === 'EUR' ? 'selected' : ''}>EUR</option>
+                  <option value="USD" ${product.cogs_currency === 'USD' ? 'selected' : ''}>USD</option>
                   <option value="CNY" ${product.cogs_currency === 'CNY' ? 'selected' : ''}>CNY</option>
                 </select>
               </div>
@@ -3131,7 +3131,7 @@ async function editProductFlow(productId) {
     base_price: basePrice,
     base_price_currency: fields.basePriceCurrency || 'EUR',
     cogs,
-    cogs_currency: fields.cogsCurrency || 'USD',
+    cogs_currency: fields.cogsCurrency || 'EUR',
     cogs_by_country: cogsByCountry,
     psp_fees_pct: isNaN(pspFeesPct) ? 3 : pspFeesPct,
     other_fees_eur: isNaN(otherFeesEur) ? 0 : otherFeesEur,
@@ -3139,7 +3139,17 @@ async function editProductFlow(productId) {
   };
 
   if (action === 'approve') {
-    if (!basePrice || !cogs) { toast('Renseigne au moins le prix de vente + COGS pour valider', 'error'); return; }
+    if (!basePrice) { toast('Renseigne le prix de vente pour valider', 'error'); return; }
+    // COGS valide si : global rempli, OU au moins 1 pays activé a son override per-country
+    const hasGlobalCogs = cogs && cogs > 0;
+    const hasAnyPerCountryCogs = enabled.some(cId => {
+      const v = cogsByCountry[cId];
+      return v != null && !isNaN(v) && v > 0;
+    });
+    if (!hasGlobalCogs && !hasAnyPerCountryCogs) {
+      toast('Renseigne le COGS global OU au moins un COGS par pays pour valider', 'error', 6000);
+      return;
+    }
     payload.status = 'approved';
     payload.approved_at = new Date().toISOString();
     payload.approved_by = currentUser.id;
@@ -3181,7 +3191,7 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
   const basePrice = parseFlexFloat(bd.querySelector('[data-field="basePrice"]')?.value);
   const basePriceCurrency = bd.querySelector('[data-field="basePriceCurrency"]')?.value || 'EUR';
   const cogs = parseFlexFloat(bd.querySelector('[data-field="cogs"]')?.value);
-  const cogsCurrency = bd.querySelector('[data-field="cogsCurrency"]')?.value || 'USD';
+  const cogsCurrency = bd.querySelector('[data-field="cogsCurrency"]')?.value || 'EUR';
   const pspFeesPct = parseFlexFloat(bd.querySelector('[data-field="pspFeesPct"]')?.value);
   const otherFeesEur = parseFlexFloat(bd.querySelector('[data-field="otherFeesEur"]')?.value) || 0;
 
