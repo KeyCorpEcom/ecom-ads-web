@@ -1243,10 +1243,15 @@ async function renderAds(el) {
 
   // Compteur de drafts (admin only) — pour afficher sur l'onglet
   let draftsCount = 0;
+  let pendingValidationsCount = 0;
   if (isAdmin()) {
     const { count } = await sb.from('products').select('id', { count: 'exact', head: true })
       .eq('workspace_id', currentWorkspaceId).eq('status', 'draft');
     draftsCount = count || 0;
+    // Compteur global de pending_validations en attente (pour le bouton bulk)
+    const { count: pvCount } = await sb.from('pending_validations').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', currentWorkspaceId).eq('status', 'pending');
+    pendingValidationsCount = pvCount || 0;
   }
 
   // Si vue Drafts → render dédié et early return
@@ -1309,11 +1314,14 @@ async function renderAds(el) {
         <div class="page-title"> Ads</div>
         <div class="page-subtitle">${fmt(approvedOnly.length)} produit(s) · ${fmt(ads.length)} ads${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} 100% fini${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
       </div>
-      <div style="display:flex;align-items:center;gap:14px">
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
           <input type="checkbox" id="toggle-hide-all-done" ${hideAllDone ? 'checked' : ''} style="accent-color:var(--gold)">
           <span>Masquer les produits 100% finis</span>
         </label>
+        ${isAdmin() && pendingValidationsCount > 0
+          ? `<button class="btn btn-sm" id="btn-bulk-approve-all" style="background:var(--green);color:#000;font-weight:600" title="Valider en lot toutes les vidéos en attente du workspace">✓ Tout valider (${pendingValidationsCount})</button>`
+          : ''}
         ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
       </div>
     </div>
@@ -1417,6 +1425,7 @@ async function renderAds(el) {
 
   el.querySelectorAll('[data-goto]').forEach(c => c.addEventListener('click', () => navigate('produit/' + c.dataset.goto)));
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
+  document.getElementById('btn-bulk-approve-all')?.addEventListener('click', () => bulkApproveTradFlow({}));
   document.getElementById('toggle-hide-all-done')?.addEventListener('change', (e) => {
     localStorage.setItem('ads_hide_all_done', e.target.checked ? 'true' : 'false');
     render();
@@ -2069,7 +2078,10 @@ async function renderProduit(el, productId) {
         <div class="page-subtitle">${escapeHtml(product.name || '')} · ${ads.length} ads · créé ${new Date(product.created_at).toLocaleDateString('fr-FR')}</div>
       </div>
       ${canEdit() ? `
-        <div class="flex gap-sm">
+        <div class="flex gap-sm" style="flex-wrap:wrap">
+          ${isAdmin() && (pendingVals || []).filter(pv => pv.status === 'pending').length > 0
+            ? `<button class="btn btn-sm" id="btn-bulk-approve" style="background:var(--green);color:#000;font-weight:600" title="Valider en lot toutes les vidéos en attente">✓ Tout valider (${(pendingVals || []).filter(pv => pv.status === 'pending').length})</button>`
+            : ''}
           <button class="btn btn-secondary btn-sm" id="btn-edit-product"> Éditer</button>
         </div>
       ` : ''}
@@ -2483,6 +2495,7 @@ async function renderProduit(el, productId) {
 
   document.getElementById('btn-add-ad')?.addEventListener('click', () => addAdFlow(productId));
   document.getElementById('btn-edit-product')?.addEventListener('click', () => editProductFlow(productId));
+  document.getElementById('btn-bulk-approve')?.addEventListener('click', () => bulkApproveTradFlow({ productId }));
 
   // Click cellule Trad → modal selon état (pending/rejected/approved)
   el.querySelectorAll('[data-validate-trad]').forEach(td => {
@@ -2917,6 +2930,153 @@ async function approveTradVideo(pv) {
     console.error('[VALIDATE TRAD]', e);
     toast('Erreur validation : ' + (e.message || e), 'error', 6000);
   }
+}
+
+// Version silencieuse de approveTradVideo pour les bulk actions — ne fait pas toast ni render,
+// retourne juste { ok, error, adName, countryId }. À utiliser uniquement depuis bulkApproveTradFlow.
+async function approveTradVideoSilent(pv) {
+  try {
+    const moved = await driveMoveValidatedFile(pv);
+    if (!moved.ok) throw new Error(moved.error || 'Drive move failed');
+
+    await sb.from('pending_validations').update({
+      status: 'approved',
+      reviewed_by: currentUser.id,
+      reviewed_at: new Date().toISOString(),
+      drive_file_id: moved.newFileId,
+      feedback: null
+    }).eq('id', pv.id);
+
+    const { data: existing } = await sb.from('ad_countries').select('*').eq('ad_id', pv.ad_id).eq('country_id', pv.country_id).maybeSingle();
+    const acPayload = {
+      trad: true,
+      trad_at: new Date().toISOString(),
+      drive_file_id: moved.newFileId,
+      updated_at: new Date().toISOString(),
+      updated_by: currentUser.id
+    };
+    if (existing) {
+      await sb.from('ad_countries').update(acPayload).eq('ad_id', pv.ad_id).eq('country_id', pv.country_id);
+    } else {
+      await sb.from('ad_countries').insert({ ad_id: pv.ad_id, country_id: pv.country_id, ...acPayload, meta: false, workspace_id: currentWorkspaceId });
+    }
+
+    // Notif uploader (best effort, on n'attend pas)
+    try {
+      const { data: ad2 } = await sb.from('ads').select('name, product_id').eq('id', pv.ad_id).single();
+      sendNotification({
+        userId: pv.uploaded_by,
+        type: 'trad_approved',
+        title: 'Vidéo validée ✓',
+        message: `${ad2?.name || 'Ad'} / ${pv.country_id} — ta traduction a été validée (validation en lot).`,
+        link: { product_id: pv.product_id, ad_id: pv.ad_id, country_id: pv.country_id }
+      });
+    } catch (e) { console.warn('[bulk notif]', e); }
+
+    return { ok: true, countryId: pv.country_id };
+  } catch (e) {
+    console.error('[BULK VALIDATE]', pv.id, e);
+    return { ok: false, countryId: pv.country_id, error: e.message || String(e) };
+  }
+}
+
+// Bulk approval : valide toutes les pending_validations en une fois.
+// scope = { productId } pour limiter à 1 produit, ou {} (vide) pour valider TOUT le workspace.
+async function bulkApproveTradFlow(scope = {}) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+
+  // 1. Récupère toutes les pending du scope
+  let query = sb.from('pending_validations')
+    .select('*, ads!inner(name, product_id, products!inner(id, name))')
+    .eq('status', 'pending')
+    .eq('workspace_id', currentWorkspaceId);
+  if (scope.productId) {
+    query = query.eq('ads.product_id', scope.productId);
+  }
+  const { data: pendings, error } = await query.order('uploaded_at', { ascending: true });
+
+  if (error) { toast('Erreur chargement pending : ' + error.message, 'error'); return; }
+  if (!pendings || pendings.length === 0) {
+    toast('Aucune vidéo en attente de validation', 'info');
+    return;
+  }
+
+  // 2. Modal de confirmation avec résumé
+  const productCount = new Set(pendings.map(p => p.ads.product_id)).size;
+  const productLabel = scope.productId
+    ? `pour <strong>${escapeHtml(pendings[0].ads.products.id)} · ${escapeHtml(pendings[0].ads.products.name || '')}</strong>`
+    : `sur <strong>${productCount} produit${productCount > 1 ? 's' : ''}</strong>`;
+
+  // Groupage par produit/ad pour l'aperçu
+  const byProduct = {};
+  pendings.forEach(pv => {
+    const key = pv.ads.product_id;
+    if (!byProduct[key]) byProduct[key] = { name: pv.ads.products.name || pv.ads.products.id, items: [] };
+    byProduct[key].items.push(`${pv.ads.name} / ${pv.country_id}`);
+  });
+  const previewHtml = Object.values(byProduct).map(p => `
+    <div style="margin-bottom:10px">
+      <div style="font-weight:600;font-size:12px;color:var(--gold);margin-bottom:4px">${escapeHtml(p.name)}</div>
+      <div style="font-size:11px;color:var(--text-dim);line-height:1.6">${p.items.slice(0, 8).map(escapeHtml).join(' · ')}${p.items.length > 8 ? ` · <em>+${p.items.length - 8} autres</em>` : ''}</div>
+    </div>
+  `).join('');
+
+  const r = await modal(`
+    <div class="modal-title">✓ Valider ${pendings.length} vidéo${pendings.length > 1 ? 's' : ''} en lot</div>
+    <div class="text-sm text-dim mb-md">Tu vas valider <strong>${pendings.length} vidéo${pendings.length > 1 ? 's' : ''}</strong> ${productLabel}. Pour chacune :</div>
+    <ul style="font-size:12px;color:var(--text-dim);line-height:1.7;margin:0 0 14px;padding-left:22px">
+      <li>Le fichier sera déplacé de <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px">_a_valider/{pays}/</code> vers <code style="background:var(--bg-input);padding:1px 4px;border-radius:3px">{pays}/</code></li>
+      <li>La case Trad correspondante sera cochée en vert</li>
+      <li>L'uploader (Fadel) recevra une notification</li>
+    </ul>
+    <div style="max-height:240px;overflow-y:auto;padding:12px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-soft)">
+      ${previewHtml}
+    </div>
+    <div style="margin-top:12px;padding:10px 12px;background:rgba(251,191,36,0.08);border-left:3px solid var(--orange);border-radius:6px;font-size:11px;color:var(--text-dim);line-height:1.5">
+      ⚠️ Action irréversible. Si tu veux rejeter certaines vidéos individuellement, fais-le AVANT de cliquer ici.
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" style="background:var(--green);color:#000" data-modal-ok>✓ Tout valider</button>
+    </div>
+  `);
+  if (!r) return;
+
+  // 3. Loop avec progress + collect des erreurs
+  toast(`Validation en cours... 0/${pendings.length}`, 'info', 60000);
+  const results = { ok: 0, errors: [] };
+  for (let i = 0; i < pendings.length; i++) {
+    const pv = pendings[i];
+    const result = await approveTradVideoSilent(pv);
+    if (result.ok) results.ok++;
+    else results.errors.push({ ad: pv.ads.name, country: pv.country_id, error: result.error });
+    // Update du toast progress (best effort, certains navigateurs ignorent)
+    toast(`Validation en cours... ${i + 1}/${pendings.length}`, 'info', 60000);
+  }
+
+  // 4. Summary
+  if (results.errors.length === 0) {
+    toast(`✓ ${results.ok} vidéo${results.ok > 1 ? 's' : ''} validée${results.ok > 1 ? 's' : ''}`, 'success', 5000);
+  } else {
+    toast(`${results.ok} validées · ${results.errors.length} erreur${results.errors.length > 1 ? 's' : ''}`, 'warn', 8000);
+    console.error('[BULK VALIDATE errors]', results.errors);
+    // Modal détail des erreurs
+    await modal(`
+      <div class="modal-title" style="color:var(--orange)">Résumé de la validation en lot</div>
+      <div class="text-sm mb-md">
+        <div style="color:var(--green);font-weight:600">✓ ${results.ok} validée${results.ok > 1 ? 's' : ''}</div>
+        <div style="color:var(--red);font-weight:600">✗ ${results.errors.length} erreur${results.errors.length > 1 ? 's' : ''}</div>
+      </div>
+      <div style="max-height:300px;overflow-y:auto;padding:10px;background:var(--bg-input);border-radius:6px;font-size:12px;line-height:1.6">
+        ${results.errors.map(e => `<div style="padding:6px 0;border-bottom:1px solid var(--border-soft)"><strong>${escapeHtml(e.ad)} / ${escapeHtml(e.country)}</strong><br><span style="color:var(--red);font-size:11px">${escapeHtml(e.error)}</span></div>`).join('')}
+      </div>
+      <div class="modal-actions">
+        <button class="btn" data-modal-ok>OK</button>
+      </div>
+    `);
+  }
+  render();
 }
 
 async function rejectTradVideo(pv, adName, countryId) {
