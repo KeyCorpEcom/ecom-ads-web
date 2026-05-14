@@ -1285,8 +1285,9 @@ async function renderAds(el) {
         if (ac?.trad) trad++;
       });
     });
-    const masterDone = pAds.filter(a => a.master_file_id).length;
-    // 100% fini = master uploadé pour TOUTES les ads ET trad faite pour TOUTES les ads × pays actifs
+    // IMAGE ads : pas de master vidéo requis, on les compte comme "master fait"
+    const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image').length;
+    // 100% fini = master uploadé/image-mode pour TOUTES les ads ET trad faite pour TOUTES les ads × pays actifs
     const allDone = pAds.length > 0 && masterDone === pAds.length && total > 0 && trad === total;
     return { product: p, pAds, activeCs, total, trad, masterDone, allDone };
   });
@@ -1497,7 +1498,7 @@ async function renderAdsDrafts(el, draftsCount) {
       <div class="product-grid">
         ${(drafts || []).map(p => {
           const pAds = adsByDraft[p.id] || [];
-          const masterDone = pAds.filter(a => a.master_file_id).length;
+          const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image').length;
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
           return `
@@ -1583,7 +1584,8 @@ async function renderProduits(el) {
     const pagesPct = pct(pagesApproved, activeCs.length);
     const tradPct = pct(trad, total);
     const metaPct = pct(meta, total);
-    const masterDone = pAds.filter(a => a.master_file_id).length;
+    // IMAGE ads : pas de master vidéo requis, on les compte comme "master fait"
+    const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image').length;
     const masterPct = pct(masterDone, pAds.length);
     const priority = p.priority || 'normal';
     const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
@@ -2182,9 +2184,15 @@ async function renderProduit(el, productId) {
                   })()}
                   ${isAdmin() ? `<span class="ad-delete-icon" data-delete-ad="${ad.id}" title="Supprimer cette ad et tous ses fichiers Drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : ''}
                 </td>
-                <td class="check-cell auto master ${ad.master_file_id ? 'clickable' : ''}" style="border-left:2px solid var(--border-soft)" ${ad.master_file_id ? `data-download-master="${ad.master_file_id}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${ad.master_file_id ? 'Cliquer pour télécharger le master' : 'Master non uploadé'}">
-                  <span class="check-icon master ${ad.master_file_id ? 'checked' : ''}"></span>
-                </td>
+                ${(ad.translation_type === 'image') ? `
+                  <td class="check-cell auto" style="border-left:2px solid var(--border-soft);opacity:0.5" title="Ad image — pas de master vidéo requis">
+                    <span style="font-size:14px;line-height:1">📷</span>
+                  </td>
+                ` : `
+                  <td class="check-cell auto master ${ad.master_file_id ? 'clickable' : ''}" style="border-left:2px solid var(--border-soft)" ${ad.master_file_id ? `data-download-master="${ad.master_file_id}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${ad.master_file_id ? 'Cliquer pour télécharger le master' : 'Master non uploadé'}">
+                    <span class="check-icon master ${ad.master_file_id ? 'checked' : ''}"></span>
+                  </td>
+                `}
                 ${countries.map(c => {
                   const ac = (acByAd[ad.id] || {})[c.id] || {};
                   const pv = (pvByAd[ad.id] || {})[c.id];
@@ -2228,7 +2236,11 @@ async function renderProduit(el, productId) {
           <tfoot>
             <tr style="background:var(--bg);border-top:2px solid var(--border)">
               <td class="ad-col" style="color:var(--gold);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:12px">TOTAL</td>
-              <td style="border-left:2px solid var(--border-soft);padding:10px 8px;text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:5px;background:${ads.filter(a => a.master_file_id).length === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(200,165,90,0.15)'};color:${ads.filter(a => a.master_file_id).length === 0 ? 'var(--text-mute)' : 'var(--gold)'};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600">${ads.filter(a => a.master_file_id).length}/${ads.length}</span></td>
+              ${(() => {
+                // IMAGE ads ne nécessitent pas de master vidéo, on les compte comme "fait"
+                const masterDoneCount = ads.filter(a => a.master_file_id || a.translation_type === 'image').length;
+                return `<td style="border-left:2px solid var(--border-soft);padding:10px 8px;text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:5px;background:${masterDoneCount === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(200,165,90,0.15)'};color:${masterDoneCount === 0 ? 'var(--text-mute)' : 'var(--gold)'};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600">${masterDoneCount}/${ads.length}</span></td>`;
+              })()}
               ${countries.map(c => {
                 const isCut = (product.cut_countries || []).includes(c.id);
                 const s = byCountry[c.id];
@@ -5677,8 +5689,14 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
   const targetFolder = await driveEnsureFolder(targetFolderName, productFolderId);
 
   // Liste des ads existantes + numéros utilisés (dans DB + Drive target folder)
-  const { data: existingAdsDb } = await sb.from('ads').select('id, name').eq('product_id', product.id);
+  const { data: existingAdsDb } = await sb.from('ads').select('id, name, translation_type').eq('product_id', product.id);
   const existingNumsDb = new Set((existingAdsDb || []).map(a => { const m = a.name.match(/Ad\s*(\d+)/i); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0));
+  // Map Ad N → translation_type (pour bloquer les uploads master sur les ads IMAGE)
+  const adTypeByNum = new Map();
+  (existingAdsDb || []).forEach(a => {
+    const m = a.name.match(/Ad\s*(\d+)/i);
+    if (m) adTypeByNum.set(parseInt(m[1], 10), a.translation_type || 'voice');
+  });
 
   const existingFiles = await driveListFolderContent(targetFolder.id);
   const existingNumsDrive = new Set(existingFiles.map(f => { const m = f.name.match(/Ad\s*(\d+)/i); return m ? parseInt(m[1], 10) : 0; }).filter(n => n > 0));
@@ -5699,6 +5717,11 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     if (m) {
       // Le fichier a déjà un numéro Ad X
       adNum = parseInt(m[1], 10);
+      // Guard : si on upload un master vidéo sur une ad en mode IMAGE → refuser
+      if (targetFolderName === MASTER_FOLDER_NAME && adTypeByNum.get(adNum) === 'image') {
+        errors.push({ file: f.name, reason: `Ad ${adNum} est en mode IMAGE — pas de master vidéo requis. Change son badge en VOIX ou SUBS si tu veux uploader une vidéo.` });
+        continue;
+      }
       if (strictMode && existingNumsDrive.has(adNum)) {
         errors.push({ file: f.name, reason: `Ad ${adNum} existe déjà dans ce dossier. Supprime d'abord l'ancienne sur Drive.` });
         continue;
@@ -8543,11 +8566,12 @@ async function renderScriptsList(el) {
   }
 
   // On lit UNIQUEMENT les produits validés POST-testing (= rentables, prêts à scaler)
-  // + les ads source='script' (pipeline scripts indépendant)
-  const [{ data: products }, { data: scripts }] = await Promise.all([
+  // + les ads source='script' SAUF celles en mode IMAGE (pas de vidéo à produire pour ces ads)
+  const [{ data: products }, { data: scriptsRaw }] = await Promise.all([
     sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').eq('passed_testing', true).order('created_at', { ascending: false }),
-    sb.from('ads').select('id, product_id, name, master_file_id, position').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
+    sb.from('ads').select('id, product_id, name, master_file_id, position, translation_type').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
   ]);
+  const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image');
 
   // Group scripts by product
   const scriptsByProduct = {};
@@ -8742,11 +8766,13 @@ async function renderScriptDetail(el, productId) {
   const isAdminUser = isAdmin();
   const isVideoEd = isVideoEditor();
 
-  // On ne lit QUE les ads source='script' pour cette page
-  const [{ data: product }, { data: scripts }] = await Promise.all([
+  // On ne lit QUE les ads source='script' pour cette page, en excluant les IMAGE
+  // (les ads IMAGE n'ont pas besoin de vidéo à produire)
+  const [{ data: product }, { data: scriptsRaw }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).maybeSingle(),
     sb.from('ads').select('*').eq('product_id', productId).eq('source', 'script').order('position')
   ]);
+  const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image');
 
   if (!product) {
     el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#scripts">← Retour</a></div>';
