@@ -2986,6 +2986,10 @@ async function bulkApproveTradFlow(scope = {}) {
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
   if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
 
+  // 0. S'assure que le token OAuth Drive est bien set avant de commencer (sinon toutes les calls planteront)
+  try { await ensureDriveReady(); }
+  catch (e) { toast('Drive : ' + e.message, 'error', 6000); return; }
+
   // 1. Récupère toutes les pending du scope
   let query = sb.from('pending_validations')
     .select('*, ads!inner(name, product_id, products!inner(id, name))')
@@ -3119,15 +3123,16 @@ async function rejectTradVideo(pv, adName, countryId) {
 async function driveMoveValidatedFile(pv) {
   if (!driveState.connected) return { ok: false, error: 'Drive non connecté' };
   try {
+    await ensureDriveReady();
     // Récupérer le drive_folder_id du produit
     const { data: prod } = await sb.from('products').select('drive_folder_id').eq('id', pv.product_id).single();
     if (!prod?.drive_folder_id) return { ok: false, error: 'Pas de drive_folder_id' };
 
-    // Trouver le dossier de destination {country}/
-    const targetFolder = await driveFindFolder(pv.country_id, prod.drive_folder_id);
-    if (!targetFolder) return { ok: false, error: `Dossier ${pv.country_id}/ introuvable` };
+    // Dossier de destination {country}/ — auto-créé si absent (les produits anciens n'ont pas forcément la structure complète)
+    const targetFolder = await driveEnsureFolder(pv.country_id, prod.drive_folder_id);
+    if (!targetFolder) return { ok: false, error: `Impossible de créer/trouver ${pv.country_id}/` };
 
-    // Trouver le dossier source _a_valider/{country}/
+    // Trouver le dossier source _a_valider/{country}/ (ne pas créer si absent — y'aurait un souci ailleurs)
     const valFolder = await driveFindFolder('_a_valider', prod.drive_folder_id);
     if (!valFolder) return { ok: false, error: '_a_valider introuvable' };
     const sourceFolder = await driveFindFolder(pv.country_id, valFolder.id);
