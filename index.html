@@ -3047,17 +3047,39 @@ async function bulkApproveTradFlow(scope = {}) {
   `);
   if (!r) return;
 
-  // 3. Loop avec progress + collect des erreurs
-  toast(`Validation en cours... 0/${pendings.length}`, 'info', 60000);
+  // 3. Mini-modal de progression (un seul élément qu'on update au lieu de spammer toast)
+  const container = document.getElementById('modal-container');
+  const progressBd = document.createElement('div');
+  progressBd.className = 'modal-backdrop';
+  progressBd.innerHTML = `
+    <div class="modal" style="max-width:420px;text-align:center">
+      <div class="modal-title">Validation en cours</div>
+      <div id="bulk-progress-label" style="font-size:13px;color:var(--text-dim);margin-bottom:14px">0 / ${pendings.length}</div>
+      <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;margin-bottom:14px">
+        <div id="bulk-progress-bar" style="width:0%;height:100%;background:var(--green);transition:width 0.25s"></div>
+      </div>
+      <div id="bulk-progress-current" style="font-size:11px;color:var(--text-mute);font-family:'JetBrains Mono',monospace">En attente...</div>
+    </div>
+  `;
+  container.appendChild(progressBd);
+  const lblEl = progressBd.querySelector('#bulk-progress-label');
+  const barEl = progressBd.querySelector('#bulk-progress-bar');
+  const curEl = progressBd.querySelector('#bulk-progress-current');
+
+  // Loop avec progress + collect des erreurs
   const results = { ok: 0, errors: [] };
   for (let i = 0; i < pendings.length; i++) {
     const pv = pendings[i];
+    if (curEl) curEl.textContent = `${pv.ads.name} / ${pv.country_id}`;
     const result = await approveTradVideoSilent(pv);
     if (result.ok) results.ok++;
     else results.errors.push({ ad: pv.ads.name, country: pv.country_id, error: result.error });
-    // Update du toast progress (best effort, certains navigateurs ignorent)
-    toast(`Validation en cours... ${i + 1}/${pendings.length}`, 'info', 60000);
+    const done = i + 1;
+    if (lblEl) lblEl.innerHTML = `${done} / ${pendings.length}${results.errors.length > 0 ? ` · <span style="color:var(--red)">${results.errors.length} erreur${results.errors.length > 1 ? 's' : ''}</span>` : ''}`;
+    if (barEl) barEl.style.width = `${(done / pendings.length) * 100}%`;
   }
+  // Ferme le modal de progression
+  if (progressBd.parentNode) progressBd.remove();
 
   // 4. Summary
   if (results.errors.length === 0) {
