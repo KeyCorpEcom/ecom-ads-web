@@ -1665,16 +1665,16 @@ async function renderProduits(el) {
         ${visibleStats.map(s => {
           const { p, pAds, activeCs, total, trad, meta, pagesApproved, pagesPct, tradPct, metaPct, masterDone, masterPct, priority, priorityMeta, readyToLaunch } = s;
 
-          // % global de complétion sur les 4 stages combinés (master + trad + pages + meta)
-          const totalWorkUnits = pAds.length + total + activeCs.length + total;
-          const doneWorkUnits = masterDone + trad + pagesApproved + meta;
+          // % global de complétion sur les 3 stages du pipeline de lancement (trad + pages + meta)
+          // Master est de la production interne, pas tracké ici (visible page Ads)
+          const totalWorkUnits = total + activeCs.length + total;
+          const doneWorkUnits = trad + pagesApproved + meta;
           const overallPct = totalWorkUnits > 0 ? Math.round((doneWorkUnits / totalWorkUnits) * 100) : 0;
           const overallColor = overallPct === 100 ? 'var(--green)' : overallPct >= 50 ? 'var(--gold)' : 'var(--text-dim)';
 
           // Glow sur le prochain stage à travailler (le 1er chip non-100% dans l'ordre du workflow)
-          // Master → Trad → Pages → Meta
+          // Trad → Pages → Meta
           const nextStage =
-            masterPct < 100 ? 'master' :
             tradPct < 100 ? 'trad' :
             pagesPct < 100 ? 'pages' :
             metaPct < 100 ? 'meta' : null;
@@ -1682,7 +1682,6 @@ async function renderProduits(el) {
           // Helper chip avec stage workflow
           const chip = (label, num, denom, pctVal, fg, bgRgba, stageKey) => {
             const isZero = num === 0;
-            const isComplete = pctVal === 100;
             const opacity = isZero ? 'opacity:0.4' : '';
             const glow = stageKey === nextStage ? `box-shadow:0 0 0 1px ${fg},0 0 12px ${fg}44;` : '';
             return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:${bgRgba};border:1px solid ${fg}33;${glow}${opacity}" title="${escapeHtml(label)}">
@@ -1696,16 +1695,15 @@ async function renderProduits(el) {
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
                 <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
-                  <span class="mono" title="Complétion globale (master + trad + pages + meta validés / total)" style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:${overallPct === 100 ? 'rgba(52,211,153,0.15)' : 'rgba(200,165,90,0.10)'};color:${overallColor}">${overallPct}%</span>
-                  ${readyToLaunch ? `<span class="ready-to-launch-badge" title="Master + Trad + Landing Pages 100% — il ne reste qu'à lancer sur Meta">À lancer</span>` : ''}
+                  <span class="mono" title="Complétion du pipeline de lancement (trad + pages + meta)" style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:${overallPct === 100 ? 'rgba(52,211,153,0.15)' : 'rgba(200,165,90,0.10)'};color:${overallColor}">${overallPct}%</span>
+                  ${readyToLaunch ? `<span class="ready-to-launch-badge" title="Trad + Landing Pages 100% — il ne reste qu'à lancer sur Meta">À lancer</span>` : ''}
                   ${p.status === 'draft' ? '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>' : ''}
                   ${priorityBadge(priority)}
                 </div>
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
-              <div style="margin-top:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
-                ${chip('Master', masterDone, pAds.length, masterPct, 'var(--gold)', 'rgba(200,165,90,0.10)', 'master')}
+              <div style="margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
                 ${chip('Trad', trad, total, tradPct, '#34d399', 'rgba(52,211,153,0.10)', 'trad')}
                 ${chip('Pages', pagesApproved, activeCs.length, pagesPct, '#c084fc', 'rgba(192,132,252,0.10)', 'pages')}
                 ${chip('Meta', meta, total, metaPct, '#60a5fa', 'rgba(96,165,250,0.10)', 'meta')}
