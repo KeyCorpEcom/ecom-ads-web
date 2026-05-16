@@ -1664,11 +1664,39 @@ async function renderProduits(el) {
       <div class="product-grid">
         ${visibleStats.map(s => {
           const { p, pAds, activeCs, total, trad, meta, pagesApproved, pagesPct, tradPct, metaPct, masterDone, masterPct, priority, priorityMeta, readyToLaunch } = s;
+
+          // % global de complétion sur les 4 stages combinés (master + trad + pages + meta)
+          const totalWorkUnits = pAds.length + total + activeCs.length + total;
+          const doneWorkUnits = masterDone + trad + pagesApproved + meta;
+          const overallPct = totalWorkUnits > 0 ? Math.round((doneWorkUnits / totalWorkUnits) * 100) : 0;
+          const overallColor = overallPct === 100 ? 'var(--green)' : overallPct >= 50 ? 'var(--gold)' : 'var(--text-dim)';
+
+          // Glow sur le prochain stage à travailler (le 1er chip non-100% dans l'ordre du workflow)
+          // Master → Trad → Pages → Meta
+          const nextStage =
+            masterPct < 100 ? 'master' :
+            tradPct < 100 ? 'trad' :
+            pagesPct < 100 ? 'pages' :
+            metaPct < 100 ? 'meta' : null;
+
+          // Helper chip avec stage workflow
+          const chip = (label, num, denom, pctVal, fg, bgRgba, stageKey) => {
+            const isZero = num === 0;
+            const isComplete = pctVal === 100;
+            const opacity = isZero ? 'opacity:0.4' : '';
+            const glow = stageKey === nextStage ? `box-shadow:0 0 0 1px ${fg},0 0 12px ${fg}44;` : '';
+            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:${bgRgba};border:1px solid ${fg}33;${glow}${opacity}" title="${escapeHtml(label)}">
+              <div style="font-size:9px;color:${fg};font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
+              <div class="mono" style="font-size:13px;color:${fg};font-weight:700;line-height:1">${num}<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span></div>
+            </div>`;
+          };
+
           return `
-            <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
+            <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color};position:relative;overflow:hidden;padding-bottom:14px">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
                 <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <span class="mono" title="Complétion globale (master + trad + pages + meta validés / total)" style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:${overallPct === 100 ? 'rgba(52,211,153,0.15)' : 'rgba(200,165,90,0.10)'};color:${overallColor}">${overallPct}%</span>
                   ${readyToLaunch ? `<span class="ready-to-launch-badge" title="Master + Trad + Landing Pages 100% — il ne reste qu'à lancer sur Meta">À lancer</span>` : ''}
                   ${p.status === 'draft' ? '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>' : ''}
                   ${priorityBadge(priority)}
@@ -1676,35 +1704,15 @@ async function renderProduits(el) {
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
-              <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
-                <div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">Master ads</span>
-                    <span class="mono" style="color:var(--gold);font-weight:600">${masterDone}/${pAds.length} · ${masterPct}%</span>
-                  </div>
-                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${masterPct}%;height:100%;background:var(--gold);transition:width 0.4s"></div></div>
-                </div>
-                <div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">Trad ads</span>
-                    <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
-                  </div>
-                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
-                </div>
-                <div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">Landing Pages</span>
-                    <span class="mono" style="color:var(--purple);font-weight:600">${pagesApproved}/${activeCs.length} · ${pagesPct}%</span>
-                  </div>
-                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${pagesPct}%;height:100%;background:var(--purple);transition:width 0.4s"></div></div>
-                </div>
-                <div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">Meta lancées</span>
-                    <span class="mono" style="color:var(--blue);font-weight:600">${meta}/${total} · ${metaPct}%</span>
-                  </div>
-                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${metaPct}%;height:100%;background:var(--blue);transition:width 0.4s"></div></div>
-                </div>
+              <div style="margin-top:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+                ${chip('Master', masterDone, pAds.length, masterPct, 'var(--gold)', 'rgba(200,165,90,0.10)', 'master')}
+                ${chip('Trad', trad, total, tradPct, '#34d399', 'rgba(52,211,153,0.10)', 'trad')}
+                ${chip('Pages', pagesApproved, activeCs.length, pagesPct, '#c084fc', 'rgba(192,132,252,0.10)', 'pages')}
+                ${chip('Meta', meta, total, metaPct, '#60a5fa', 'rgba(96,165,250,0.10)', 'meta')}
+              </div>
+
+              <div style="position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--bg)">
+                <div style="height:100%;width:${overallPct}%;background:${overallColor};transition:width 0.4s"></div>
               </div>
             </div>
           `;
