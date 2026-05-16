@@ -1373,21 +1373,30 @@ async function renderAds(el) {
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
 
+          // Pourcentage global de complétion (master + trad sur total possible)
+          const totalWorkUnits = pAds.length + total; // masters à uploader + trads à valider
+          const doneWorkUnits = masterDone + trad;
+          const overallPct = totalWorkUnits > 0 ? Math.round((doneWorkUnits / totalWorkUnits) * 100) : 0;
+          const overallColor = overallPct === 100 ? 'var(--green)' : overallPct >= 50 ? 'var(--gold)' : 'var(--text-dim)';
+
           // 4 compteurs (chips) : Master · Validé · En attente · Rejeté
-          const chip = (label, num, denom, fg, bgRgba) => {
+          // Highlight (glow) si attente > 0 ou rejeté > 0 → attire l'œil sur les cards à action
+          const chip = (label, num, denom, fg, bgRgba, highlight = false) => {
             const isZero = num === 0;
             const opacity = isZero ? 'opacity:0.4' : '';
-            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:${bgRgba};border:1px solid ${fg}33;${opacity}" title="${escapeHtml(label)}">
+            const glow = highlight ? `box-shadow:0 0 0 1px ${fg},0 0 12px ${fg}44;` : '';
+            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:${bgRgba};border:1px solid ${fg}33;${glow}${opacity}" title="${escapeHtml(label)}">
               <div style="font-size:9px;color:${fg};font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
               <div class="mono" style="font-size:13px;color:${fg};font-weight:700;line-height:1">${num}${denom != null ? `<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span>` : ''}</div>
             </div>`;
           };
 
           return `
-            <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
+            <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color};position:relative;overflow:hidden;padding-bottom:14px">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px;flex-wrap:wrap">
                 <div class="product-card-title">${escapeHtml(p.id)}</div>
                 <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+                  <span class="mono" title="Complétion globale (master + trad validés / total)" style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:${overallPct === 100 ? 'rgba(52,211,153,0.15)' : 'rgba(200,165,90,0.10)'};color:${overallColor}">${overallPct}%</span>
                   ${p.status === 'draft' ? '<span style="display:inline-flex;align-items:center;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:rgba(251,191,36,0.15);color:var(--orange)">DRAFT</span>' : ''}
                   ${priorityBadge(priority)}
                 </div>
@@ -1397,8 +1406,12 @@ async function renderAds(el) {
               <div style="margin-top:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
                 ${chip('Master', masterDone, pAds.length, '#60a5fa', 'rgba(96,165,250,0.10)')}
                 ${chip('Validé', trad, total, '#34d399', 'rgba(52,211,153,0.10)')}
-                ${chip('Attente', pending, null, '#fbbf24', 'rgba(251,191,36,0.10)')}
-                ${chip('Rejeté', rejected, null, '#f87171', 'rgba(248,113,113,0.10)')}
+                ${chip('Attente', pending, null, '#fbbf24', 'rgba(251,191,36,0.10)', pending > 0)}
+                ${chip('Rejeté', rejected, null, '#f87171', 'rgba(248,113,113,0.10)', rejected > 0)}
+              </div>
+
+              <div style="position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--bg)">
+                <div style="height:100%;width:${overallPct}%;background:${overallColor};transition:width 0.4s"></div>
               </div>
             </div>
           `;
