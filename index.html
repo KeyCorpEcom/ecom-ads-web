@@ -2325,7 +2325,7 @@ async function renderProduit(el, productId) {
             <div style="font-size:20px;margin-bottom:6px">${flagImg(c.id)}</div>
             <div style="font-weight:600;font-size:13px">${c.id}</div>
             <div class="text-sm text-dim" style="font-size:11px;margin-top:4px">${escapeHtml(c.name)}</div>
-            <input type="file" multiple style="display:none" data-finished-input="${c.id}" accept="video/*">
+            <input type="file" multiple style="display:none" data-finished-input="${c.id}" accept="video/*,image/*">
           </div>
         `).join('')}
       </div>
@@ -2587,9 +2587,9 @@ async function uploadFinishedFlow(productId) {
       <select class="select" data-field="country">${countryOptions}</select>
     </div>
     <div class="input-group">
-      <label class="input-label">Fichiers vidéo</label>
-      <input type="file" data-field="files" multiple accept="video/*">
-      <div class="input-hint">Le nom du fichier doit contenir <span class="mono">Ad X</span> (ex: <span class="mono">Ad 1 - ${escapeHtml(productId)} - FR.mp4</span>). Si une version pending/rejetée existe, elle sera remplacée automatiquement.</div>
+      <label class="input-label">Fichiers vidéo ou image</label>
+      <input type="file" data-field="files" multiple accept="video/*,image/*">
+      <div class="input-hint">Le nom du fichier doit contenir <span class="mono">Ad X</span> (ex: <span class="mono">Ad 1 - ${escapeHtml(productId)} - FR.mp4</span> ou <span class="mono">.png</span> pour les ads IMAGE). Si une version pending/rejetée existe, elle sera remplacée automatiquement.</div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-secondary" data-modal-close>Annuler</button>
