@@ -1367,11 +1367,21 @@ async function renderAds(el) {
           const activeCs = s.activeCs;
           const total = s.total;
           const trad = s.trad;
+          const pending = s.pending;
+          const rejected = s.rejected;
           const masterDone = s.masterDone;
-          const tradPct = pct(trad, total);
-          const masterPct = pct(masterDone, pAds.length);
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
+
+          // 4 compteurs (chips) : Master · Validé · En attente · Rejeté
+          const chip = (label, num, denom, fg, bgRgba) => {
+            const isZero = num === 0;
+            const opacity = isZero ? 'opacity:0.4' : '';
+            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:${bgRgba};border:1px solid ${fg}33;${opacity}" title="${escapeHtml(label)}">
+              <div style="font-size:9px;color:${fg};font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
+              <div class="mono" style="font-size:13px;color:${fg};font-weight:700;line-height:1">${num}${denom != null ? `<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span>` : ''}</div>
+            </div>`;
+          };
 
           return `
             <div class="product-card" data-goto="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
@@ -1384,21 +1394,11 @@ async function renderAds(el) {
               </div>
               <div class="product-card-sub">${escapeHtml(p.name || '')}${p.name ? ' · ' : ''}${fmt(pAds.length)} ads · ${activeCs.length} pays</div>
 
-              <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
-                <div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">Master ads</span>
-                    <span class="mono" style="color:var(--gold);font-weight:600">${masterDone}/${pAds.length} · ${masterPct}%</span>
-                  </div>
-                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${masterPct}%;height:100%;background:var(--gold);transition:width 0.4s"></div></div>
-                </div>
-                <div>
-                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;font-size:11px">
-                    <span style="color:var(--text-dim)">Trad ads</span>
-                    <span class="mono" style="color:var(--green);font-weight:600">${trad}/${total} · ${tradPct}%</span>
-                  </div>
-                  <div style="height:5px;background:var(--bg);border-radius:3px;overflow:hidden"><div style="width:${tradPct}%;height:100%;background:var(--green);transition:width 0.4s"></div></div>
-                </div>
+              <div style="margin-top:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:6px">
+                ${chip('Master', masterDone, pAds.length, '#60a5fa', 'rgba(96,165,250,0.10)')}
+                ${chip('Validé', trad, total, '#34d399', 'rgba(52,211,153,0.10)')}
+                ${chip('Attente', pending, null, '#fbbf24', 'rgba(251,191,36,0.10)')}
+                ${chip('Rejeté', rejected, null, '#f87171', 'rgba(248,113,113,0.10)')}
               </div>
             </div>
           `;
