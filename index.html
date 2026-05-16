@@ -2608,7 +2608,6 @@ async function uploadFinishedFlow(productId) {
 async function uploadFinishedVideos(productId, countryId, filesArr) {
   if (!driveState.connected) { toast('Drive non connecté pour ce workspace. Reconnecte-toi.', 'error', 6000); return; }
   try { await ensureDriveReady(); } catch (e) { toast('Drive : ' + e.message, 'error'); return; }
-  toast(`Upload de ${filesArr.length} vidéo(s)...`, 'info');
   const { data: prod } = await sb.from('products').select('*').eq('id', productId).single();
   if (!prod?.drive_folder_id) { toast('Pas de dossier Drive sur ce produit', 'error'); return; }
 
@@ -2632,7 +2631,7 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
     if (m) adByNum.set(parseInt(m[1], 10), a);
   });
 
-  // 3. Pour chaque fichier : extract Ad X, valider, upload
+  // 3. Pour chaque fichier : extract Ad X, valider
   const items = [];
   const errors = [];
   for (const f of filesArr) {
@@ -2641,7 +2640,9 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
     const adNum = parseInt(m[1], 10);
     const ad = adByNum.get(adNum);
     if (!ad) { errors.push({ file: f.name, reason: `Ad ${adNum} n'existe pas. Crée-la d'abord via Concurrent.` }); continue; }
-    items.push({ file: f, ad, adNum });
+    const ext = f.name.split('.').pop() || 'mp4';
+    const displayName = `Ad ${adNum} - ${productId} - ${countryId}.${ext}`;
+    items.push({ file: f, ad, adNum, displayName });
   }
 
   if (errors.length > 0) {
@@ -2654,35 +2655,42 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
     if (items.length === 0) return;
   }
 
-  // 4. Pour chaque item : si pending/rejected existe → delete old Drive file
+  // 4. Récupère les pending existants pour pouvoir supprimer leurs anciens fichiers Drive
+  const adIds = items.map(it => it.ad.id);
+  const { data: existingPvs } = await sb.from('pending_validations').select('*').in('ad_id', adIds).eq('country_id', countryId);
+  const pvByAdId = new Map((existingPvs || []).map(pv => [pv.ad_id, pv]));
+
+  // 5. Best-effort : supprime les anciens fichiers Drive en parallèle (avant upload)
+  await Promise.all((existingPvs || []).map(pv => {
+    if (!pv.drive_file_id) return Promise.resolve();
+    return fetch(`https://www.googleapis.com/drive/v3/files/${pv.drive_file_id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${driveState.accessToken}` }
+    }).catch(e => console.warn('[DELETE OLD]', e));
+  }));
+
+  // 6. Upload avec UI de progression (mêmes barres que pour les masters)
+  const results = await uploadFilesWithProgressUI(items, countryFolder.id, {
+    title: `Upload ${items.length} vidéo${items.length > 1 ? 's' : ''} → ${countryId}/_a_valider/`
+  });
+
+  // 7. Pour chaque résultat OK → upsert pending_validations
   let successCount = 0;
-  for (const it of items) {
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i];
+    const it = items[i];
+    if (!r.ok) {
+      errors.push({ file: it.file.name, reason: r.error || 'Upload échoué' });
+      continue;
+    }
     try {
-      const { data: existingPv } = await sb.from('pending_validations').select('*').eq('ad_id', it.ad.id).eq('country_id', countryId).maybeSingle();
-      if (existingPv?.drive_file_id) {
-        // Delete old Drive file (best effort, on continue même si fail)
-        try {
-          await fetch(`https://www.googleapis.com/drive/v3/files/${existingPv.drive_file_id}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${driveState.accessToken}` }
-          });
-        } catch (e) { console.warn('[DELETE OLD]', e); }
-      }
-
-      // Upload du nouveau fichier — convention : "Ad X - {productId} - {countryId}.ext"
-      const ext = it.file.name.split('.').pop() || 'mp4';
-      const newName = `Ad ${it.adNum} - ${productId} - ${countryId}.${ext}`;
-      const uploaded = await driveUploadFile(it.file, countryFolder.id, newName);
-      if (!uploaded?.id) throw new Error('Upload Drive failed');
-
-      // Upsert pending_validations
       const payload = {
         workspace_id: currentWorkspaceId,
         product_id: productId,
         ad_id: it.ad.id,
         country_id: countryId,
-        drive_file_id: uploaded.id,
-        drive_file_name: newName,
+        drive_file_id: r.file.id,
+        drive_file_name: it.displayName,
         status: 'pending',
         uploaded_by: currentUser.id,
         uploaded_at: new Date().toISOString(),
@@ -2690,6 +2698,7 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
         reviewed_at: null,
         feedback: null
       };
+      const existingPv = pvByAdId.get(it.ad.id);
       if (existingPv) {
         await sb.from('pending_validations').update(payload).eq('id', existingPv.id);
       } else {
@@ -2697,7 +2706,7 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
       }
       successCount++;
     } catch (e) {
-      console.error('[UPLOAD FINISHED]', e);
+      console.error('[UPLOAD FINISHED upsert]', e);
       errors.push({ file: it.file.name, reason: e.message || String(e) });
     }
   }
