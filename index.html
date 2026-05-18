@@ -5834,25 +5834,38 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
   if (targetFolderName === CONCURRENT_FOLDER_NAME && okCount > 0) {
     const existingAdsByName = {};
     (existingAdsDb || []).forEach(a => { existingAdsByName[a.name.toLowerCase()] = a; });
+    // Détecteur d'image : si le fichier uploadé est une image (PNG/JPG/etc.), on tag auto translation_type='image'
+    const isImageFile = (filename) => /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename || '');
     const adsToInsert = [];
     const adsToUpdate = [];
     for (const r of okResults) {
       const adNum = r.item.adNum;
       const adName = `Ad ${adNum}`;
+      const isImage = isImageFile(r.item.file?.name);
       const existing = existingAdsByName[adName.toLowerCase()];
       if (existing) {
-        adsToUpdate.push({ id: existing.id, concurrent_file_id: r.file?.id || null });
+        // Pour les ads existantes : on met à jour translation_type SEULEMENT si on passe à image
+        // (ne pas écraser un toggle manuel admin pour rien)
+        const updatePayload = { id: existing.id, concurrent_file_id: r.file?.id || null };
+        if (isImage && existing.translation_type !== 'image') {
+          updatePayload.translation_type = 'image';
+        }
+        adsToUpdate.push(updatePayload);
       } else {
+        // Nouvelle ad : translation_type basé sur le type de fichier
         adsToInsert.push({
           product_id: product.id,
           name: adName,
           position: adNum,
           concurrent_file_id: r.file?.id || null,
+          translation_type: isImage ? 'image' : 'voice',
           workspace_id: currentWorkspaceId
         });
       }
     }
     let createdCount = 0;
+    let autoImageCount = adsToInsert.filter(a => a.translation_type === 'image').length
+                       + adsToUpdate.filter(u => u.translation_type === 'image').length;
     if (adsToInsert.length > 0) {
       const { data: insertedAds, error: errA } = await sb.from('ads').insert(adsToInsert).select();
       if (!errA && insertedAds) {
@@ -5863,7 +5876,11 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
       } else if (errA) { console.error('[CREATE ADS]', errA); }
     }
     for (const u of adsToUpdate) {
-      await sb.from('ads').update({ concurrent_file_id: u.concurrent_file_id }).eq('id', u.id);
+      const { id, ...payload } = u;
+      await sb.from('ads').update(payload).eq('id', id);
+    }
+    if (autoImageCount > 0) {
+      setTimeout(() => toast(`${autoImageCount} ad${autoImageCount > 1 ? 's' : ''} tagué${autoImageCount > 1 ? 'es' : 'e'} IMAGE auto (fichier .png/.jpg)`, 'info', 5000), 600);
     }
     // Auto-share : "anyone with link can view" sur tous les concurrents uploadés
     // Workflow : editor doit pouvoir télécharger le concurrent pour le nettoyer
