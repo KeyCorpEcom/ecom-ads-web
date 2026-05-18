@@ -2214,6 +2214,7 @@ async function renderProduit(el, productId) {
                       : (ad.concurrent_file_id ? 'Télécharger le concurrent (à nettoyer)' : 'Aucune vidéo disponible');
                     return `<span class="ad-download-icon ${downloadFileId ? '' : 'disabled'}" ${downloadFileId ? `data-download-master="${downloadFileId}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${downloadLabel}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>`;
                   })()}
+                  ${isAdmin() ? `<span class="ad-delete-icon" data-edit-ad="${ad.id}" data-ad-name="${escapeHtml(ad.name)}" data-ad-position="${ad.position || 0}" title="Renommer / changer la position de cette ad" style="color:var(--text-mute)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>` : ''}
                   ${isAdmin() ? `<span class="ad-delete-icon" data-delete-ad="${ad.id}" title="Supprimer cette ad et tous ses fichiers Drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : ''}
                 </td>
                 ${(ad.translation_type === 'image') ? `
@@ -2506,6 +2507,15 @@ async function renderProduit(el, productId) {
       };
       toast(messages[newType], 'success', 3000);
       render();
+    });
+  });
+
+  // Edit Ad icons (admin only) — renommer + changer position
+  el.querySelectorAll('[data-edit-ad]').forEach(icon => {
+    icon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!isAdmin()) { toast('Action réservée aux admins', 'error'); return; }
+      editAdFlow(icon.dataset.editAd, icon.dataset.adName, parseInt(icon.dataset.adPosition, 10) || 0);
     });
   });
 
@@ -6599,6 +6609,121 @@ async function editAdCopyFlow(adId) {
 }
 
 // Supprime une Ad : DB + tous les fichiers Drive associés
+// Renomme une ad + change sa position. Option : renomme aussi les fichiers Drive associés
+// (master, concurrent, trad par pays, pending). Admin only.
+async function editAdFlow(adId, currentName, currentPosition) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  const r = await modal(`
+    <div class="modal-title">Éditer ${escapeHtml(currentName)}</div>
+    <div class="text-sm text-dim mb-md">Renomme cette ad ou change sa position dans le tableau. Si tu coches l'option Drive, tous les fichiers liés seront aussi renommés (master, concurrent, trad par pays, pending).</div>
+
+    <div class="input-group">
+      <label class="input-label">Nom</label>
+      <input class="input" data-field="name" value="${escapeHtml(currentName)}" placeholder="Ex: Ad 4">
+      <div class="input-hint">Convention : <span class="mono">Ad N</span> où N est un nombre. Garde ce format pour que les uploads matchent.</div>
+    </div>
+
+    <div class="input-group">
+      <label class="input-label">Position</label>
+      <input class="input" type="number" data-field="position" value="${currentPosition}" min="0">
+      <div class="input-hint">Plus petit = en haut du tableau.</div>
+    </div>
+
+    <div style="padding:12px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:14px">
+      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none">
+        <input type="checkbox" data-field="renameDrive" checked style="margin:3px 0 0 0;accent-color:var(--gold);flex-shrink:0">
+        <div>
+          <div style="font-weight:600;font-size:13px">Renommer aussi les fichiers Drive</div>
+          <div class="text-sm text-dim" style="margin-top:2px;line-height:1.5">Remplace l'ancien nom par le nouveau dans tous les fichiers : <span class="mono">Ad X.mp4</span>, <span class="mono">Ad X - PRODUCT - FR.mp4</span>, etc. Recommandé pour garder la cohérence.</div>
+        </div>
+      </label>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `);
+  if (!r) return;
+
+  const newName = (r.name || '').trim();
+  const newPosition = parseInt(r.position, 10) || 0;
+  const shouldRenameDrive = r.renameDrive === 'on' || r.renameDrive === true;
+
+  if (!newName) { toast('Le nom ne peut pas être vide', 'error'); return; }
+  if (newName === currentName && newPosition === currentPosition) {
+    toast('Aucun changement', 'info'); return;
+  }
+
+  // Conflit de nom : vérifie qu'aucune autre ad du même produit n'a déjà ce nom
+  const { data: adRow } = await sb.from('ads').select('product_id').eq('id', adId).single();
+  if (newName !== currentName) {
+    const { data: conflict } = await sb.from('ads')
+      .select('id, name').eq('product_id', adRow.product_id).eq('name', newName).neq('id', adId).maybeSingle();
+    if (conflict) {
+      toast(`Une autre ad de ce produit s'appelle déjà "${newName}"`, 'error', 5000);
+      return;
+    }
+  }
+
+  toast('Mise à jour en cours...', 'info');
+
+  // 1. Update DB (nom + position)
+  const { error: updateErr } = await sb.from('ads').update({ name: newName, position: newPosition }).eq('id', adId);
+  if (updateErr) { toast('Erreur DB : ' + updateErr.message, 'error', 6000); return; }
+
+  // 2. Rename Drive files si option cochée + Drive connecté + nom changé
+  let renamedCount = 0, failedCount = 0;
+  if (shouldRenameDrive && newName !== currentName && driveState.connected) {
+    try {
+      await ensureDriveReady();
+
+      // Récupère tous les fichiers Drive liés à cette ad
+      const { data: ad } = await sb.from('ads').select('master_file_id, concurrent_file_id, voice_file_id').eq('id', adId).single();
+      const { data: acRows } = await sb.from('ad_countries').select('drive_file_id, country_id').eq('ad_id', adId);
+      const { data: pvRows } = await sb.from('pending_validations').select('drive_file_id, country_id').eq('ad_id', adId);
+
+      // Fonction helper : récupère le nom actuel d'un fichier Drive et le rename en remplaçant currentName par newName
+      const renameFile = async (fileId) => {
+        if (!fileId) return;
+        try {
+          const meta = await gapi.client.drive.files.get({ fileId, fields: 'name', supportsAllDrives: true });
+          const oldFileName = meta.result.name;
+          // Remplace insensible à la casse, juste la 1ère occurrence (le préfixe "Ad N")
+          const newFileName = oldFileName.replace(new RegExp(currentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), newName);
+          if (newFileName !== oldFileName) {
+            await gapi.client.drive.files.update({ fileId, resource: { name: newFileName }, supportsAllDrives: true });
+            renamedCount++;
+          }
+        } catch (e) {
+          console.warn(`[editAdFlow rename] file ${fileId}:`, e);
+          failedCount++;
+        }
+      };
+
+      // Rename master + concurrent + voice
+      await renameFile(ad?.master_file_id);
+      await renameFile(ad?.concurrent_file_id);
+      await renameFile(ad?.voice_file_id);
+      // Rename trads par pays
+      for (const ac of (acRows || [])) await renameFile(ac.drive_file_id);
+      // Rename pending
+      for (const pv of (pvRows || [])) await renameFile(pv.drive_file_id);
+    } catch (e) {
+      console.error('[editAdFlow drive rename]', e);
+      toast('DB mise à jour mais erreur Drive : ' + (e.message || e), 'warn', 8000);
+    }
+  }
+
+  // 3. Toast final
+  let msg = `${currentName} → ${newName}`;
+  if (renamedCount > 0) msg += ` · ${renamedCount} fichier(s) Drive renommé(s)`;
+  if (failedCount > 0) msg += ` · ${failedCount} échec(s)`;
+  toast(msg, failedCount === 0 ? 'success' : 'warn', 5000);
+  render();
+}
+
 async function deleteAdFlow(adId) {
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
 
