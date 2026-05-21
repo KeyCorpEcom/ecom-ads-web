@@ -3300,6 +3300,8 @@ async function editProductFlow(productId) {
   const status = product.status || 'approved';
   // Object mutable pour les COGS par pays (overrides du COGS global)
   const cogsByCountry = (product.cogs_by_country && typeof product.cogs_by_country === 'object') ? { ...product.cogs_by_country } : {};
+  // Object mutable pour les prix par pays — l'admin saisit le prix local de chaque pays
+  const pricesByCountry = (product.prices_by_country && typeof product.prices_by_country === 'object') ? { ...product.prices_by_country } : {};
   const countriesHtml = allCountries.map(c => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
       <input type="checkbox" data-edit-country-check="${c.id}" ${enabled.includes(c.id) ? 'checked' : ''} style="margin:0;accent-color:${c.color}">
@@ -3361,18 +3363,13 @@ async function editProductFlow(productId) {
         <div style="padding:16px;background:var(--bg-input);border-radius:10px;border:1px solid var(--border-soft);margin-bottom:14px">
           <div style="font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px"> Pricing</div>
 
+          <div class="text-sm text-dim" style="margin-bottom:10px;line-height:1.5">Saisis le prix de vente <strong>dans la devise locale</strong> pour chaque pays activé. Les marchés non cochés en haut sont masqués.</div>
+
+          <div id="prices-by-country-table" style="background:var(--bg);border-radius:8px;border:1px solid var(--border-soft);overflow:hidden;margin-bottom:14px">
+            <!-- Rempli dynamiquement par renderPricesByCountryTable() -->
+          </div>
+
           <div class="grid-2">
-            <div class="input-group" style="margin-bottom:8px">
-              <label class="input-label">Prix de vente base</label>
-              <div style="display:flex;gap:8px">
-                <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="basePrice" value="${product.base_price || ''}" placeholder="49.90" style="flex:1;text-align:left">
-                <select class="select" data-field="basePriceCurrency" style="width:90px">
-                  <option value="EUR" ${(product.base_price_currency || 'EUR') === 'EUR' ? 'selected' : ''}>EUR</option>
-                  <option value="USD" ${product.base_price_currency === 'USD' ? 'selected' : ''}>USD</option>
-                  <option value="GBP" ${product.base_price_currency === 'GBP' ? 'selected' : ''}>GBP</option>
-                </select>
-              </div>
-            </div>
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">COGS (coût d'achat)</label>
               <div style="display:flex;gap:8px">
@@ -3384,16 +3381,17 @@ async function editProductFlow(productId) {
                 </select>
               </div>
             </div>
-          </div>
-          <div class="grid-2">
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">Frais PSP (%)</label>
               <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="pspFeesPct" value="${product.psp_fees_pct ?? 3}" placeholder="3" style="text-align:left">
             </div>
+          </div>
+          <div class="grid-2">
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">Autres frais (EUR)</label>
               <input class="input" type="text" inputmode="decimal" dir="ltr" data-field="otherFeesEur" value="${product.other_fees_eur ?? 0}" placeholder="0" style="text-align:left">
             </div>
+            <div></div>
           </div>
 
           <div id="pricing-breakdown" style="margin-top:10px"></div>
@@ -3418,22 +3416,24 @@ async function editProductFlow(productId) {
         const cid = cb.dataset.editCountryCheck;
         if (cb.checked) { if (!enabled.includes(cid)) enabled.push(cid); }
         else { const i = enabled.indexOf(cid); if (i >= 0) enabled.splice(i, 1); }
-        renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
+        renderPricesByCountryTable(bd, allCountries, enabled, pricesByCountry);
+        renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry, pricesByCountry);
       });
     });
 
     // Live update breakdown : on écoute input (chaque keystroke) ET change (blur, validation)
-    ['basePrice', 'basePriceCurrency', 'cogs', 'cogsCurrency', 'pspFeesPct', 'otherFeesEur'].forEach(field => {
+    ['cogs', 'cogsCurrency', 'pspFeesPct', 'otherFeesEur'].forEach(field => {
       const el = bd.querySelector(`[data-field="${field}"]`);
       if (!el) return;
-      const update = () => renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
+      const update = () => renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry, pricesByCountry);
       el.addEventListener('input', update);
       el.addEventListener('change', update);
       el.addEventListener('blur', update);
     });
 
-    // Render initial
-    renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry);
+    // Render initial des deux composants
+    renderPricesByCountryTable(bd, allCountries, enabled, pricesByCountry);
+    renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry, pricesByCountry);
 
     // Backdrop click → cancel
     bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
@@ -3469,7 +3469,6 @@ async function editProductFlow(productId) {
   const parseFlex = (v) => parseFloat(String(v || '').replace(',', '.'));
   const priority = (fields.priority || 'normal');
   const concurrentPageUrl = (fields.concurrentPageUrl || '').trim() ? normalizeUrl(fields.concurrentPageUrl.trim()) : null;
-  const basePrice = parseFlex(fields.basePrice) || null;
   const cogs = parseFlex(fields.cogs) || null;
   const pspFeesPct = parseFlex(fields.pspFeesPct);
   const otherFeesEur = parseFlex(fields.otherFeesEur);
@@ -3481,8 +3480,7 @@ async function editProductFlow(productId) {
     enabled_countries: enabled,
     priority,
     concurrent_page_url: concurrentPageUrl,
-    base_price: basePrice,
-    base_price_currency: fields.basePriceCurrency || 'EUR',
+    prices_by_country: pricesByCountry,
     cogs,
     cogs_currency: fields.cogsCurrency || 'EUR',
     cogs_by_country: cogsByCountry,
@@ -3492,7 +3490,23 @@ async function editProductFlow(productId) {
   };
 
   if (action === 'approve') {
-    if (!basePrice) { toast('Renseigne le prix de vente pour valider', 'error'); return; }
+    // Vérifie qu'au moins 1 pays activé a un prix saisi
+    const countriesWithPrice = enabled.filter(cId => {
+      const v = pricesByCountry[cId];
+      return v != null && !isNaN(v) && v > 0;
+    });
+    if (countriesWithPrice.length === 0) {
+      toast('Renseigne le prix d\'au moins 1 pays activé pour valider', 'error', 6000);
+      return;
+    }
+    if (countriesWithPrice.length < enabled.length) {
+      const missing = enabled.length - countriesWithPrice.length;
+      const ok = await confirmDialog(
+        'Prix manquant',
+        `${missing} pays activé${missing > 1 ? 's n\'ont' : ' n\'a'} pas de prix renseigné. Le produit sera validé mais ces pays ne pourront pas être lancés tant que tu ne renseignes pas leur prix. Continuer ?`
+      );
+      if (!ok) return;
+    }
     // COGS valide si : global rempli, OU au moins 1 pays activé a son override per-country
     const hasGlobalCogs = cogs && cogs > 0;
     const hasAnyPerCountryCogs = enabled.some(cId => {
@@ -3534,15 +3548,73 @@ function buildRatesMap(allCountries) {
   return rates;
 }
 
-// Rend le tableau de breakdown pricing dans le modal d'édition produit (mis à jour live)
-function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
+// Rend le tableau de saisie des prix par pays (mis à jour live au-dessus du breakdown)
+// L'admin saisit le prix dans la devise locale de chaque pays activé.
+function renderPricesByCountryTable(bd, allCountries, enabled, pricesByCountry) {
+  pricesByCountry = pricesByCountry || {};
+  const wrap = bd.querySelector('#prices-by-country-table');
+  if (!wrap) return;
+  const activeCountries = (allCountries || []).filter(c => enabled.includes(c.id));
+  if (activeCountries.length === 0) {
+    wrap.innerHTML = '<div class="text-sm text-dim" style="padding:14px;text-align:center">Aucun pays activé. Coche au moins un marché en haut pour saisir les prix.</div>';
+    return;
+  }
+  wrap.innerHTML = `
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <thead>
+        <tr style="background:var(--bg-input)">
+          <th style="text-align:left;padding:8px 12px;font-size:10px;letter-spacing:0.5px;color:var(--text-dim);text-transform:uppercase;font-weight:700">Pays</th>
+          <th style="text-align:right;padding:8px 12px;font-size:10px;letter-spacing:0.5px;color:var(--text-dim);text-transform:uppercase;font-weight:700">Prix de vente local</th>
+          <th style="text-align:left;padding:8px 12px;font-size:10px;letter-spacing:0.5px;color:var(--text-dim);text-transform:uppercase;font-weight:700;width:60px">Devise</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${activeCountries.map(c => {
+          const val = pricesByCountry[c.id];
+          const valueAttr = (val != null && !isNaN(val)) ? val : '';
+          const hasPrice = val != null && val > 0;
+          return `
+            <tr data-price-row="${c.id}" style="border-top:1px solid var(--border-soft)">
+              <td style="padding:8px 12px">${flagImg(c.id)}<strong>${escapeHtml(c.id)}</strong> <span class="text-dim" style="font-size:11px">${escapeHtml(c.name || '')}</span></td>
+              <td style="padding:6px 12px;text-align:right">
+                <input type="text" inputmode="decimal" dir="ltr" data-price-country="${escapeHtml(c.id)}" value="${valueAttr}" placeholder="0.00" style="width:110px;padding:5px 9px;font-size:13px;background:${hasPrice ? 'rgba(52,211,153,0.06)' : 'var(--bg-input)'};border:1px solid ${hasPrice ? 'rgba(52,211,153,0.4)' : 'var(--border)'};border-radius:5px;color:var(--text);font-family:'JetBrains Mono',monospace;text-align:right;font-weight:600">
+              </td>
+              <td style="padding:8px 12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace">${escapeHtml(c.currency_symbol || c.currency_code || 'EUR')} <span style="font-size:10px;color:var(--text-mute)">(${escapeHtml(c.currency_code || 'EUR')})</span></td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+
+  // Wire les inputs : maj de pricesByCountry + re-calcul du breakdown
+  wrap.querySelectorAll('[data-price-country]').forEach(input => {
+    input.addEventListener('input', () => {
+      const cid = input.dataset.priceCountry;
+      const raw = String(input.value || '').replace(',', '.');
+      const v = parseFloat(raw);
+      if (!isNaN(v) && v > 0) pricesByCountry[cid] = v;
+      else delete pricesByCountry[cid];
+      // Update visuel input (vert si rempli)
+      const hasPrice = !isNaN(v) && v > 0;
+      input.style.background = hasPrice ? 'rgba(52,211,153,0.06)' : 'var(--bg-input)';
+      input.style.borderColor = hasPrice ? 'rgba(52,211,153,0.4)' : 'var(--border)';
+      // Re-render breakdown (sans toucher aux inputs prix par pays — wrap différent)
+      renderPricingBreakdown(bd, allCountries, enabled, bd._cogsByCountry || {}, pricesByCountry);
+    });
+  });
+}
+
+// Rend le tableau de breakdown ROAS dans le modal d'édition produit (mis à jour live)
+// Lit les prix DEPUIS pricesByCountry (saisis manuellement), plus de psych auto.
+function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry, pricesByCountry) {
   cogsByCountry = cogsByCountry || {};
+  pricesByCountry = pricesByCountry || {};
+  bd._cogsByCountry = cogsByCountry; // ref accessible depuis renderPricesByCountryTable
   const wrap = bd.querySelector('#pricing-breakdown');
   if (!wrap) return;
   // Accepte les virgules (clavier FR) et les points indifféremment
   const parseFlexFloat = (v) => parseFloat(String(v || '').replace(',', '.'));
-  const basePrice = parseFlexFloat(bd.querySelector('[data-field="basePrice"]')?.value);
-  const basePriceCurrency = bd.querySelector('[data-field="basePriceCurrency"]')?.value || 'EUR';
   const cogs = parseFlexFloat(bd.querySelector('[data-field="cogs"]')?.value);
   const cogsCurrency = bd.querySelector('[data-field="cogsCurrency"]')?.value || 'EUR';
   const pspFeesPct = parseFlexFloat(bd.querySelector('[data-field="pspFeesPct"]')?.value);
@@ -3554,29 +3626,23 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
     return;
   }
 
-  const hasPrice = basePrice && !isNaN(basePrice) && basePrice > 0;
   const hasGlobalCogs = cogs && !isNaN(cogs) && cogs > 0;
   const rates = buildRatesMap(allCountries);
-  const basePriceEur = hasPrice ? priceToEur(basePrice, basePriceCurrency, rates) : 0;
   const psp = isNaN(pspFeesPct) ? 3 : pspFeesPct;
 
-  // Pour chaque pays : COGS effectif = override per-country s'il est défini, sinon le COGS global, sinon 0
+  // Pour chaque pays : prix lu depuis pricesByCountry (saisi manuellement)
+  // COGS effectif = override per-country s'il est défini, sinon le COGS global, sinon 0
   const rows = activeCountries.map(c => {
+    const localPrice = pricesByCountry[c.id];
+    const hasPrice = localPrice != null && !isNaN(localPrice) && localPrice > 0;
     const perCountryCogs = cogsByCountry[c.id];
     const hasOverride = perCountryCogs != null && !isNaN(perCountryCogs) && perCountryCogs > 0;
     const effectiveCogsValue = hasOverride ? perCountryCogs : (hasGlobalCogs ? cogs : 0);
     const effectiveCogsEur = priceToEur(effectiveCogsValue, cogsCurrency, rates);
 
-    if (!hasPrice) return { c, localFromEur: null, localPsych: null, roas: null, perCountryCogs, hasOverride };
-    const localFromEur = eurToLocal(basePriceEur, c);
-    // Si la devise du pays = devise du prix base → pas de psych (le prix de base est déjà la valeur voulue)
-    // Sinon, applique le psych pour avoir une jolie valeur après conversion
-    const sameCurrency = (c.currency_code || 'EUR') === basePriceCurrency;
-    const localPsych = sameCurrency
-      ? Math.round(localFromEur * 100) / 100
-      : psychPrice(localFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
-    const roas = computeRoasBE({ localPrice: localPsych, country: c, cogsEur: effectiveCogsEur, pspPct: psp, otherFeesEur });
-    return { c, localFromEur, localPsych, roas, perCountryCogs, hasOverride };
+    if (!hasPrice) return { c, localPrice: null, roas: null, perCountryCogs, hasOverride };
+    const roas = computeRoasBE({ localPrice, country: c, cogsEur: effectiveCogsEur, pspPct: psp, otherFeesEur });
+    return { c, localPrice, roas, perCountryCogs, hasOverride };
   });
 
   // Calcul du ROAS BE moyen (pour le résumé en haut)
@@ -3587,12 +3653,22 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
     avgRoas > 1.5 ? 'var(--orange)' :
     'var(--green)';
 
+  // Calcul du ROAS BE moyen (pour le résumé en haut)
+  const validRoas = rows.map(r => r.roas).filter(r => r != null && r !== Infinity);
+  const avgRoas = validRoas.length > 0 ? (validRoas.reduce((a, b) => a + b, 0) / validRoas.length) : null;
+  const avgColor = avgRoas == null ? 'var(--text-mute)' :
+    avgRoas > 1.8 ? 'var(--red)' :
+    avgRoas > 1.5 ? 'var(--orange)' :
+    'var(--green)';
+
+  const countriesWithPrice = rows.filter(r => r.localPrice != null).length;
+  const totalCountries = rows.length;
   const hasAnyCogs = hasGlobalCogs || Object.keys(cogsByCountry).length > 0;
-  const summaryNote = !hasPrice
-    ? '<span style="color:var(--orange)">Renseigne le prix de vente pour calculer</span>'
+  const summaryNote = countriesWithPrice < totalCountries
+    ? `<span style="color:var(--orange)">Renseigne le prix pour ${totalCountries - countriesWithPrice} pays restant${totalCountries - countriesWithPrice > 1 ? 's' : ''}</span>`
     : !hasAnyCogs
       ? '<span style="color:var(--orange)">Renseigne le COGS (global ou par pays) — ROAS BE actuel optimiste</span>'
-      : '<span style="color:var(--text-dim)">ROAS BE moyen sur tous les pays activés. Clique sur une cellule COGS pour override par pays.</span>';
+      : '<span style="color:var(--text-dim)">ROAS BE moyen sur les pays renseignés. Clique sur une cellule COGS pour override.</span>';
 
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 14px;background:var(--bg);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:10px">
@@ -3603,14 +3679,13 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
       <div style="font-size:11px;line-height:1.5;text-align:right;flex:1;min-width:200px">${summaryNote}</div>
     </div>
 
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Détail par pays</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">ROAS BE par pays</div>
     <div style="overflow-x:auto;border:1px solid var(--border-soft);border-radius:8px">
       <table class="ads-table" style="width:100%;font-size:12px;margin:0">
         <thead>
           <tr>
             <th class="ad-col" style="padding-left:12px">Pays</th>
-            <th>Converti</th>
-            <th>Prix psych</th>
+            <th>Prix local</th>
             <th title="COGS par pays (override du COGS global)">COGS (${escapeHtml(cogsCurrency)})</th>
             <th>ROAS BE</th>
           </tr>
@@ -3629,8 +3704,7 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
             return `
               <tr data-row-country="${r.c.id}">
                 <td class="ad-col" style="padding-left:12px">${flagImg(r.c.id)}<strong>${r.c.id}</strong> <span class="text-dim">${escapeHtml(r.c.currency_code || 'EUR')}</span></td>
-                <td class="text-dim">${r.localFromEur == null ? '—' : escapeHtml(fmtCurrency(r.localFromEur, r.c))}</td>
-                <td><strong>${r.localPsych == null ? '—' : escapeHtml(fmtCurrency(r.localPsych, r.c))}</strong></td>
+                <td><strong>${r.localPrice == null ? '<span style="color:var(--text-mute)">— non saisi</span>' : escapeHtml(fmtCurrency(r.localPrice, r.c))}</strong></td>
                 <td><input type="text" inputmode="decimal" dir="ltr" data-cogs-country="${r.c.id}" value="${cogsValueAttr}" placeholder="${cogsPlaceholder}" style="width:80px;padding:4px 8px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);${cogsBg};border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;text-align:left" title="${r.hasOverride ? 'Override actif (clique pour modifier)' : 'COGS global appliqué — clique pour override'}"></td>
                 <td style="color:${roasColor};font-weight:700;font-family:'JetBrains Mono',monospace">${roasStr}</td>
               </tr>
@@ -3645,7 +3719,6 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
   `;
 
   // Attache les handlers d'édition du COGS par pays — update SURGICAL (sans re-render)
-  // pour ne pas écraser ce que l'user tape (genre "34." qui deviendrait "34" en re-render).
   wrap.querySelectorAll('[data-cogs-country]').forEach(input => {
     input.addEventListener('input', () => {
       const cid = input.dataset.cogsCountry;
@@ -3655,18 +3728,14 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
       if (validNumber) cogsByCountry[cid] = v;
       else delete cogsByCountry[cid];
 
-      // Recalcule juste la ROW concernée + la moyenne, sans réécrire les inputs
       const country = allCountries.find(c => c.id === cid);
       if (!country) return;
+      const localPrice = pricesByCountry[cid];
+      const hasPrice = localPrice != null && !isNaN(localPrice) && localPrice > 0;
       const effectiveCogs = validNumber ? v : (hasGlobalCogs ? cogs : 0);
       const effectiveCogsEur = priceToEur(effectiveCogs, cogsCurrency, rates);
-      const localFromEurNow = hasPrice ? eurToLocal(basePriceEur, country) : null;
-      const sameCurrency = (country.currency_code || 'EUR') === basePriceCurrency;
-      const localPsychNow = !hasPrice ? null : (sameCurrency
-        ? Math.round(localFromEurNow * 100) / 100
-        : psychPrice(localFromEurNow, country.psych_increment || 50, country.psych_subtract || 0.10));
-      const newRoas = !hasPrice ? null : computeRoasBE({ localPrice: localPsychNow, country, cogsEur: effectiveCogsEur, pspPct: psp, otherFeesEur });
-      // Update visuel de la cellule ROAS de cette row
+      const newRoas = !hasPrice ? null : computeRoasBE({ localPrice, country, cogsEur: effectiveCogsEur, pspPct: psp, otherFeesEur });
+
       const row = wrap.querySelector(`[data-row-country="${cid}"]`);
       if (row) {
         const roasCell = row.querySelector('td:last-child');
@@ -3680,21 +3749,18 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry) {
           roasCell.style.color = roasColor;
           roasCell.textContent = roasStr;
         }
-        // Bordure gold sur l'input si override actif
         input.style.background = validNumber ? 'rgba(200,165,90,0.10)' : 'var(--bg-input)';
         input.style.borderColor = validNumber ? 'var(--gold)' : 'var(--border)';
       }
-      // Update du ROAS BE moyen (en haut du breakdown)
+      // Update du ROAS BE moyen
       const allRoas = (allCountries || []).filter(c => enabled.includes(c.id)).map(c => {
+        const lp = pricesByCountry[c.id];
+        if (lp == null || isNaN(lp) || lp <= 0) return null;
         const cc = cogsByCountry[c.id];
         const hasOv = cc != null && !isNaN(cc) && cc > 0;
         const effC = hasOv ? cc : (hasGlobalCogs ? cogs : 0);
         const effCEur = priceToEur(effC, cogsCurrency, rates);
-        if (!hasPrice) return null;
-        const lFromEur = eurToLocal(basePriceEur, c);
-        const sC = (c.currency_code || 'EUR') === basePriceCurrency;
-        const lP = sC ? Math.round(lFromEur * 100) / 100 : psychPrice(lFromEur, c.psych_increment || 50, c.psych_subtract || 0.10);
-        return computeRoasBE({ localPrice: lP, country: c, cogsEur: effCEur, pspPct: psp, otherFeesEur });
+        return computeRoasBE({ localPrice: lp, country: c, cogsEur: effCEur, pspPct: psp, otherFeesEur });
       }).filter(r => r != null && r !== Infinity);
       const newAvg = allRoas.length > 0 ? (allRoas.reduce((a, b) => a + b, 0) / allRoas.length) : null;
       const avgEl = wrap.querySelector('div[style*="font-size:24px"]');
@@ -4904,14 +4970,21 @@ async function renderPageProduct(el, productId) {
           const status = pg.status || 'pending';
           const builtUrl = pg.built_url ? normalizeUrl(pg.built_url) : null;
           const sColor = STATUS_META[status]?.color || 'var(--text-dim)';
+          // Prix local du produit pour ce pays (saisi par admin dans editProductFlow)
+          const localPrice = (product.prices_by_country && product.prices_by_country[c.id]);
+          const hasPrice = localPrice != null && !isNaN(localPrice) && localPrice > 0;
+          const priceBadge = hasPrice
+            ? `<span class="mono" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;background:rgba(200,165,90,0.12);color:var(--gold);border:1px solid rgba(200,165,90,0.35)" title="Prix de vente à afficher sur la page Shopify">${escapeHtml(fmtCurrency(localPrice, c))}</span>`
+            : `<span class="mono" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;background:rgba(248,113,113,0.08);color:var(--red);border:1px solid rgba(248,113,113,0.3)" title="Prix non renseigné — admin doit le saisir dans Éditer">⚠ Prix non défini</span>`;
 
           return `
             <div style="padding:14px;background:var(--bg-input);border-radius:10px;border-left:3px solid ${sColor}">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-                <div style="display:flex;align-items:center;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
                   <span style="font-size:22px">${flagImg(c.id)}</span>
                   <strong style="font-size:15px">${c.id}</strong>
                   <span class="text-dim text-sm">${escapeHtml(c.name)}</span>
+                  ${priceBadge}
                 </div>
                 ${pageStatusBadge(status)}
               </div>
