@@ -3302,6 +3302,8 @@ async function editProductFlow(productId) {
   const cogsByCountry = (product.cogs_by_country && typeof product.cogs_by_country === 'object') ? { ...product.cogs_by_country } : {};
   // Object mutable pour les prix par pays — l'admin saisit le prix local de chaque pays
   const pricesByCountry = (product.prices_by_country && typeof product.prices_by_country === 'object') ? { ...product.prices_by_country } : {};
+  // Array mutable pour les bundles : [{ label, quantity, prices: {country_id: amount} }]
+  const bundles = Array.isArray(product.bundles) ? JSON.parse(JSON.stringify(product.bundles)) : [];
   const countriesHtml = allCountries.map(c => `
     <label style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:6px;user-select:none;font-size:12px;background:${c.color}22;color:${c.color};border:1px solid ${c.color}44">
       <input type="checkbox" data-edit-country-check="${c.id}" ${enabled.includes(c.id) ? 'checked' : ''} style="margin:0;accent-color:${c.color}">
@@ -3369,6 +3371,14 @@ async function editProductFlow(productId) {
             <!-- Rempli dynamiquement par renderPricesByCountryTable() -->
           </div>
 
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px">
+            <div style="font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px">🎁 Bundles <span class="text-dim" style="font-weight:400;font-size:11px">(optionnel — pour le tier pricing 2x/3x/etc.)</span></div>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-add-bundle">+ Ajouter un bundle</button>
+          </div>
+          <div id="bundles-table" style="background:var(--bg);border-radius:8px;border:1px solid var(--border-soft);margin-bottom:14px">
+            <!-- Rempli dynamiquement par renderBundlesTable() -->
+          </div>
+
           <div class="grid-2">
             <div class="input-group" style="margin-bottom:8px">
               <label class="input-label">COGS (coût d'achat)</label>
@@ -3417,6 +3427,7 @@ async function editProductFlow(productId) {
         if (cb.checked) { if (!enabled.includes(cid)) enabled.push(cid); }
         else { const i = enabled.indexOf(cid); if (i >= 0) enabled.splice(i, 1); }
         renderPricesByCountryTable(bd, allCountries, enabled, pricesByCountry);
+        renderBundlesTable(bd, allCountries, enabled, bundles);
         renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry, pricesByCountry);
       });
     });
@@ -3431,8 +3442,16 @@ async function editProductFlow(productId) {
       el.addEventListener('blur', update);
     });
 
-    // Render initial des deux composants
+    // Bouton ajout bundle
+    bd.querySelector('#btn-add-bundle')?.addEventListener('click', () => {
+      const nextNum = bundles.length + 2; // 1x est le default, on commence donc à 2x
+      bundles.push({ label: `${nextNum}x`, quantity: nextNum, prices: {} });
+      renderBundlesTable(bd, allCountries, enabled, bundles);
+    });
+
+    // Render initial des trois composants
     renderPricesByCountryTable(bd, allCountries, enabled, pricesByCountry);
+    renderBundlesTable(bd, allCountries, enabled, bundles);
     renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry, pricesByCountry);
 
     // Backdrop click → cancel
@@ -3481,6 +3500,7 @@ async function editProductFlow(productId) {
     priority,
     concurrent_page_url: concurrentPageUrl,
     prices_by_country: pricesByCountry,
+    bundles,
     cogs,
     cogs_currency: fields.cogsCurrency || 'EUR',
     cogs_by_country: cogsByCountry,
@@ -3601,6 +3621,90 @@ function renderPricesByCountryTable(bd, allCountries, enabled, pricesByCountry) 
       input.style.borderColor = hasPrice ? 'rgba(52,211,153,0.4)' : 'var(--border)';
       // Re-render breakdown (sans toucher aux inputs prix par pays — wrap différent)
       renderPricingBreakdown(bd, allCountries, enabled, bd._cogsByCountry || {}, pricesByCountry);
+    });
+  });
+}
+
+// Rend le tableau des bundles (tier pricing 2x, 3x, etc.) avec ajout/suppression dynamique
+function renderBundlesTable(bd, allCountries, enabled, bundles) {
+  const wrap = bd.querySelector('#bundles-table');
+  if (!wrap) return;
+  const activeCountries = (allCountries || []).filter(c => enabled.includes(c.id));
+
+  if (bundles.length === 0) {
+    wrap.innerHTML = '<div class="text-sm text-dim" style="padding:14px;text-align:center">Aucun bundle. Clique <strong>+ Ajouter un bundle</strong> pour ajouter une option (2x, 3x...)</div>';
+    return;
+  }
+
+  wrap.innerHTML = bundles.map((b, idx) => `
+    <div data-bundle-idx="${idx}" style="padding:12px;border-bottom:1px solid var(--border-soft);background:rgba(192,132,252,0.04)">
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+        <div style="flex:1;min-width:140px">
+          <label class="input-label" style="font-size:10px;margin-bottom:4px;display:block">Label (affichage)</label>
+          <input class="input" data-bundle-label="${idx}" value="${escapeHtml(b.label || '')}" placeholder="2x · Pack duo · etc." style="padding:6px 10px;font-size:12px">
+        </div>
+        <div style="width:90px">
+          <label class="input-label" style="font-size:10px;margin-bottom:4px;display:block">Quantité</label>
+          <input class="input" type="number" min="1" data-bundle-qty="${idx}" value="${b.quantity || 2}" style="padding:6px 10px;font-size:12px;text-align:center">
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" data-bundle-delete="${idx}" style="color:var(--red);padding:6px 10px" title="Supprimer ce bundle">×</button>
+      </div>
+      <div style="font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;margin-bottom:6px">Prix bundle par pays</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px">
+        ${activeCountries.map(c => {
+          const v = (b.prices && b.prices[c.id]);
+          const hasVal = v != null && v > 0;
+          return `<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:var(--bg-input);border-radius:5px">
+            <span style="font-size:14px">${flagImg(c.id)}</span>
+            <strong style="font-size:11px">${escapeHtml(c.id)}</strong>
+            <input type="text" inputmode="decimal" dir="ltr" data-bundle-price="${idx}|${c.id}" value="${hasVal ? v : ''}" placeholder="0" style="flex:1;min-width:60px;padding:3px 6px;font-size:12px;background:${hasVal ? 'rgba(192,132,252,0.10)' : 'var(--bg)'};border:1px solid ${hasVal ? 'rgba(192,132,252,0.4)' : 'var(--border)'};border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;text-align:right">
+            <span style="font-size:10px;color:var(--text-mute)">${escapeHtml(c.currency_symbol || c.currency_code || '€')}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  // Wire label/quantité
+  wrap.querySelectorAll('[data-bundle-label]').forEach(input => {
+    input.addEventListener('input', () => {
+      const idx = parseInt(input.dataset.bundleLabel, 10);
+      if (bundles[idx]) bundles[idx].label = input.value;
+    });
+  });
+  wrap.querySelectorAll('[data-bundle-qty]').forEach(input => {
+    input.addEventListener('input', () => {
+      const idx = parseInt(input.dataset.bundleQty, 10);
+      const v = parseInt(input.value, 10);
+      if (bundles[idx] && !isNaN(v) && v >= 1) bundles[idx].quantity = v;
+    });
+  });
+  // Wire prix par pays
+  wrap.querySelectorAll('[data-bundle-price]').forEach(input => {
+    input.addEventListener('input', () => {
+      const [idxStr, cid] = input.dataset.bundlePrice.split('|');
+      const idx = parseInt(idxStr, 10);
+      if (!bundles[idx]) return;
+      bundles[idx].prices = bundles[idx].prices || {};
+      const raw = String(input.value || '').replace(',', '.');
+      const v = parseFloat(raw);
+      if (!isNaN(v) && v > 0) {
+        bundles[idx].prices[cid] = v;
+        input.style.background = 'rgba(192,132,252,0.10)';
+        input.style.borderColor = 'rgba(192,132,252,0.4)';
+      } else {
+        delete bundles[idx].prices[cid];
+        input.style.background = 'var(--bg)';
+        input.style.borderColor = 'var(--border)';
+      }
+    });
+  });
+  // Wire delete bundle
+  wrap.querySelectorAll('[data-bundle-delete]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.bundleDelete, 10);
+      bundles.splice(idx, 1);
+      renderBundlesTable(bd, allCountries, enabled, bundles);
     });
   });
 }
@@ -4962,12 +5066,22 @@ async function renderPageProduct(el, productId) {
           const status = pg.status || 'pending';
           const builtUrl = pg.built_url ? normalizeUrl(pg.built_url) : null;
           const sColor = STATUS_META[status]?.color || 'var(--text-dim)';
-          // Prix local du produit pour ce pays (saisi par admin dans editProductFlow)
+          // Prix du produit pour ce pays : 1x (prices_by_country) + bundles éventuels
           const localPrice = (product.prices_by_country && product.prices_by_country[c.id]);
           const hasPrice = localPrice != null && !isNaN(localPrice) && localPrice > 0;
-          const priceBadge = hasPrice
-            ? `<span class="mono" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;background:rgba(200,165,90,0.12);color:var(--gold);border:1px solid rgba(200,165,90,0.35)" title="Prix de vente à afficher sur la page Shopify">${escapeHtml(fmtCurrency(localPrice, c))}</span>`
-            : `<span class="mono" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;background:rgba(248,113,113,0.08);color:var(--red);border:1px solid rgba(248,113,113,0.3)" title="Prix non renseigné — admin doit le saisir dans Éditer">⚠ Prix non défini</span>`;
+          const productBundles = Array.isArray(product.bundles) ? product.bundles : [];
+          // Liste de toutes les offres pour ce pays : 1x + bundles ayant un prix défini pour ce pays
+          const allOffers = [];
+          if (hasPrice) allOffers.push({ label: '1x', quantity: 1, price: localPrice });
+          productBundles.forEach(b => {
+            const bp = b.prices && b.prices[c.id];
+            if (bp != null && !isNaN(bp) && bp > 0) {
+              allOffers.push({ label: b.label || `${b.quantity}x`, quantity: b.quantity || 1, price: bp });
+            }
+          });
+          const priceBadge = allOffers.length === 0
+            ? `<span class="mono" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;background:rgba(248,113,113,0.08);color:var(--red);border:1px solid rgba(248,113,113,0.3)" title="Prix non renseigné — admin doit le saisir dans Éditer">⚠ Prix non défini</span>`
+            : `<button type="button" data-show-prices="${escapeHtml(c.id)}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;background:rgba(200,165,90,0.12);color:var(--gold);border:1px solid rgba(200,165,90,0.35);cursor:pointer;font-family:inherit" title="Cliquer pour voir tous les prix (1x + bundles)">💰 Prix ${allOffers.length > 1 ? `<span style="opacity:0.7;font-size:10px;font-weight:600">(${allOffers.length})</span>` : ''}</button>`;
 
           return `
             <div style="padding:14px;background:var(--bg-input);border-radius:10px;border-left:3px solid ${sColor}">
@@ -5038,6 +5152,57 @@ async function renderPageProduct(el, productId) {
       await upsertPagePartial(productId, cId, { built_url: url });
       toast('URL enregistrée', 'success');
       render();
+    });
+  });
+
+  // Click sur le badge "Prix" → affiche tous les prix (1x + bundles) dans un modal
+  el.querySelectorAll('[data-show-prices]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cId = btn.dataset.showPrices;
+      const country = activeCountries.find(c => c.id === cId);
+      if (!country) return;
+      const localPrice = (product.prices_by_country && product.prices_by_country[cId]);
+      const productBundles = Array.isArray(product.bundles) ? product.bundles : [];
+      const offers = [];
+      if (localPrice != null && localPrice > 0) offers.push({ label: '1x', quantity: 1, price: localPrice });
+      productBundles.forEach(b => {
+        const bp = b.prices && b.prices[cId];
+        if (bp != null && !isNaN(bp) && bp > 0) {
+          offers.push({ label: b.label || `${b.quantity}x`, quantity: b.quantity || 1, price: bp });
+        }
+      });
+      const rows = offers.map((o, i) => {
+        const unitPrice = o.quantity > 0 ? o.price / o.quantity : o.price;
+        const isFirst = i === 0;
+        const savings = (i > 0 && offers[0]) ? (offers[0].price * o.quantity - o.price) : 0;
+        return `<tr style="border-top:1px solid var(--border-soft)">
+          <td style="padding:10px 12px;font-weight:700;font-size:14px;color:var(--gold)">${escapeHtml(o.label)}</td>
+          <td style="padding:10px 12px;text-align:right"><strong style="font-size:18px;font-family:'JetBrains Mono',monospace">${escapeHtml(fmtCurrency(o.price, country))}</strong></td>
+          <td style="padding:10px 12px;text-align:right;color:var(--text-dim);font-size:12px">${o.quantity > 1 ? escapeHtml(fmtCurrency(unitPrice, country)) + '/unit' : ''}</td>
+          <td style="padding:10px 12px;text-align:right">${savings > 0.01 ? `<span style="color:var(--green);font-weight:600;font-size:12px">-${escapeHtml(fmtCurrency(savings, country))}</span>` : ''}</td>
+        </tr>`;
+      }).join('');
+      modal(`
+        <div class="modal-title">${flagImg(cId)} Prix ${escapeHtml(country.id)} · ${escapeHtml(country.name || '')}</div>
+        <div class="text-sm text-dim mb-md">Tous les prix de vente à afficher sur la page Shopify ${escapeHtml(country.id)} :</div>
+        <div style="border:1px solid var(--border-soft);border-radius:8px;overflow:hidden">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:var(--bg-input)">
+                <th style="text-align:left;padding:8px 12px;font-size:10px;letter-spacing:0.5px;color:var(--text-dim);text-transform:uppercase;font-weight:700">Offre</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;letter-spacing:0.5px;color:var(--text-dim);text-transform:uppercase;font-weight:700">Prix</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;letter-spacing:0.5px;color:var(--text-dim);text-transform:uppercase;font-weight:700">Prix unitaire</th>
+                <th style="text-align:right;padding:8px 12px;font-size:10px;letter-spacing:0.5px;color:var(--text-dim);text-transform:uppercase;font-weight:700">Économie</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" data-modal-ok>Fermer</button>
+        </div>
+      `);
     });
   });
 
