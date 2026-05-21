@@ -3653,14 +3653,6 @@ function renderPricingBreakdown(bd, allCountries, enabled, cogsByCountry, prices
     avgRoas > 1.5 ? 'var(--orange)' :
     'var(--green)';
 
-  // Calcul du ROAS BE moyen (pour le résumé en haut)
-  const validRoas = rows.map(r => r.roas).filter(r => r != null && r !== Infinity);
-  const avgRoas = validRoas.length > 0 ? (validRoas.reduce((a, b) => a + b, 0) / validRoas.length) : null;
-  const avgColor = avgRoas == null ? 'var(--text-mute)' :
-    avgRoas > 1.8 ? 'var(--red)' :
-    avgRoas > 1.5 ? 'var(--orange)' :
-    'var(--green)';
-
   const countriesWithPrice = rows.filter(r => r.localPrice != null).length;
   const totalCountries = rows.length;
   const hasAnyCogs = hasGlobalCogs || Object.keys(cogsByCountry).length > 0;
