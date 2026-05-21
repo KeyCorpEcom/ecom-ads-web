@@ -5081,7 +5081,7 @@ async function renderPageProduct(el, productId) {
           });
           const priceBadge = allOffers.length === 0
             ? `<span class="mono" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:600;background:rgba(248,113,113,0.08);color:var(--red);border:1px solid rgba(248,113,113,0.3)" title="Prix non renseigné — admin doit le saisir dans Éditer">⚠ Prix non défini</span>`
-            : `<button type="button" data-show-prices="${escapeHtml(c.id)}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;background:rgba(200,165,90,0.12);color:var(--gold);border:1px solid rgba(200,165,90,0.35);cursor:pointer;font-family:inherit" title="Cliquer pour voir tous les prix (1x + bundles)">💰 Prix ${allOffers.length > 1 ? `<span style="opacity:0.7;font-size:10px;font-weight:600">(${allOffers.length})</span>` : ''}</button>`;
+            : `<button type="button" data-show-prices="${escapeHtml(c.id)}" style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;font-size:13px;font-weight:700;background:rgba(200,165,90,0.12);color:var(--gold);border:1px solid rgba(200,165,90,0.35);cursor:pointer;font-family:inherit" title="Cliquer pour voir tous les prix (1x + bundles)">Prix ${allOffers.length > 1 ? `<span style="opacity:0.7;font-size:10px;font-weight:600">(${allOffers.length})</span>` : ''}</button>`;
 
           return `
             <div style="padding:14px;background:var(--bg-input);border-radius:10px;border-left:3px solid ${sColor}">
