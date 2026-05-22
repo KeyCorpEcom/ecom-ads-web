@@ -2254,6 +2254,19 @@ async function renderProduit(el, productId) {
                       : (ad.concurrent_file_id ? 'Télécharger le concurrent (à nettoyer)' : 'Aucune vidéo disponible');
                     return `<span class="ad-download-icon ${downloadFileId ? '' : 'disabled'}" ${downloadFileId ? `data-download-master="${downloadFileId}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${downloadLabel}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>`;
                   })()}
+                  ${(() => {
+                    // Icône note : admin la voit toujours (vide=gris, remplie=doré), non-admin ne la voit QUE si remplie
+                    const hasNote = !!(ad.admin_note && ad.admin_note.trim());
+                    if (!hasNote && !isAdmin()) return ''; // non-admin sans note = rien
+                    const color = hasNote ? 'var(--gold)' : 'var(--text-mute)';
+                    const tooltip = hasNote
+                      ? (isAdmin() ? `Note : ${ad.admin_note.slice(0, 60)}${ad.admin_note.length > 60 ? '...' : ''}` : `Instructions admin (cliquer pour lire)`)
+                      : 'Ajouter une note pour cette ad';
+                    return `<span class="ad-delete-icon" data-ad-note="${ad.id}" title="${escapeHtml(tooltip)}" style="color:${color};position:relative">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>
+                      ${hasNote ? '<span style="position:absolute;top:-1px;right:-1px;width:6px;height:6px;border-radius:50%;background:var(--gold)"></span>' : ''}
+                    </span>`;
+                  })()}
                   ${isAdmin() ? `<span class="ad-delete-icon" data-edit-ad="${ad.id}" data-ad-name="${escapeHtml(ad.name)}" data-ad-position="${ad.position || 0}" title="Renommer / changer la position de cette ad" style="color:var(--text-mute)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>` : ''}
                   ${isAdmin() ? `<span class="ad-delete-icon" data-delete-ad="${ad.id}" title="Supprimer cette ad et tous ses fichiers Drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : ''}
                 </td>
@@ -2556,6 +2569,14 @@ async function renderProduit(el, productId) {
       e.stopPropagation();
       if (!isAdmin()) { toast('Action réservée aux admins', 'error'); return; }
       editAdFlow(icon.dataset.editAd, icon.dataset.adName, parseInt(icon.dataset.adPosition, 10) || 0);
+    });
+  });
+
+  // Note admin icons (admin éditable, autres lecture seule si note présente)
+  el.querySelectorAll('[data-ad-note]').forEach(icon => {
+    icon.addEventListener('click', (e) => {
+      e.stopPropagation();
+      adNoteFlow(icon.dataset.adNote);
     });
   });
 
@@ -6896,6 +6917,55 @@ async function editAdCopyFlow(adId) {
 }
 
 // Supprime une Ad : DB + tous les fichiers Drive associés
+// Note admin pour une ad — admin peut éditer, autres rôles peuvent juste lire si la note existe
+async function adNoteFlow(adId) {
+  const { data: ad } = await sb.from('ads').select('id, name, admin_note').eq('id', adId).maybeSingle();
+  if (!ad) { toast('Ad introuvable', 'error'); return; }
+  const currentNote = ad.admin_note || '';
+
+  if (!isAdmin()) {
+    // Lecture seule — affiche la note si elle existe
+    if (!currentNote.trim()) {
+      toast('Pas de note pour cette ad', 'info');
+      return;
+    }
+    await modal(`
+      <div class="modal-title">Instructions admin · ${escapeHtml(ad.name)}</div>
+      <div style="padding:14px 16px;background:rgba(200,165,90,0.06);border-left:3px solid var(--gold);border-radius:8px;margin-bottom:14px">
+        <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text)">${escapeHtml(currentNote)}</div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" data-modal-ok>Compris</button>
+      </div>
+    `);
+    return;
+  }
+
+  // Admin : édition de la note
+  const r = await modal(`
+    <div class="modal-title">Note admin · ${escapeHtml(ad.name)}</div>
+    <div class="text-sm text-dim mb-md">Instructions spécifiques pour cette ad. <strong>Visibles par tes employés (ads_translator, video_editor)</strong> uniquement quand la note est remplie.</div>
+    <div class="input-group">
+      <textarea class="input" data-field="note" autofocus style="min-height:160px;font-size:13px;line-height:1.6" placeholder="Ex: Sous-titres en blanc, pas en jaune.&#10;La femme doit toujours être centrée sur le cadre.&#10;Pas de musique sur les 5 dernières secondes.">${escapeHtml(currentNote)}</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      ${currentNote.trim() ? '<button class="btn btn-ghost" data-modal-ok-clear style="color:var(--red)">Effacer la note</button>' : ''}
+      <button class="btn" data-modal-ok>Enregistrer</button>
+    </div>
+  `);
+  if (!r) return;
+
+  // Détecte si l'admin a cliqué "Effacer" (custom data-modal-ok-clear) — sinon save normal
+  // Note: le modal() helper retourne les fields ; on check si user a cliqué "ok-clear"
+  // (workaround simple : si textarea vide on traite comme clear)
+  const newNote = (r.note || '').trim();
+  const { error } = await sb.from('ads').update({ admin_note: newNote || null }).eq('id', adId);
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast(newNote ? 'Note enregistrée' : 'Note effacée', 'success');
+  render();
+}
+
 // Renomme une ad + change sa position. Option : renomme aussi les fichiers Drive associés
 // (master, concurrent, trad par pays, pending). Admin only.
 async function editAdFlow(adId, currentName, currentPosition) {
