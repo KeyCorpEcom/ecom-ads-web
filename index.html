@@ -1338,9 +1338,10 @@ async function renderAds(el) {
     const pvStats = pvByProduct[p.id] || { pending: 0, rejected: 0 };
     const pending = pvStats.pending;
     const rejected = pvStats.rejected;
-    // IMAGE ads : pas de master vidéo requis, on les compte comme "master fait"
-    const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image').length;
-    // 100% fini = master uploadé/image-mode pour TOUTES les ads ET trad faite pour TOUTES les ads × pays actifs
+    // IMAGE et SUBS ads : pas de master vidéo requis, on les compte comme "master fait"
+    // (IMAGE = image statique, SUBS = on garde la VO du concurrent sans dubbing)
+    const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image' || a.translation_type === 'subs_only').length;
+    // 100% fini = master OK pour TOUTES les ads ET trad faite pour TOUTES les ads × pays actifs
     const allDone = pAds.length > 0 && masterDone === pAds.length && total > 0 && trad === total;
     return { product: p, pAds, activeCs, total, trad, pending, rejected, masterDone, allDone };
   });
@@ -1564,7 +1565,8 @@ async function renderAdsDrafts(el, draftsCount) {
       <div class="product-grid">
         ${(drafts || []).map(p => {
           const pAds = adsByDraft[p.id] || [];
-          const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image').length;
+          // IMAGE et SUBS : pas de master vidéo requis
+          const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image' || a.translation_type === 'subs_only').length;
           const priority = p.priority || 'normal';
           const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
           return `
@@ -1650,8 +1652,8 @@ async function renderProduits(el) {
     const pagesPct = pct(pagesApproved, activeCs.length);
     const tradPct = pct(trad, total);
     const metaPct = pct(meta, total);
-    // IMAGE ads : pas de master vidéo requis, on les compte comme "master fait"
-    const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image').length;
+    // IMAGE et SUBS ads : pas de master vidéo requis, on les compte comme "master fait"
+    const masterDone = pAds.filter(a => a.master_file_id || a.translation_type === 'image' || a.translation_type === 'subs_only').length;
     const masterPct = pct(masterDone, pAds.length);
     const priority = p.priority || 'normal';
     const priorityMeta = PRIORITY_META?.[priority] || { color: '#60a5fa' };
@@ -2270,8 +2272,8 @@ async function renderProduit(el, productId) {
                   ${isAdmin() ? `<span class="ad-delete-icon" data-edit-ad="${ad.id}" data-ad-name="${escapeHtml(ad.name)}" data-ad-position="${ad.position || 0}" title="Renommer / changer la position de cette ad" style="color:var(--text-mute)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>` : ''}
                   ${isAdmin() ? `<span class="ad-delete-icon" data-delete-ad="${ad.id}" title="Supprimer cette ad et tous ses fichiers Drive"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>` : ''}
                 </td>
-                ${(ad.translation_type === 'image') ? `
-                  <td class="check-cell auto" style="border-left:2px solid var(--border-soft);color:var(--text-mute);font-family:'JetBrains Mono',monospace;font-size:14px" title="Ad image — pas de master vidéo requis">—</td>
+                ${(ad.translation_type === 'image' || ad.translation_type === 'subs_only') ? `
+                  <td class="check-cell auto" style="border-left:2px solid var(--border-soft);color:var(--text-mute);font-family:'JetBrains Mono',monospace;font-size:14px" title="${ad.translation_type === 'image' ? 'Ad image — pas de master vidéo requis' : 'Ad SUBS — pas de master vidéo requis (VO conservée)'}">—</td>
                 ` : `
                   <td class="check-cell auto master ${ad.master_file_id ? 'clickable' : ''}" style="border-left:2px solid var(--border-soft)" ${ad.master_file_id ? `data-download-master="${ad.master_file_id}" data-ad-name="${escapeHtml(ad.name)}"` : ''} title="${ad.master_file_id ? 'Cliquer pour télécharger le master' : 'Master non uploadé'}">
                     <span class="check-icon master ${ad.master_file_id ? 'checked' : ''}"></span>
@@ -2321,8 +2323,8 @@ async function renderProduit(el, productId) {
             <tr style="background:var(--bg);border-top:2px solid var(--border)">
               <td class="ad-col" style="color:var(--gold);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:12px">TOTAL</td>
               ${(() => {
-                // IMAGE ads ne nécessitent pas de master vidéo, on les compte comme "fait"
-                const masterDoneCount = ads.filter(a => a.master_file_id || a.translation_type === 'image').length;
+                // IMAGE et SUBS ads ne nécessitent pas de master vidéo, on les compte comme "fait"
+                const masterDoneCount = ads.filter(a => a.master_file_id || a.translation_type === 'image' || a.translation_type === 'subs_only').length;
                 return `<td style="border-left:2px solid var(--border-soft);padding:10px 8px;text-align:center"><span style="display:inline-block;padding:3px 8px;border-radius:5px;background:${masterDoneCount === 0 ? 'rgba(255,255,255,0.05)' : 'rgba(200,165,90,0.15)'};color:${masterDoneCount === 0 ? 'var(--text-mute)' : 'var(--gold)'};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600">${masterDoneCount}/${ads.length}</span></td>`;
               })()}
               ${countries.map(c => {
@@ -6057,9 +6059,12 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
     if (m) {
       // Le fichier a déjà un numéro Ad X
       adNum = parseInt(m[1], 10);
-      // Guard : si on upload un master vidéo sur une ad en mode IMAGE → refuser
-      if (targetFolderName === MASTER_FOLDER_NAME && adTypeByNum.get(adNum) === 'image') {
-        errors.push({ file: f.name, reason: `Ad ${adNum} est en mode IMAGE — pas de master vidéo requis. Change son badge en VOIX ou SUBS si tu veux uploader une vidéo.` });
+      // Guard : si on upload un master vidéo sur une ad IMAGE ou SUBS → refuser
+      // (IMAGE = image statique, SUBS = on garde la VO du concurrent, pas besoin de master nettoyé)
+      const adType = adTypeByNum.get(adNum);
+      if (targetFolderName === MASTER_FOLDER_NAME && (adType === 'image' || adType === 'subs_only')) {
+        const typeLabel = adType === 'image' ? 'IMAGE' : 'SUBS';
+        errors.push({ file: f.name, reason: `Ad ${adNum} est en mode ${typeLabel} — pas de master vidéo requis. Change son badge en VOIX si tu veux uploader un master nettoyé.` });
         continue;
       }
       if (strictMode && existingNumsDrive.has(adNum)) {
@@ -9092,7 +9097,8 @@ async function renderScriptsList(el) {
     sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').eq('passed_testing', true).order('created_at', { ascending: false }),
     sb.from('ads').select('id, product_id, name, master_file_id, position, translation_type').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
   ]);
-  const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image');
+  // IMAGE et SUBS : pas de master vidéo à produire (image statique / VO concurrent conservée)
+  const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image' && s.translation_type !== 'subs_only');
 
   // Group scripts by product
   const scriptsByProduct = {};
@@ -9293,7 +9299,8 @@ async function renderScriptDetail(el, productId) {
     sb.from('products').select('*').eq('id', productId).maybeSingle(),
     sb.from('ads').select('*').eq('product_id', productId).eq('source', 'script').order('position')
   ]);
-  const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image');
+  // IMAGE et SUBS : pas de master vidéo à produire (image statique / VO concurrent conservée)
+  const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image' && s.translation_type !== 'subs_only');
 
   if (!product) {
     el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div><a class="btn mt-md" href="#scripts">← Retour</a></div>';
