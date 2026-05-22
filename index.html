@@ -1738,12 +1738,32 @@ async function renderProduits(el) {
           pagesPct < 100 ? 'pages' :
           metaPct < 100 ? 'meta' : null;
         const chip = (label, num, denom, fg, bgRgba, stageKey) => {
-          const isZero = num === 0;
-          const opacity = isZero ? 'opacity:0.4' : '';
-          const glow = stageKey === nextStage ? `box-shadow:0 0 0 1px ${fg},0 0 12px ${fg}44;` : '';
-          return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:${bgRgba};border:1px solid ${fg}33;${glow}${opacity}" title="${escapeHtml(label)}">
-            <div style="font-size:9px;color:${fg};font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
-            <div class="mono" style="font-size:13px;color:${fg};font-weight:700;line-height:1">${num}<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span></div>
+          const isComplete = denom > 0 && num >= denom;
+          const isNext = stageKey === nextStage;
+          const isFutureMuted = !isComplete && !isNext;
+          // Style selon état :
+          // - Complete : vert avec ✓ (fini)
+          // - À faire maintenant : orange highlight + glow + label "À FAIRE"
+          // - Future (non commencée, pas la prochaine) : muted
+          if (isComplete) {
+            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:rgba(52,211,153,0.10);border:1px solid rgba(52,211,153,0.35)" title="${escapeHtml(label)} terminé">
+              <div style="font-size:9px;color:#34d399;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
+              <div class="mono" style="font-size:14px;color:#34d399;font-weight:700;line-height:1;display:flex;align-items:center;gap:3px">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <span style="font-size:11px;font-weight:600">${num}/${denom}</span>
+              </div>
+            </div>`;
+          }
+          if (isNext) {
+            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:rgba(251,191,36,0.10);border:1px solid #fbbf24;box-shadow:0 0 12px rgba(251,191,36,0.25)" title="${escapeHtml(label)} — c'est la prochaine étape">
+              <div style="font-size:9px;color:#fbbf24;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)} →</div>
+              <div class="mono" style="font-size:13px;color:#fbbf24;font-weight:700;line-height:1">${num}<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span></div>
+            </div>`;
+          }
+          // Future / muted
+          return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:transparent;border:1px solid var(--border-soft);opacity:0.4" title="${escapeHtml(label)} (étape ultérieure)">
+            <div style="font-size:9px;color:var(--text-dim);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
+            <div class="mono" style="font-size:13px;color:var(--text-dim);font-weight:600;line-height:1">${num}<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span></div>
           </div>`;
         };
         return `
