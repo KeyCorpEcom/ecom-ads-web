@@ -1740,11 +1740,12 @@ async function renderProduits(el) {
         const chip = (label, num, denom, fg, bgRgba, stageKey) => {
           const isComplete = denom > 0 && num >= denom;
           const isNext = stageKey === nextStage;
-          const isFutureMuted = !isComplete && !isNext;
-          // Style selon état :
-          // - Complete : vert avec ✓ (fini)
-          // - À faire maintenant : orange highlight + glow + label "À FAIRE"
-          // - Future (non commencée, pas la prochaine) : muted
+          const hasProgress = num > 0 && !isComplete;
+          // 4 états visuels distincts :
+          // - Terminé (100%) : ✓ vert
+          // - En cours (1≤num<denom) : couleur d'origine du chip, lisible
+          // - À démarrer (0% + c'est la prochaine étape) : orange flashy + glow + flèche
+          // - Future (0% + pas la prochaine) : muted gris
           if (isComplete) {
             return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:rgba(52,211,153,0.10);border:1px solid rgba(52,211,153,0.35)" title="${escapeHtml(label)} terminé">
               <div style="font-size:9px;color:#34d399;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
@@ -1754,13 +1755,21 @@ async function renderProduits(el) {
               </div>
             </div>`;
           }
+          if (hasProgress) {
+            // En cours : couleur d'origine, normal weight, lisible
+            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:${bgRgba};border:1px solid ${fg}55" title="${escapeHtml(label)} en cours (${num}/${denom})">
+              <div style="font-size:9px;color:${fg};font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
+              <div class="mono" style="font-size:13px;color:${fg};font-weight:700;line-height:1">${num}<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span></div>
+            </div>`;
+          }
           if (isNext) {
-            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:rgba(251,191,36,0.10);border:1px solid #fbbf24;box-shadow:0 0 12px rgba(251,191,36,0.25)" title="${escapeHtml(label)} — c'est la prochaine étape">
+            // À démarrer = orange flashy avec glow
+            return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:rgba(251,191,36,0.10);border:1px solid #fbbf24;box-shadow:0 0 12px rgba(251,191,36,0.25)" title="${escapeHtml(label)} — c'est la prochaine étape à démarrer">
               <div style="font-size:9px;color:#fbbf24;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)} →</div>
               <div class="mono" style="font-size:13px;color:#fbbf24;font-weight:700;line-height:1">${num}<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span></div>
             </div>`;
           }
-          // Future / muted
+          // Future / muted (0% et pas la prochaine étape)
           return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 4px;border-radius:6px;background:transparent;border:1px solid var(--border-soft);opacity:0.4" title="${escapeHtml(label)} (étape ultérieure)">
             <div style="font-size:9px;color:var(--text-dim);font-weight:700;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:2px">${escapeHtml(label)}</div>
             <div class="mono" style="font-size:13px;color:var(--text-dim);font-weight:600;line-height:1">${num}<span style="font-size:10px;color:var(--text-mute);font-weight:500">/${denom}</span></div>
