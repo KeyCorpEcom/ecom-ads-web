@@ -7479,12 +7479,36 @@ async function deleteAdFlow(adId) {
 // (ancien override modal supprimé — causait un bug en strict mode)
 
 /* ============================================================
-   FEATURE: BATCH DRAG SELECT ON META CELLS
+   FEATURE: META CELL CLICK TOGGLE (drag-select retiré)
+   Avant : drag-select qui créait des sélections fantômes bloquantes.
+   Maintenant : single click = toggle, c'est tout.
    ============================================================ */
 let _metaMouseupHandler = null;
-const DRAG_THRESHOLD = 12; // pixels avant de considérer qu'on drag vraiment (>5 pour éviter les jitter de clic)
+const DRAG_THRESHOLD = 999999; // disabled
 
+function setupMetaDragSelectV2(container) {
+  // Cleanup défensif : retire toute classe batch-selected qui traînerait + retire la batch bar
+  container.querySelectorAll('.check-cell.batch-selected').forEach(c => c.classList.remove('batch-selected'));
+  document.querySelectorAll('.batch-action-bar').forEach(b => b.remove());
+  // Cleanup ancien mouseup handler s'il existe
+  if (_metaMouseupHandler) {
+    document.removeEventListener('mouseup', _metaMouseupHandler);
+    _metaMouseupHandler = null;
+  }
+  container.addEventListener('click', async (e) => {
+    const cell = e.target.closest('.check-cell[data-toggle-meta]');
+    if (!cell) return;
+    if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+    e.stopPropagation();
+    const [adId, cId] = cell.dataset.toggleMeta.split('|');
+    await toggleMetaCell(adId, cId);
+  });
+}
+
+// Ancienne fonction conservée mais elle appelle juste V2 (évite de modifier les call sites)
 function setupMetaDragSelect(container) {
+  return setupMetaDragSelectV2(container);
+  // === Tout le code ci-dessous est dead code (drag-select retiré) ===
   let dragging = false;
   let startCell = null;
   let startX = 0, startY = 0;
