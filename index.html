@@ -7059,12 +7059,12 @@ async function editCopiesFlow(target) {
         <input class="input" id="ac-copy-name" value="${escapeHtml(copy.name || '')}" placeholder="Ex: Copy 1, Hook douleur, Promo...">
       </div>
       <div class="input-group">
-        <label class="input-label">Headline (titre) — ${escapeHtml(activeCountryId)}</label>
-        <input class="input" id="ac-headline" value="${escapeHtml(cp.headline || '')}" placeholder="Titre de l'ad pour ${escapeHtml(activeCountryId)}">
-      </div>
-      <div class="input-group">
         <label class="input-label">Primary text (corps) — ${escapeHtml(activeCountryId)}</label>
         <textarea class="input" id="ac-primary" style="min-height:140px" placeholder="Texte principal qui apparaît au-dessus de l'ad...">${escapeHtml(cp.primary || '')}</textarea>
+      </div>
+      <div class="input-group">
+        <label class="input-label">Headline (titre) — ${escapeHtml(activeCountryId)}</label>
+        <input class="input" id="ac-headline" value="${escapeHtml(cp.headline || '')}" placeholder="Titre de l'ad pour ${escapeHtml(activeCountryId)}">
       </div>
       <div class="input-group">
         <label class="input-label">Description (sous-titre) — ${escapeHtml(activeCountryId)}</label>
