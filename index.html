@@ -501,7 +501,6 @@ a{color:var(--gold);text-decoration:none}
     </div>
     <nav class="nav">
       <div class="nav-section-label">Vue d'ensemble</div>
-      <a class="nav-item" id="btn-open-cmdk" style="cursor:pointer"><span class="nav-icon"></span>Rechercher<span class="cmdk-kbd" style="margin-left:auto">Ctrl+K</span></a>
       <a class="nav-item" data-route="dashboard"><span class="nav-icon"></span>Dashboard</a>
       <a class="nav-item" data-route="ads"><span class="nav-icon"></span>Ads</a>
       <a class="nav-item" data-route="produits"><span class="nav-icon"></span>Produits<span class="nav-badge" id="nav-products"></span></a>
@@ -1361,16 +1360,30 @@ async function renderAds(el) {
 
   // Filtre : par défaut on masque les produits 100% finis (master + trad)
   const hideAllDone = localStorage.getItem('ads_hide_all_done') !== 'false';
-  const visibleStats = hideAllDone ? withAdsStats.filter(s => !s.allDone) : withAdsStats;
+  // Recherche locale par ID/nom (persisted en sessionStorage pour pas polluer entre sessions)
+  const searchTerm = (sessionStorage.getItem('ads_search') || '').toLowerCase().trim();
+  let visibleStats = hideAllDone ? withAdsStats.filter(s => !s.allDone) : withAdsStats;
+  if (searchTerm) {
+    visibleStats = visibleStats.filter(s => {
+      const id = (s.product.id || '').toLowerCase();
+      const name = (s.product.name || '').toLowerCase();
+      return id.includes(searchTerm) || name.includes(searchTerm);
+    });
+  }
   const finishedCount = withAdsStats.filter(s => s.allDone).length;
 
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title"> Ads</div>
-        <div class="page-subtitle">${fmt(approvedOnly.length)} produit(s) · ${fmt(ads.length)} ads${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} 100% fini${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
+        <div class="page-subtitle">${fmt(approvedOnly.length)} produit(s) · ${fmt(ads.length)} ads${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} 100% fini${finishedCount > 1 ? 's' : ''}</span>` : ''}${searchTerm ? ` · <span style="color:var(--gold)">${visibleStats.length} match "${escapeHtml(searchTerm)}"</span>` : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="position:relative;width:240px">
+          <input type="text" id="search-ads" placeholder="🔍 Rechercher F0007, soutien gorge..." value="${escapeHtml(searchTerm)}" style="width:100%;padding:6px 10px 6px 32px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-mute);pointer-events:none">🔍</span>
+          ${searchTerm ? `<button id="search-ads-clear" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--text-mute);cursor:pointer;font-size:14px;padding:2px 6px;line-height:1" title="Effacer">×</button>` : ''}
+        </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
           <input type="checkbox" id="toggle-hide-all-done" ${hideAllDone ? 'checked' : ''} style="accent-color:var(--gold)">
           <span>Masquer les produits 100% finis</span>
@@ -1497,6 +1510,26 @@ async function renderAds(el) {
   document.getElementById('btn-bulk-approve-all')?.addEventListener('click', () => bulkApproveTradFlow({}));
   document.getElementById('toggle-hide-all-done')?.addEventListener('change', (e) => {
     localStorage.setItem('ads_hide_all_done', e.target.checked ? 'true' : 'false');
+    render();
+  });
+  // Recherche locale Ads (debounced 200ms)
+  const searchInput = document.getElementById('search-ads');
+  if (searchInput) {
+    let searchTimer;
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        sessionStorage.setItem('ads_search', e.target.value);
+        render();
+      }, 200);
+    });
+    // Garde le focus + position du curseur après re-render
+    searchInput.focus();
+    const cursorPos = (sessionStorage.getItem('ads_search') || '').length;
+    try { searchInput.setSelectionRange(cursorPos, cursorPos); } catch (e) {}
+  }
+  document.getElementById('search-ads-clear')?.addEventListener('click', () => {
+    sessionStorage.removeItem('ads_search');
     render();
   });
   // Toggle expand/collapse de la section "produits sans ad" (admin only)
@@ -1671,8 +1704,17 @@ async function renderProduits(el) {
   // - Urgent : priority=urgent ET pas dans À lancer ET pas 100%
   // - En cours : reste qui n'est ni urgent ni À lancer ni terminé
   // - Terminés : 100% sur trad+pages+meta (= rien à faire)
+  // Recherche locale par ID/nom — applique le filtre AVANT le groupage
+  const produitsSearch = (sessionStorage.getItem('produits_search') || '').toLowerCase().trim();
+  const filteredStats = produitsSearch
+    ? productStats.filter(s => {
+        const id = (s.p.id || '').toLowerCase();
+        const name = (s.p.name || '').toLowerCase();
+        return id.includes(produitsSearch) || name.includes(produitsSearch);
+      })
+    : productStats;
   const groups = { lancer: [], urgent: [], encours: [], termines: [] };
-  productStats.forEach(s => {
+  filteredStats.forEach(s => {
     const isFullyDone = s.total > 0 && s.trad === s.total && s.pagesApproved === s.activeCs.length && s.meta === s.total;
     if (s.readyToLaunch) groups.lancer.push(s);
     else if (isFullyDone) groups.termines.push(s);
@@ -1691,15 +1733,20 @@ async function renderProduits(el) {
   const readyCount = groups.lancer.length;
   // Compat avec ancien filtre "uniquement prêts à lancer" — si activé, on cache les autres groupes
   const onlyReady = localStorage.getItem('products_only_ready') === 'true';
-  const visibleStats = onlyReady ? groups.lancer : productStats;
+  const visibleStats = onlyReady ? groups.lancer : filteredStats;
 
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title"> Produits</div>
-        <div class="page-subtitle">${fmt(approvedOnly.length)} produit(s) approuvé(s) · ${fmt(ads.length)} ads${readyCount > 0 ? ` · <span style="color:var(--gold);font-weight:600">${readyCount} prêt${readyCount > 1 ? 's' : ''} à lancer</span>` : ''}</div>
+        <div class="page-subtitle">${fmt(approvedOnly.length)} produit(s) approuvé(s) · ${fmt(ads.length)} ads${readyCount > 0 ? ` · <span style="color:var(--gold);font-weight:600">${readyCount} prêt${readyCount > 1 ? 's' : ''} à lancer</span>` : ''}${produitsSearch ? ` · <span style="color:var(--gold)">${filteredStats.length} match "${escapeHtml(produitsSearch)}"</span>` : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="position:relative;width:240px">
+          <input type="text" id="search-produits" placeholder="🔍 Rechercher F0007, soutien gorge..." value="${escapeHtml(produitsSearch)}" style="width:100%;padding:6px 10px 6px 32px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-mute);pointer-events:none">🔍</span>
+          ${produitsSearch ? `<button id="search-produits-clear" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--text-mute);cursor:pointer;font-size:14px;padding:2px 6px;line-height:1" title="Effacer">×</button>` : ''}
+        </div>
         ${readyCount > 0 || onlyReady ? `
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
             <input type="checkbox" id="toggle-only-ready" ${onlyReady ? 'checked' : ''} style="accent-color:var(--gold)">
@@ -1834,6 +1881,25 @@ async function renderProduits(el) {
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
   document.getElementById('toggle-only-ready')?.addEventListener('change', (e) => {
     localStorage.setItem('products_only_ready', e.target.checked ? 'true' : 'false');
+    render();
+  });
+  // Recherche locale Produits
+  const searchProduitsInput = document.getElementById('search-produits');
+  if (searchProduitsInput) {
+    let st;
+    searchProduitsInput.addEventListener('input', (e) => {
+      clearTimeout(st);
+      st = setTimeout(() => {
+        sessionStorage.setItem('produits_search', e.target.value);
+        render();
+      }, 200);
+    });
+    searchProduitsInput.focus();
+    const cp = (sessionStorage.getItem('produits_search') || '').length;
+    try { searchProduitsInput.setSelectionRange(cp, cp); } catch (e) {}
+  }
+  document.getElementById('search-produits-clear')?.addEventListener('click', () => {
+    sessionStorage.removeItem('produits_search');
     render();
   });
   // Toggle expand/collapse des sections collapsibles (ex: Terminés)
@@ -5016,15 +5082,29 @@ async function renderPagesHome(el) {
 
   // Filtre : par défaut on masque les produits 100% validés
   const hideValidated = localStorage.getItem('pages_hide_validated') !== 'false';
-  const visibleRows = hideValidated ? productRows.filter(r => !r.allDone) : productRows;
+  // Recherche locale par ID/nom
+  const pagesSearch = (sessionStorage.getItem('pages_search') || '').toLowerCase().trim();
+  let visibleRows = hideValidated ? productRows.filter(r => !r.allDone) : productRows;
+  if (pagesSearch) {
+    visibleRows = visibleRows.filter(r => {
+      const id = (r.product.id || '').toLowerCase();
+      const name = (r.product.name || '').toLowerCase();
+      return id.includes(pagesSearch) || name.includes(pagesSearch);
+    });
+  }
 
   el.innerHTML = `
     <div class="page-head">
       <div>
         <div class="page-title"> Product Page</div>
-        <div class="page-subtitle">${globalStats.pending} à faire · ${globalStats.built} en review · ${globalStats.approved} validées · ${globalStats.rejected} rejetées</div>
+        <div class="page-subtitle">${globalStats.pending} à faire · ${globalStats.built} en review · ${globalStats.approved} validées · ${globalStats.rejected} rejetées${pagesSearch ? ` · <span style="color:var(--gold)">${visibleRows.length} match "${escapeHtml(pagesSearch)}"</span>` : ''}</div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+        <div style="position:relative;width:240px">
+          <input type="text" id="search-pages" placeholder="🔍 Rechercher F0007, soutien gorge..." value="${escapeHtml(pagesSearch)}" style="width:100%;padding:6px 10px 6px 32px;font-size:12px;background:var(--bg-input);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text-mute);pointer-events:none">🔍</span>
+          ${pagesSearch ? `<button id="search-pages-clear" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--text-mute);cursor:pointer;font-size:14px;padding:2px 6px;line-height:1" title="Effacer">×</button>` : ''}
+        </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
           <input type="checkbox" id="toggle-hide-validated" ${hideValidated ? 'checked' : ''} style="accent-color:var(--gold)">
           <span>Masquer les produits 100% validés</span>
@@ -5092,6 +5172,25 @@ async function renderPagesHome(el) {
   // Handlers
   document.getElementById('toggle-hide-validated')?.addEventListener('change', (e) => {
     localStorage.setItem('pages_hide_validated', e.target.checked ? 'true' : 'false');
+    render();
+  });
+  // Recherche locale Pages
+  const searchPagesInput = document.getElementById('search-pages');
+  if (searchPagesInput) {
+    let st;
+    searchPagesInput.addEventListener('input', (e) => {
+      clearTimeout(st);
+      st = setTimeout(() => {
+        sessionStorage.setItem('pages_search', e.target.value);
+        render();
+      }, 200);
+    });
+    searchPagesInput.focus();
+    const cp = (sessionStorage.getItem('pages_search') || '').length;
+    try { searchPagesInput.setSelectionRange(cp, cp); } catch (e) {}
+  }
+  document.getElementById('search-pages-clear')?.addEventListener('click', () => {
+    sessionStorage.removeItem('pages_search');
     render();
   });
 
@@ -6868,13 +6967,7 @@ async function openCmdk() {
   renderResults();
 }
 
-document.addEventListener('keydown', (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault();
-    // Recherche réservée aux admins (page_builder/editor n'ont pas accès)
-    if (currentUser && currentProfile?.role === 'admin') openCmdk();
-  }
-});
+// Ctrl+K command palette désactivé — remplacé par les barres de recherche locales sur chaque page
 
 /* ============================================================
    FEATURE: AD COPY (par ad)
