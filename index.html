@@ -2293,13 +2293,20 @@ async function renderProduit(el, productId) {
           <tbody>
             ${ads.map(ad => {
               const copy = ad.ad_copy || {};
-              // Vérifie si une copy par pays est remplie (nouveau format)
+              // Détection : au moins 1 copy avec contenu (nouveau format ad_copies array)
+              const hasNewCopies = Array.isArray(ad.ad_copies) && ad.ad_copies.some(c => {
+                return Object.values(c?.by_country || {}).some(cp =>
+                  cp && ((cp.headline || '').trim() || (cp.primary || '').trim() || (cp.description || '').trim())
+                );
+              });
+              // Fallback ancien format (rétrocompat)
               const adCountryCopies = (adCountries || []).filter(ac => ac.ad_id === ad.id);
               const hasPerCountryCopy = adCountryCopies.some(ac => {
                 const c = ac.copy || {};
                 return c.headline || c.primary || c.description;
               });
-              const hasCopy = copy.url || hasPerCountryCopy || copy.headline || copy.primary || copy.description;
+              const copiesCount = Array.isArray(ad.ad_copies) ? ad.ad_copies.length : 0;
+              const hasCopy = hasNewCopies || hasPerCountryCopy || copy.headline || copy.primary || copy.description;
               const linkSrc = copy.url ? detectLinkSource(copy.url) : null;
               let rowDone = 0, rowTotal = 0;
               return `
@@ -2326,7 +2333,7 @@ async function renderProduit(el, productId) {
                     const dataAttr = isAdmin() ? `data-toggle-trans="${ad.id}"` : '';
                     return `<span class="ad-trans-toggle ${tt}${cls}" ${dataAttr} title="${tooltip}">${label}</span>`;
                   })()}
-                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? 'Voir / Éditer Ad Copy' : 'Ajouter Ad Copy (titre, description)'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
+                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? `Ad Copy (${copiesCount || 1} ${copiesCount > 1 ? 'copies' : 'copy'}) — cliquer pour éditer` : 'Ajouter Ad Copy (titre, description)'}" style="position:relative"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>${copiesCount > 1 ? `<span style="position:absolute;top:-3px;right:-3px;background:var(--gold);color:#000;font-size:8px;font-weight:700;padding:1px 4px;border-radius:8px;line-height:1">${copiesCount}</span>` : ''}</span>
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                   ${(() => {
                     // Workflow : Admin upload concurrent → Editor télécharge concurrent → nettoie → upload master
@@ -6806,201 +6813,340 @@ function detectLinkSource(url) {
   return { icon: '', name: host };
 }
 
+// Helper : génère un ID court pour identifier une copy dans l'array
+function genCopyId() {
+  return 'c_' + Math.random().toString(36).slice(2, 11);
+}
+
+// Helper : structure vide d'une copy
+function blankCopy(name) {
+  return { id: genCopyId(), name: name || 'Copy 1', by_country: {} };
+}
+
 async function editAdCopyFlow(adId) {
-  // 1. Charge ad + product (pour pays) + ad_countries (pour copy par pays)
+  // 1. Charge ad + product + countries + templates du workspace
   const { data: ad } = await sb.from('ads').select('*').eq('id', adId).single();
   if (!ad) return;
   const { data: product } = await sb.from('products').select('enabled_countries, cut_countries').eq('id', ad.product_id).single();
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
-  const { data: acRows } = await sb.from('ad_countries').select('*').eq('ad_id', adId);
+  const { data: templatesRaw } = await sb.from('ad_copy_templates')
+    .select('id, name, by_country, notes')
+    .eq('workspace_id', currentWorkspaceId)
+    .order('name');
+  const templates = templatesRaw || [];
 
-  // Pays actifs (enabled - cut)
   const enabledIds = (product?.enabled_countries?.length ? product.enabled_countries : allCountries.map(c => c.id))
     .filter(c => !(product?.cut_countries || []).includes(c));
   const countries = allCountries.filter(c => enabledIds.includes(c.id));
-
   if (countries.length === 0) { toast('Aucun pays actif sur ce produit', 'error'); return; }
 
-  // Map des copies par pays
-  const copyByCountry = {};
-  (acRows || []).forEach(ac => { copyByCountry[ac.country_id] = ac.copy || {}; });
+  // État local mutable : array de copies (clone profond)
+  let copies = Array.isArray(ad.ad_copies) && ad.ad_copies.length > 0
+    ? JSON.parse(JSON.stringify(ad.ad_copies))
+    : [blankCopy('Copy 1')];
+  // Index de la copy active dans l'UI
+  let activeCopyIdx = 0;
+  // Index du pays actif dans l'UI
+  let activeCountryId = countries[0].id;
 
-  // URL source globale (sur ad.ad_copy.url) — fallback ancien format
-  const sourceUrl = (ad.ad_copy && ad.ad_copy.url) || '';
+  const container = document.getElementById('modal-container');
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.innerHTML = `
+    <div class="modal" style="max-width:820px;max-height:92vh;display:flex;flex-direction:column">
+      <div class="modal-title">Ad Copy — ${escapeHtml(ad.name)}</div>
+      <div class="text-sm text-dim mb-md">Crée plusieurs copies pour laisser Meta optimiser. Chaque copy = textes pour tous les pays.</div>
 
-  // Onglets
-  const tabsHtml = countries.map((c, i) => `
-    <button type="button" class="copy-tab ${i === 0 ? 'active' : ''}" data-copy-tab="${c.id}">
-      ${flagImg(c.id)}<span style="margin-left:6px">${c.id}</span>
-    </button>
-  `).join('');
-
-  // Panels
-  const panelsHtml = countries.map((c, i) => {
-    const cp = copyByCountry[c.id] || {};
-    return `
-      <div class="copy-panel ${i === 0 ? '' : 'hidden'}" data-copy-panel="${c.id}">
-        <div class="input-group">
-          <label class="input-label">Headline (titre)</label>
-          <input class="input" data-copy-field="headline" data-copy-country="${c.id}" value="${escapeHtml(cp.headline || '')}" placeholder="Titre de l'ad pour ${c.id}">
-        </div>
-        <div class="input-group">
-          <label class="input-label">Primary text (corps de l'annonce)</label>
-          <textarea class="input" data-copy-field="primary" data-copy-country="${c.id}" style="min-height:140px" placeholder="Texte principal qui apparaît au-dessus de l'ad...">${escapeHtml(cp.primary || '')}</textarea>
-        </div>
-        <div class="input-group">
-          <label class="input-label">Description (sous-titre / link description)</label>
-          <input class="input" data-copy-field="description" data-copy-country="${c.id}" value="${escapeHtml(cp.description || '')}" placeholder="Sous-titre court sous le headline">
-        </div>
+      <!-- Toolbar templates -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px;background:rgba(192,132,252,0.06);border:1px solid rgba(192,132,252,0.2);border-radius:8px;margin-bottom:14px">
+        <button type="button" class="btn btn-ghost btn-sm" id="ac-import-template" ${templates.length === 0 ? 'disabled style="opacity:0.4"' : ''}>📥 Importer un template ${templates.length > 0 ? `(${templates.length} dispo)` : '(aucun)'}</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="ac-save-template">💾 Sauver la copy active comme template</button>
       </div>
-    `;
-  }).join('');
 
-  // Modal custom Promise-based pour capturer TOUT (URL + per-country) avant fermeture
-  const r = await new Promise((resolve) => {
-    const container = document.getElementById('modal-container');
-    const bd = document.createElement('div');
-    bd.className = 'modal-backdrop';
-    bd.innerHTML = `
-      <div class="modal">
-        <div class="modal-title">Ad Copy — ${escapeHtml(ad.name)}</div>
-        <div class="input-group">
-          <label class="input-label">Lien source (AfterLib, FB, TikTok...) <span style="color:var(--text-mute);font-weight:400">— commun à tous les pays</span></label>
-          <input class="input" data-field="url" value="${escapeHtml(sourceUrl)}" placeholder="https://...">
-        </div>
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)">
-          <div style="font-size:12px;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Copy par pays</div>
-          <div class="copy-tabs">${tabsHtml}</div>
-          <div class="copy-panels">${panelsHtml}</div>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-secondary" data-action="cancel">Annuler</button>
-          <button class="btn btn-danger" data-action="clear">Vider tout</button>
-          <button class="btn" data-action="save">Enregistrer</button>
-        </div>
+      <!-- Tabs copies -->
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px" id="ac-copies-tabs"></div>
+
+      <!-- Tabs pays -->
+      <div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--border-soft)" id="ac-country-tabs"></div>
+
+      <!-- Fields (per active copy + country) -->
+      <div style="flex:1;overflow-y:auto;padding-right:4px" id="ac-fields"></div>
+
+      <div class="modal-actions" style="margin-top:14px">
+        <button class="btn btn-secondary" id="ac-cancel">Annuler</button>
+        <button class="btn btn-danger" id="ac-clear">Vider tout</button>
+        <button class="btn" id="ac-save">Enregistrer</button>
       </div>
+    </div>
+  `;
+  container.appendChild(bd);
+
+  const tabsEl = bd.querySelector('#ac-copies-tabs');
+  const countryTabsEl = bd.querySelector('#ac-country-tabs');
+  const fieldsEl = bd.querySelector('#ac-fields');
+
+  function renderCopiesTabs() {
+    tabsEl.innerHTML = copies.map((c, i) => `
+      <button type="button" class="copy-tab ${i === activeCopyIdx ? 'active' : ''}" data-copy-idx="${i}">
+        ${escapeHtml(c.name || `Copy ${i + 1}`)}
+        ${copies.length > 1 ? `<span style="margin-left:6px;color:var(--red);font-weight:700;cursor:pointer;padding:0 4px" data-del-copy="${i}" title="Supprimer cette copy">×</span>` : ''}
+      </button>
+    `).join('') + `
+      <button type="button" class="copy-tab" id="ac-add-copy" style="background:rgba(52,211,153,0.08);color:var(--green);border:1px dashed var(--green)" title="Ajouter une nouvelle copy">+ Ajouter une copy</button>
     `;
-    container.appendChild(bd);
-    const close = (result) => { if (bd.parentNode) bd.remove(); resolve(result); };
-
-    // Backdrop click → cancel
-    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
-
-    // Tab switching
-    bd.querySelectorAll('[data-copy-tab]').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        e.preventDefault();
-        const cId = tab.dataset.copyTab;
-        bd.querySelectorAll('[data-copy-tab]').forEach(t => t.classList.toggle('active', t === tab));
-        bd.querySelectorAll('[data-copy-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.copyPanel !== cId));
+    tabsEl.querySelectorAll('[data-copy-idx]').forEach(t => {
+      t.addEventListener('click', (e) => {
+        if (e.target.dataset.delCopy != null) return; // handled separately
+        captureCurrentFields();
+        activeCopyIdx = parseInt(t.dataset.copyIdx, 10);
+        renderCopiesTabs();
+        renderFields();
       });
     });
-
-    // Annuler
-    bd.querySelector('[data-action="cancel"]').addEventListener('click', () => close(null));
-
-    // Vider tout
-    bd.querySelector('[data-action="clear"]').addEventListener('click', () => {
-      const ok = confirm('Vider toutes les copies (URL + tous les pays) ?');
-      if (!ok) return;
-      close({ action: 'clear' });
-    });
-
-    // Enregistrer : on capture TOUTES les valeurs AVANT que le modal soit retiré du DOM
-    bd.querySelector('[data-action="save"]').addEventListener('click', () => {
-      const url = bd.querySelector('[data-field="url"]')?.value || '';
-      const perCountry = {};
-      countries.forEach(c => {
-        perCountry[c.id] = {
-          headline: (bd.querySelector(`[data-copy-field="headline"][data-copy-country="${c.id}"]`)?.value || '').trim(),
-          primary: (bd.querySelector(`[data-copy-field="primary"][data-copy-country="${c.id}"]`)?.value || '').trim(),
-          description: (bd.querySelector(`[data-copy-field="description"][data-copy-country="${c.id}"]`)?.value || '').trim()
-        };
+    tabsEl.querySelectorAll('[data-del-copy]').forEach(b => {
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (copies.length <= 1) return;
+        const idx = parseInt(b.dataset.delCopy, 10);
+        if (!confirm(`Supprimer ${copies[idx].name || `Copy ${idx + 1}`} ?`)) return;
+        copies.splice(idx, 1);
+        if (activeCopyIdx >= copies.length) activeCopyIdx = copies.length - 1;
+        renderCopiesTabs();
+        renderFields();
       });
-      close({ action: 'save', url, perCountry });
     });
+    tabsEl.querySelector('#ac-add-copy')?.addEventListener('click', () => {
+      captureCurrentFields();
+      copies.push(blankCopy(`Copy ${copies.length + 1}`));
+      activeCopyIdx = copies.length - 1;
+      renderCopiesTabs();
+      renderFields();
+    });
+  }
+
+  function renderCountryTabs() {
+    countryTabsEl.innerHTML = countries.map(c => `
+      <button type="button" class="copy-tab ${c.id === activeCountryId ? 'active' : ''}" data-country-id="${c.id}" style="font-size:11px;padding:5px 10px">
+        ${flagImg(c.id)}<span style="margin-left:5px">${c.id}</span>
+      </button>
+    `).join('');
+    countryTabsEl.querySelectorAll('[data-country-id]').forEach(t => {
+      t.addEventListener('click', () => {
+        captureCurrentFields();
+        activeCountryId = t.dataset.countryId;
+        renderCountryTabs();
+        renderFields();
+      });
+    });
+  }
+
+  function renderFields() {
+    const copy = copies[activeCopyIdx];
+    if (!copy) return;
+    copy.by_country = copy.by_country || {};
+    const cp = copy.by_country[activeCountryId] || {};
+    fieldsEl.innerHTML = `
+      <div class="input-group">
+        <label class="input-label">Nom de la copy <span style="color:var(--text-mute);font-weight:400">(juste pour t'y retrouver)</span></label>
+        <input class="input" id="ac-copy-name" value="${escapeHtml(copy.name || '')}" placeholder="Ex: Copy 1, Hook douleur, Promo...">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Headline (titre) — ${escapeHtml(activeCountryId)}</label>
+        <input class="input" id="ac-headline" value="${escapeHtml(cp.headline || '')}" placeholder="Titre de l'ad pour ${escapeHtml(activeCountryId)}">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Primary text (corps) — ${escapeHtml(activeCountryId)}</label>
+        <textarea class="input" id="ac-primary" style="min-height:140px" placeholder="Texte principal qui apparaît au-dessus de l'ad...">${escapeHtml(cp.primary || '')}</textarea>
+      </div>
+      <div class="input-group">
+        <label class="input-label">Description (sous-titre) — ${escapeHtml(activeCountryId)}</label>
+        <input class="input" id="ac-description" value="${escapeHtml(cp.description || '')}" placeholder="Sous-titre court sous le headline">
+      </div>
+    `;
+  }
+
+  // Capture les valeurs saisies dans la copy active (pays actif) — appelé avant tout switch
+  function captureCurrentFields() {
+    const copy = copies[activeCopyIdx];
+    if (!copy) return;
+    copy.name = (bd.querySelector('#ac-copy-name')?.value || '').trim() || `Copy ${activeCopyIdx + 1}`;
+    copy.by_country = copy.by_country || {};
+    copy.by_country[activeCountryId] = {
+      headline: (bd.querySelector('#ac-headline')?.value || '').trim(),
+      primary: (bd.querySelector('#ac-primary')?.value || '').trim(),
+      description: (bd.querySelector('#ac-description')?.value || '').trim()
+    };
+  }
+
+  // Initial render
+  renderCopiesTabs();
+  renderCountryTabs();
+  renderFields();
+
+  // Import template button — modal custom avec cards cliquables
+  bd.querySelector('#ac-import-template').addEventListener('click', async () => {
+    if (templates.length === 0) return;
+    captureCurrentFields();
+    const tplId = await new Promise(resolve => {
+      const bdImp = document.createElement('div');
+      bdImp.className = 'modal-backdrop';
+      bdImp.innerHTML = `
+        <div class="modal" style="max-width:560px">
+          <div class="modal-title">Importer un template</div>
+          <div class="text-sm text-dim mb-md">Clique sur le template à ajouter comme nouvelle copy. Les copies existantes ne sont pas écrasées.</div>
+          <div style="max-height:340px;overflow-y:auto">
+            ${templates.map(t => `
+              <button type="button" data-tpl-id="${escapeHtml(t.id)}" style="display:block;width:100%;text-align:left;padding:12px 14px;border:1px solid var(--border-soft);border-radius:8px;margin-bottom:6px;cursor:pointer;background:var(--bg-input);color:var(--text);font-family:inherit;transition:all 0.15s">
+                <div style="font-weight:600;font-size:14px">${escapeHtml(t.name)}</div>
+                <div class="text-sm text-dim" style="margin-top:3px;font-size:11px">${Object.keys(t.by_country || {}).length} pays renseignés${t.notes ? ' · ' + escapeHtml(t.notes.slice(0, 80)) : ''}</div>
+              </button>
+            `).join('')}
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" id="tpl-cancel">Annuler</button>
+          </div>
+        </div>
+      `;
+      document.getElementById('modal-container').appendChild(bdImp);
+      const cleanup = (val) => { bdImp.remove(); resolve(val); };
+      bdImp.addEventListener('click', (e) => { if (e.target === bdImp) cleanup(null); });
+      bdImp.querySelector('#tpl-cancel').addEventListener('click', () => cleanup(null));
+      bdImp.querySelectorAll('[data-tpl-id]').forEach(b => {
+        b.addEventListener('mouseenter', () => { b.style.background = 'var(--bg-card-hover)'; b.style.borderColor = 'var(--purple)'; });
+        b.addEventListener('mouseleave', () => { b.style.background = 'var(--bg-input)'; b.style.borderColor = 'var(--border-soft)'; });
+        b.addEventListener('click', () => cleanup(b.dataset.tplId));
+      });
+    });
+    if (!tplId) return;
+    const tpl = templates.find(t => t.id === tplId);
+    if (!tpl) return;
+    copies.push({
+      id: genCopyId(),
+      name: tpl.name,
+      by_country: JSON.parse(JSON.stringify(tpl.by_country || {}))
+    });
+    activeCopyIdx = copies.length - 1;
+    renderCopiesTabs();
+    renderFields();
+    toast(`Template "${tpl.name}" importé`, 'success', 3000);
   });
 
-  if (!r) return;
+  // Save current copy as template
+  bd.querySelector('#ac-save-template').addEventListener('click', async () => {
+    captureCurrentFields();
+    const current = copies[activeCopyIdx];
+    if (!current) return;
+    // Vérifie qu'il y a du contenu
+    const hasContent = Object.values(current.by_country || {}).some(cp =>
+      cp && ((cp.headline || '').trim() || (cp.primary || '').trim() || (cp.description || '').trim())
+    );
+    if (!hasContent) { toast('Cette copy est vide, rien à sauver comme template', 'warn'); return; }
+    const r = await modal(`
+      <div class="modal-title">Sauver comme template</div>
+      <div class="input-group">
+        <label class="input-label">Nom du template</label>
+        <input class="input" data-field="name" autofocus value="${escapeHtml(current.name || '')}" placeholder="Ex: Hook douleur dos, Promo BF, Témoignage...">
+      </div>
+      <div class="input-group">
+        <label class="input-label">Notes (optionnel)</label>
+        <textarea class="input" data-field="notes" style="min-height:60px" placeholder="Description courte du template..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-modal-close>Annuler</button>
+        <button class="btn" data-modal-ok>Sauver</button>
+      </div>
+    `);
+    if (!r) return;
+    const tplName = (r.name || '').trim();
+    if (!tplName) { toast('Nom requis', 'error'); return; }
+    const { error } = await sb.from('ad_copy_templates').insert({
+      workspace_id: currentWorkspaceId,
+      name: tplName,
+      by_country: current.by_country || {},
+      notes: (r.notes || '').trim() || null,
+      created_by: currentUser.id
+    });
+    if (error) { toast('Erreur sauvegarde : ' + error.message, 'error'); return; }
+    toast(`Template "${tplName}" sauvegardé`, 'success', 4000);
+    // Rafraîchit la liste locale pour pouvoir le réimporter immédiatement
+    const { data: refreshed } = await sb.from('ad_copy_templates')
+      .select('id, name, by_country, notes')
+      .eq('workspace_id', currentWorkspaceId).order('name');
+    templates.length = 0;
+    (refreshed || []).forEach(t => templates.push(t));
+    // Re-render le bouton import pour mettre à jour le count
+    bd.querySelector('#ac-import-template').innerHTML = `📥 Importer un template (${templates.length} dispo)`;
+    bd.querySelector('#ac-import-template').disabled = false;
+    bd.querySelector('#ac-import-template').style.opacity = '';
+  });
 
-  // === Action : VIDER TOUT ===
-  if (r.action === 'clear') {
-    // 1. Vide en DB
-    await sb.from('ads').update({ ad_copy: { url: '' } }).eq('id', adId);
+  // Cancel / Clear / Save
+  const close = (result) => { if (bd.parentNode) bd.remove(); return result; };
+  bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+  bd.querySelector('#ac-cancel').addEventListener('click', () => close(null));
+
+  bd.querySelector('#ac-clear').addEventListener('click', async () => {
+    if (!confirm('Vider toutes les copies de cette ad ?')) return;
+    await sb.from('ads').update({ ad_copies: [] }).eq('id', adId);
+    // Aussi vider ad_countries.copy pour rester cohérent côté affichage
+    const { data: acExisting } = await sb.from('ad_countries').select('country_id').eq('ad_id', adId);
+    for (const ac of (acExisting || [])) {
+      await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', adId).eq('country_id', ac.country_id);
+    }
+    if (driveState.connected) {
+      try { await deleteAdCopyDocFromDrive(adId); } catch (e) {}
+    }
+    toast('Toutes les copies effacées', 'success');
+    close(null);
+    render();
+  });
+
+  bd.querySelector('#ac-save').addEventListener('click', async () => {
+    captureCurrentFields();
+    // Nettoie les copies entièrement vides (aucun pays rempli)
+    const cleaned = copies.filter(c => {
+      return Object.values(c.by_country || {}).some(cp =>
+        cp && ((cp.headline || '').trim() || (cp.primary || '').trim() || (cp.description || '').trim())
+      );
+    });
+    const finalCopies = cleaned.length > 0 ? cleaned : [];
+
+    // 1. Save sur ads.ad_copies
+    const { error } = await sb.from('ads').update({ ad_copies: finalCopies }).eq('id', adId);
+    if (error) { toast('Erreur : ' + error.message, 'error', 8000); return; }
+
+    // 2. Sync vers ad_countries.copy (1ère copy) pour rétrocompat de l'affichage
+    const now = new Date().toISOString();
+    const firstCopy = finalCopies[0]?.by_country || {};
+    const { data: acExisting } = await sb.from('ad_countries').select('country_id, copy').eq('ad_id', adId);
+    const acMap = {};
+    (acExisting || []).forEach(ac => acMap[ac.country_id] = ac);
     for (const c of countries) {
-      const existing = (acRows || []).find(ac => ac.country_id === c.id);
-      if (existing) {
-        await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', adId).eq('country_id', c.id);
+      const cp = firstCopy[c.id] || {};
+      const copyObj = (cp.headline || cp.primary || cp.description)
+        ? { headline: cp.headline || '', primary: cp.primary || '', description: cp.description || '', updated_at: now }
+        : {};
+      if (acMap[c.id]) {
+        await sb.from('ad_countries').update({ copy: copyObj, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', c.id);
+      } else if (Object.keys(copyObj).length > 0) {
+        await sb.from('ad_countries').insert({ ad_id: adId, country_id: c.id, copy: copyObj, meta: false, trad: false, updated_at: now, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
       }
     }
-    toast('Copy vidé en base', 'success');
 
-    // 2. Supprime le Google Doc sur Drive (best-effort)
+    toast(`${finalCopies.length} copy${finalCopies.length > 1 ? 's' : ''} enregistrée${finalCopies.length > 1 ? 's' : ''}`, 'success');
+
+    // Sync vers Drive (1ère copy uniquement pour l'instant)
     if (driveState.connected) {
       try {
-        const driveRes = await deleteAdCopyDocFromDrive(adId);
+        const driveRes = await syncAdCopyToDrive(adId);
         if (driveRes?.ok) {
-          toast(`Doc Drive supprimé : ${driveRes.docName}`, 'success', 4000);
-        } else if (driveRes?.skipped) {
-          // Pas de doc à supprimer (jamais sync) — silencieux
-        } else if (driveRes?.error) {
-          toast('Drive : ' + driveRes.error, 'warn', 5000);
+          toast(`Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
         }
-      } catch (e) { console.warn('[CLEAR copy drive]', e); }
+      } catch (e) { console.warn('[AD COPY drive sync]', e); }
     }
+    close(null);
     render();
-    return;
-  }
-
-  // === Action : SAVE ===
-  // 2. Save URL globale sur ads.ad_copy
-  const rawUrl = (r.url || '').trim();
-  const adPayload = { ad_copy: { url: rawUrl ? (normalizeUrl(rawUrl) || rawUrl) : '' } };
-  let errUpd = null;
-  try {
-    const res = await sb.from('ads').update(adPayload).eq('id', adId);
-    errUpd = res.error;
-  } catch (e) {
-    errUpd = { message: (e?.message || String(e)) };
-  }
-  if (errUpd) {
-    console.error('[AD COPY SAVE URL]', errUpd);
-    toast('Erreur sauvegarde URL : ' + errUpd.message, 'error', 8000);
-    return;
-  }
-
-  // 3. Save copy par pays sur ad_countries — utilise les valeurs capturées (r.perCountry)
-  const now = new Date().toISOString();
-  let savedCountries = 0;
-  for (const c of countries) {
-    const cap = r.perCountry[c.id] || { headline: '', primary: '', description: '' };
-    const { headline, primary, description } = cap;
-    const copyObj = (headline || primary || description)
-      ? { headline, primary, description, updated_at: now }
-      : {};
-
-    const existing = (acRows || []).find(ac => ac.country_id === c.id);
-    if (existing) {
-      await sb.from('ad_countries').update({ copy: copyObj, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', c.id);
-    } else if (Object.keys(copyObj).length > 0) {
-      // Crée la ligne ad_countries si elle n'existait pas (uniquement si y'a du contenu)
-      await sb.from('ad_countries').insert({ ad_id: adId, country_id: c.id, copy: copyObj, meta: false, trad: false, updated_at: now, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
-    }
-  }
-
-  toast('Copy enregistré', 'success');
-
-  // Sync vers Google Drive (Google Doc dans 00_Ads_Concurrent) — best-effort
-  if (driveState.connected) {
-    try {
-      const driveRes = await syncAdCopyToDrive(adId);
-      if (driveRes?.ok) {
-        toast(`Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
-      }
-    } catch (e) { console.warn('[AD COPY drive sync]', e); }
-  }
-
-  render();
+  });
 }
 
 // Supprime une Ad : DB + tous les fichiers Drive associés
