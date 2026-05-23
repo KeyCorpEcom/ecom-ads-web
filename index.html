@@ -7254,7 +7254,7 @@ async function deleteAdFlow(adId) {
    FEATURE: BATCH DRAG SELECT ON META CELLS
    ============================================================ */
 let _metaMouseupHandler = null;
-const DRAG_THRESHOLD = 5; // pixels avant de considérer qu'on drag vraiment
+const DRAG_THRESHOLD = 12; // pixels avant de considérer qu'on drag vraiment (>5 pour éviter les jitter de clic)
 
 function setupMetaDragSelect(container) {
   let dragging = false;
@@ -7309,6 +7309,10 @@ function setupMetaDragSelect(container) {
     if (!cell) return;
     if (!canEdit()) return;
     e.preventDefault(); // bloque la sélection texte native (rubber-band bleu)
+    // Si une sélection batch précédente traîne (la barre d'action ne s'est pas fermée), on la clear avant de recommencer
+    if (selectedCells.size > 0) {
+      clearSelection();
+    }
     startCell = cell;
     startX = e.clientX;
     startY = e.clientY;
@@ -7348,6 +7352,14 @@ function setupMetaDragSelect(container) {
     showBatchBar(cellsToAct);
   };
   document.addEventListener('mouseup', _metaMouseupHandler);
+
+  // Click outside : si l'user clique ailleurs qu'une case meta ou la batch bar, on clear
+  document.addEventListener('mousedown', (e) => {
+    if (selectedCells.size === 0) return;
+    if (e.target.closest('.check-cell[data-toggle-meta]')) return; // clic sur une case meta, géré par mousedown du container
+    if (e.target.closest('.batch-action-bar')) return; // clic sur la barre, géré par les boutons
+    clearSelection();
+  });
 
   function hideBar() {
     document.querySelectorAll('.batch-action-bar').forEach(b => b.remove());
