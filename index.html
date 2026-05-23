@@ -2189,13 +2189,17 @@ function modalWithOpen(contentHtml, onOpen) {
    PAGE: PRODUIT DETAIL
    ============================================================ */
 async function renderProduit(el, productId) {
-  const [{ data: product }, { data: adsAll }, { data: countriesAll }, { data: adCountries }, { data: pendingVals }] = await Promise.all([
+  const [{ data: product }, { data: adsAll }, { data: countriesAll }, { data: adCountries }, { data: pendingVals }, { data: productPages }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).single(),
     sb.from('ads').select('*').eq('product_id', productId).order('position'),
     sb.from('countries').select('*').order('sort_order'),
     sb.from('ad_countries').select('*'),
-    sb.from('pending_validations').select('*').eq('product_id', productId)
+    sb.from('pending_validations').select('*').eq('product_id', productId),
+    sb.from('product_pages').select('country_id, status, built_url').eq('product_id', productId)
   ]);
+  // Map country_id → page info
+  const pagesByCountry = {};
+  (productPages || []).forEach(p => { pagesByCountry[p.country_id] = p; });
   if (!product) { el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Produit introuvable</div></div>'; return; }
   // Cache les scripts pas encore produits (ils vivent dans l'onglet Scripts tant qu'ils n'ont pas de master)
   const ads = (adsAll || []).filter(a => a.source !== 'script' || a.master_file_id);
@@ -2502,6 +2506,33 @@ async function renderProduit(el, productId) {
               <span style="display:inline-flex;align-items:center;${isCut ? 'text-decoration:line-through;opacity:0.7' : ''};color:${isCut ? 'var(--red)' : 'var(--text)'}">${flagImg(c.id)}<strong>${c.id}</strong></span>
             </button>
           `;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">🔗 Pages Shopify</div>
+        <a class="btn btn-ghost btn-sm" href="#pages/${escapeHtml(productId)}" title="Aller sur la page Pages Builder de ce produit">Éditer →</a>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${countries.filter(c => !cutCountries.includes(c.id)).map(c => {
+          const pg = pagesByCountry[c.id];
+          const url = pg?.built_url ? normalizeUrl(pg.built_url) : null;
+          const status = pg?.status || 'pending';
+          const statusColor = { approved: 'var(--green)', built: 'var(--orange)', rejected: 'var(--red)', pending: 'var(--text-mute)' }[status] || 'var(--text-mute)';
+          if (url) {
+            return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="Ouvrir la page Shopify ${c.id} (status: ${status})" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;background:var(--bg-input);border:1px solid var(--border);color:var(--text);text-decoration:none;font-size:12px;transition:all 0.15s">
+              <span style="width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>
+              ${flagImg(c.id)}<strong>${c.id}</strong>
+              <span style="color:var(--blue);font-size:10px;margin-left:2px">↗</span>
+            </a>`;
+          }
+          return `<span title="Pas d'URL Shopify renseignée pour ${c.id}" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;background:var(--bg);border:1px dashed var(--border-soft);color:var(--text-mute);font-size:12px;opacity:0.6">
+            <span style="width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>
+            ${flagImg(c.id)}<strong>${c.id}</strong>
+            <span style="font-size:10px;margin-left:2px">—</span>
+          </span>`;
         }).join('')}
       </div>
     </div>
