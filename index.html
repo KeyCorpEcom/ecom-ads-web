@@ -6935,9 +6935,13 @@ async function editCopiesFlow(target) {
     entityName = ad.name;
   }
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
+  // product_id à scoper pour les templates : si on édite un produit c'est target.id,
+  // si on édite une ad c'est son product_id
+  const productIdScope = isProduct ? target.id : entity.product_id;
   const { data: templatesRaw } = await sb.from('ad_copy_templates')
     .select('id, name, by_country, notes')
     .eq('workspace_id', currentWorkspaceId)
+    .eq('product_id', productIdScope)
     .order('name');
   const templates = templatesRaw || [];
 
@@ -7169,17 +7173,20 @@ async function editCopiesFlow(target) {
     if (!tplName) { toast('Nom requis', 'error'); return; }
     const { error } = await sb.from('ad_copy_templates').insert({
       workspace_id: currentWorkspaceId,
+      product_id: productIdScope,
       name: tplName,
       by_country: current.by_country || {},
       notes: (r.notes || '').trim() || null,
       created_by: currentUser.id
     });
     if (error) { toast('Erreur sauvegarde : ' + error.message, 'error'); return; }
-    toast(`Template "${tplName}" sauvegardé`, 'success', 4000);
+    toast(`Template "${tplName}" sauvegardé pour ce produit`, 'success', 4000);
     // Rafraîchit la liste locale pour pouvoir le réimporter immédiatement
     const { data: refreshed } = await sb.from('ad_copy_templates')
       .select('id, name, by_country, notes')
-      .eq('workspace_id', currentWorkspaceId).order('name');
+      .eq('workspace_id', currentWorkspaceId)
+      .eq('product_id', productIdScope)
+      .order('name');
     templates.length = 0;
     (refreshed || []).forEach(t => templates.push(t));
     // Re-render le bouton import pour mettre à jour le count
