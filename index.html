@@ -7506,15 +7506,16 @@ function setupMetaDragSelectV2(container) {
     if (!canEdit()) return;
     const icon = cell.querySelector('.check-icon.meta');
     if (!icon) return;
-    e.preventDefault(); // évite la sélection texte
+    e.preventDefault();
     const startWasChecked = icon.classList.contains('checked');
     dragState = {
       startCell: cell,
       startX: e.clientX,
       startY: e.clientY,
       startWasChecked,
-      targetChecked: !startWasChecked, // nouvelle valeur (opposée du start)
-      touched: new Set([cell]), // cellules touchées (au moins la start)
+      targetChecked: !startWasChecked,
+      // Map<cell, wasChecked> pour pouvoir revert si user annule
+      touched: new Map([[cell, startWasChecked]]),
       moved: false
     };
   });
@@ -7524,16 +7525,16 @@ function setupMetaDragSelectV2(container) {
     const dist = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY);
     if (!dragState.moved && dist < DRAG_THRESHOLD_PX) return;
     dragState.moved = true;
-    // Trouve la cellule sous la souris
     const elUnder = document.elementFromPoint(e.clientX, e.clientY);
     const cell = elUnder?.closest('.check-cell[data-toggle-meta]');
     if (!cell || dragState.touched.has(cell)) return;
-    // Vérifie qu'elle est bien dans le même container (table)
     if (!container.contains(cell)) return;
-    dragState.touched.add(cell);
-    // Highlight visuel + flip immédiat l'icône (preview)
     const icon = cell.querySelector('.check-icon.meta');
-    if (icon) icon.classList.toggle('checked', dragState.targetChecked);
+    if (!icon) return;
+    const wasChecked = icon.classList.contains('checked');
+    dragState.touched.set(cell, wasChecked);
+    // Preview visuel (flip à la valeur cible)
+    icon.classList.toggle('checked', dragState.targetChecked);
   };
   document.addEventListener('mousemove', _metaMousemoveHandler);
 
@@ -7543,29 +7544,45 @@ function setupMetaDragSelectV2(container) {
     dragState = null;
 
     if (!state.moved) {
-      // Simple click → toggle juste la start cell
+      // Simple click → toggle juste la start cell, pas de confirmation
       const cell = state.startCell;
       const [adId, cId] = cell.dataset.toggleMeta.split('|');
-      // Update visuel optimiste
       const icon = cell.querySelector('.check-icon.meta');
       if (icon) icon.classList.toggle('checked', state.targetChecked);
-      // DB en background
       saveMetaCell(adId, cId, state.targetChecked);
       return;
     }
 
-    // Drag : on toggle l'icône de la start cell aussi (elle n'a pas été touchée par mousemove)
+    // Drag : toggle aussi la start cell (preview)
     const startIcon = state.startCell.querySelector('.check-icon.meta');
     if (startIcon) startIcon.classList.toggle('checked', state.targetChecked);
 
-    // Save all touched cells en parallèle
+    const count = state.touched.size;
+    const action = state.targetChecked ? 'cocher' : 'décocher';
+
+    // Confirmation si > 1 case (pour éviter le drag accidentel)
+    const ok = await confirmDialog(
+      `${action[0].toUpperCase() + action.slice(1)} ${count} cases Meta ?`,
+      `Tu vas ${action} ${count} case${count > 1 ? 's' : ''} Meta d'un coup. Confirme pour appliquer ou annule pour revenir en arrière.`
+    );
+
+    if (!ok) {
+      // Revert toutes les cellules à leur état d'origine
+      for (const [cell, wasChecked] of state.touched) {
+        const icon = cell.querySelector('.check-icon.meta');
+        if (icon) icon.classList.toggle('checked', wasChecked);
+      }
+      return;
+    }
+
+    // Confirmé → save en parallèle
     const promises = [];
-    for (const cell of state.touched) {
+    for (const cell of state.touched.keys()) {
       const [adId, cId] = cell.dataset.toggleMeta.split('|');
       promises.push(saveMetaCell(adId, cId, state.targetChecked));
     }
     await Promise.all(promises);
-    toast(`${state.touched.size} case${state.touched.size > 1 ? 's' : ''} Meta ${state.targetChecked ? 'cochée' : 'décochée'}${state.touched.size > 1 ? 's' : ''}`, 'success', 2500);
+    toast(`${count} case${count > 1 ? 's' : ''} Meta ${state.targetChecked ? 'cochée' : 'décochée'}${count > 1 ? 's' : ''}`, 'success', 2500);
   };
   document.addEventListener('mouseup', _metaMouseupHandler);
 }
