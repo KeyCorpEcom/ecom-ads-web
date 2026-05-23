@@ -2275,6 +2275,25 @@ async function renderProduit(el, productId) {
         <div class="empty-text">Upload des videos dans <strong>" Masters (nettoyés)"</strong> ci-dessous — les ads seront créées automatiquement.</div>
       </div>
     ` : `
+      ${canEdit() ? (() => {
+        // Bandeau "Ad Copy globale du produit" avec count + bouton éditer
+        const productCopies = Array.isArray(product.ad_copies) ? product.ad_copies : [];
+        const hasGlobalCopy = productCopies.length > 0;
+        return `
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;background:${hasGlobalCopy ? 'rgba(200,165,90,0.06)' : 'var(--bg-input)'};border:1px solid ${hasGlobalCopy ? 'rgba(200,165,90,0.25)' : 'var(--border-soft)'};border-radius:8px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <span style="font-size:18px">📄</span>
+              <div>
+                <div style="font-weight:600;font-size:13px;color:${hasGlobalCopy ? 'var(--gold)' : 'var(--text)'}">Ad Copy globale du produit</div>
+                <div class="text-sm text-dim" style="font-size:11px;margin-top:2px">${hasGlobalCopy
+                  ? `${productCopies.length} cop${productCopies.length > 1 ? 'ies' : 'y'} définie${productCopies.length > 1 ? 's' : ''} — utilisée${productCopies.length > 1 ? 's' : ''} par toutes les ads sans override`
+                  : 'Aucune copy définie. Toutes les ads devront avoir leur propre copy ou héritent du vide.'}</div>
+              </div>
+            </div>
+            <button class="btn btn-sm" id="btn-edit-product-copies" style="background:var(--gold);color:#000;font-weight:600">${hasGlobalCopy ? 'Éditer' : '+ Définir'}</button>
+          </div>
+        `;
+      })() : ''}
       <div class="card" style="overflow-x:auto">
         <table class="ads-table">
           <thead>
@@ -2293,20 +2312,23 @@ async function renderProduit(el, productId) {
           <tbody>
             ${ads.map(ad => {
               const copy = ad.ad_copy || {};
-              // Détection : au moins 1 copy avec contenu (nouveau format ad_copies array)
-              const hasNewCopies = Array.isArray(ad.ad_copies) && ad.ad_copies.some(c => {
+              // Détection : override per-ad présent ?
+              const hasOverride = Array.isArray(ad.ad_copies) && ad.ad_copies.some(c => {
                 return Object.values(c?.by_country || {}).some(cp =>
                   cp && ((cp.headline || '').trim() || (cp.primary || '').trim() || (cp.description || '').trim())
                 );
               });
-              // Fallback ancien format (rétrocompat)
+              // Détection : copy du produit présente (héritée si pas d'override)
+              const productCopiesCount = Array.isArray(product.ad_copies) ? product.ad_copies.length : 0;
+              const inheritsFromProduct = !hasOverride && productCopiesCount > 0;
+              // Fallback ancien format (rétrocompat affichage)
               const adCountryCopies = (adCountries || []).filter(ac => ac.ad_id === ad.id);
               const hasPerCountryCopy = adCountryCopies.some(ac => {
                 const c = ac.copy || {};
                 return c.headline || c.primary || c.description;
               });
-              const copiesCount = Array.isArray(ad.ad_copies) ? ad.ad_copies.length : 0;
-              const hasCopy = hasNewCopies || hasPerCountryCopy || copy.headline || copy.primary || copy.description;
+              const overrideCount = Array.isArray(ad.ad_copies) ? ad.ad_copies.length : 0;
+              const hasCopy = hasOverride || inheritsFromProduct || hasPerCountryCopy || copy.headline || copy.primary || copy.description;
               const linkSrc = copy.url ? detectLinkSource(copy.url) : null;
               let rowDone = 0, rowTotal = 0;
               return `
@@ -2333,7 +2355,27 @@ async function renderProduit(el, productId) {
                     const dataAttr = isAdmin() ? `data-toggle-trans="${ad.id}"` : '';
                     return `<span class="ad-trans-toggle ${tt}${cls}" ${dataAttr} title="${tooltip}">${label}</span>`;
                   })()}
-                  <span class="ad-copy-icon ${hasCopy ? 'filled' : ''}" data-ad-copy="${ad.id}" title="${hasCopy ? `Ad Copy (${copiesCount || 1} ${copiesCount > 1 ? 'copies' : 'copy'}) — cliquer pour éditer` : 'Ajouter Ad Copy (titre, description)'}" style="position:relative"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>${copiesCount > 1 ? `<span style="position:absolute;top:-3px;right:-3px;background:var(--gold);color:#000;font-size:8px;font-weight:700;padding:1px 4px;border-radius:8px;line-height:1">${copiesCount}</span>` : ''}</span>
+                  ${(() => {
+                    // 3 états visuels :
+                    // - hasOverride : ad a sa propre copy → icône dorée + badge "ⓐ" et count
+                    // - inheritsFromProduct : pas d'override mais le produit a une copy → icône bleue subtile
+                    // - rien : icône grise faded (pas de copy nulle part)
+                    let iconStyle, iconTitle, badge;
+                    if (hasOverride) {
+                      iconStyle = 'color:var(--gold)';
+                      iconTitle = `Override custom (${overrideCount} copies) — cliquer pour éditer`;
+                      badge = `<span style="position:absolute;top:-3px;right:-3px;background:var(--gold);color:#000;font-size:8px;font-weight:700;padding:1px 4px;border-radius:8px;line-height:1">${overrideCount}</span>`;
+                    } else if (inheritsFromProduct) {
+                      iconStyle = 'color:#60a5fa;opacity:0.7';
+                      iconTitle = `Hérite de la copy du produit (${productCopiesCount} copies). Clique pour créer un override custom pour cette ad.`;
+                      badge = '';
+                    } else {
+                      iconStyle = 'color:var(--text-mute)';
+                      iconTitle = 'Aucune copy. Clique pour ajouter une copy custom à cette ad.';
+                      badge = '';
+                    }
+                    return `<span class="ad-copy-icon" data-ad-copy="${ad.id}" title="${escapeHtml(iconTitle)}" style="position:relative;${iconStyle}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>${badge}</span>`;
+                  })()}
                   ${linkSrc ? `<a href="${escapeHtml(normalizeUrl(copy.url) || '#')}" target="_blank" rel="noopener noreferrer" class="ad-link-icon" title="${escapeHtml(linkSrc.name)}">${linkSrc.icon}</a>` : ''}
                   ${(() => {
                     // Workflow : Admin upload concurrent → Editor télécharge concurrent → nettoie → upload master
@@ -2630,6 +2672,13 @@ async function renderProduit(el, productId) {
       if (!canEdit()) { toast('Permission refusée', 'error'); return; }
       editAdCopyFlow(icon.dataset.adCopy);
     });
+  });
+
+  // Bouton "Éditer Ad Copy globale du produit"
+  document.getElementById('btn-edit-product-copies')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!canEdit()) { toast('Permission refusée', 'error'); return; }
+    editProductCopyFlow(productId);
   });
 
   // Translation type toggle (admin only) : cycle voice → subs_only → image → voice
@@ -6823,11 +6872,37 @@ function blankCopy(name) {
   return { id: genCopyId(), name: name || 'Copy 1', by_country: {} };
 }
 
+// Wrapper rétrocompat — délègue à editCopiesFlow pour une ad
 async function editAdCopyFlow(adId) {
-  // 1. Charge ad + product + countries + templates du workspace
-  const { data: ad } = await sb.from('ads').select('*').eq('id', adId).single();
-  if (!ad) return;
-  const { data: product } = await sb.from('products').select('enabled_countries, cut_countries').eq('id', ad.product_id).single();
+  return editCopiesFlow({ kind: 'ad', id: adId });
+}
+
+// Wrapper pour une copy de PRODUIT (la copy par défaut héritée par toutes les ads)
+async function editProductCopyFlow(productId) {
+  return editCopiesFlow({ kind: 'product', id: productId });
+}
+
+// Flow générique : édite les ad_copies sur soit une ad (override), soit un produit (défaut)
+async function editCopiesFlow(target) {
+  const isProduct = target.kind === 'product';
+  // 1. Charge la cible + product (pour pays) + countries + templates du workspace
+  let entity, productMeta, entityLabel, entityName;
+  if (isProduct) {
+    const { data: p } = await sb.from('products').select('*').eq('id', target.id).single();
+    if (!p) return;
+    entity = p;
+    productMeta = p;
+    entityLabel = 'Produit';
+    entityName = `${p.id} · ${p.name || ''}`;
+  } else {
+    const { data: ad } = await sb.from('ads').select('*').eq('id', target.id).single();
+    if (!ad) return;
+    entity = ad;
+    const { data: pm } = await sb.from('products').select('enabled_countries, cut_countries').eq('id', ad.product_id).single();
+    productMeta = pm;
+    entityLabel = 'Ad';
+    entityName = ad.name;
+  }
   const { data: allCountries } = await sb.from('countries').select('*').order('sort_order');
   const { data: templatesRaw } = await sb.from('ad_copy_templates')
     .select('id, name, by_country, notes')
@@ -6835,14 +6910,14 @@ async function editAdCopyFlow(adId) {
     .order('name');
   const templates = templatesRaw || [];
 
-  const enabledIds = (product?.enabled_countries?.length ? product.enabled_countries : allCountries.map(c => c.id))
-    .filter(c => !(product?.cut_countries || []).includes(c));
+  const enabledIds = (productMeta?.enabled_countries?.length ? productMeta.enabled_countries : allCountries.map(c => c.id))
+    .filter(c => !(productMeta?.cut_countries || []).includes(c));
   const countries = allCountries.filter(c => enabledIds.includes(c.id));
   if (countries.length === 0) { toast('Aucun pays actif sur ce produit', 'error'); return; }
 
   // État local mutable : array de copies (clone profond)
-  let copies = Array.isArray(ad.ad_copies) && ad.ad_copies.length > 0
-    ? JSON.parse(JSON.stringify(ad.ad_copies))
+  let copies = Array.isArray(entity.ad_copies) && entity.ad_copies.length > 0
+    ? JSON.parse(JSON.stringify(entity.ad_copies))
     : [blankCopy('Copy 1')];
   // Index de la copy active dans l'UI
   let activeCopyIdx = 0;
@@ -6854,8 +6929,10 @@ async function editAdCopyFlow(adId) {
   bd.className = 'modal-backdrop';
   bd.innerHTML = `
     <div class="modal" style="max-width:820px;max-height:92vh;display:flex;flex-direction:column">
-      <div class="modal-title">Ad Copy — ${escapeHtml(ad.name)}</div>
-      <div class="text-sm text-dim mb-md">Crée plusieurs copies pour laisser Meta optimiser. Chaque copy = textes pour tous les pays.</div>
+      <div class="modal-title">${isProduct ? '📄 Ad Copy globale du produit' : '🎯 Ad Copy override'} — ${escapeHtml(entityName)}</div>
+      <div class="text-sm text-dim mb-md">${isProduct
+        ? 'Ces copies seront utilisées par défaut pour toutes les ads de ce produit. Chaque ad peut avoir son propre override si besoin.'
+        : 'Override custom pour cette ad uniquement. Si vide, l\'ad utilise la copy globale du produit.'} Crée plusieurs copies pour laisser Meta optimiser.</div>
 
       <!-- Toolbar templates -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;padding:10px 12px;background:rgba(192,132,252,0.06);border:1px solid rgba(192,132,252,0.2);border-radius:8px;margin-bottom:14px">
@@ -7086,17 +7163,20 @@ async function editAdCopyFlow(adId) {
   bd.querySelector('#ac-cancel').addEventListener('click', () => close(null));
 
   bd.querySelector('#ac-clear').addEventListener('click', async () => {
-    if (!confirm('Vider toutes les copies de cette ad ?')) return;
-    await sb.from('ads').update({ ad_copies: [] }).eq('id', adId);
-    // Aussi vider ad_countries.copy pour rester cohérent côté affichage
-    const { data: acExisting } = await sb.from('ad_countries').select('country_id').eq('ad_id', adId);
-    for (const ac of (acExisting || [])) {
-      await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', adId).eq('country_id', ac.country_id);
+    if (!confirm(isProduct ? 'Vider toutes les copies globales du produit ?' : 'Vider l\'override de cette ad (elle utilisera la copy du produit) ?')) return;
+    const table = isProduct ? 'products' : 'ads';
+    await sb.from(table).update({ ad_copies: [] }).eq('id', target.id);
+    // Pour les ads : aussi vider ad_countries.copy pour rester cohérent côté affichage
+    if (!isProduct) {
+      const { data: acExisting } = await sb.from('ad_countries').select('country_id').eq('ad_id', target.id);
+      for (const ac of (acExisting || [])) {
+        await sb.from('ad_countries').update({ copy: {} }).eq('ad_id', target.id).eq('country_id', ac.country_id);
+      }
+      if (driveState.connected) {
+        try { await deleteAdCopyDocFromDrive(target.id); } catch (e) {}
+      }
     }
-    if (driveState.connected) {
-      try { await deleteAdCopyDocFromDrive(adId); } catch (e) {}
-    }
-    toast('Toutes les copies effacées', 'success');
+    toast(isProduct ? 'Copies du produit effacées' : 'Override effacé — utilise la copy du produit', 'success');
     close(null);
     render();
   });
@@ -7111,39 +7191,41 @@ async function editAdCopyFlow(adId) {
     });
     const finalCopies = cleaned.length > 0 ? cleaned : [];
 
-    // 1. Save sur ads.ad_copies
-    const { error } = await sb.from('ads').update({ ad_copies: finalCopies }).eq('id', adId);
+    // 1. Save sur la table cible (products ou ads)
+    const table = isProduct ? 'products' : 'ads';
+    const { error } = await sb.from(table).update({ ad_copies: finalCopies }).eq('id', target.id);
     if (error) { toast('Erreur : ' + error.message, 'error', 8000); return; }
 
-    // 2. Sync vers ad_countries.copy (1ère copy) pour rétrocompat de l'affichage
-    const now = new Date().toISOString();
-    const firstCopy = finalCopies[0]?.by_country || {};
-    const { data: acExisting } = await sb.from('ad_countries').select('country_id, copy').eq('ad_id', adId);
-    const acMap = {};
-    (acExisting || []).forEach(ac => acMap[ac.country_id] = ac);
-    for (const c of countries) {
-      const cp = firstCopy[c.id] || {};
-      const copyObj = (cp.headline || cp.primary || cp.description)
-        ? { headline: cp.headline || '', primary: cp.primary || '', description: cp.description || '', updated_at: now }
-        : {};
-      if (acMap[c.id]) {
-        await sb.from('ad_countries').update({ copy: copyObj, updated_at: now, updated_by: currentUser.id }).eq('ad_id', adId).eq('country_id', c.id);
-      } else if (Object.keys(copyObj).length > 0) {
-        await sb.from('ad_countries').insert({ ad_id: adId, country_id: c.id, copy: copyObj, meta: false, trad: false, updated_at: now, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
+    // 2. Pour les ads : sync vers ad_countries.copy (1ère copy) pour rétrocompat de l'affichage + Drive
+    if (!isProduct) {
+      const now = new Date().toISOString();
+      const firstCopy = finalCopies[0]?.by_country || {};
+      const { data: acExisting } = await sb.from('ad_countries').select('country_id, copy').eq('ad_id', target.id);
+      const acMap = {};
+      (acExisting || []).forEach(ac => acMap[ac.country_id] = ac);
+      for (const c of countries) {
+        const cp = firstCopy[c.id] || {};
+        const copyObj = (cp.headline || cp.primary || cp.description)
+          ? { headline: cp.headline || '', primary: cp.primary || '', description: cp.description || '', updated_at: now }
+          : {};
+        if (acMap[c.id]) {
+          await sb.from('ad_countries').update({ copy: copyObj, updated_at: now, updated_by: currentUser.id }).eq('ad_id', target.id).eq('country_id', c.id);
+        } else if (Object.keys(copyObj).length > 0) {
+          await sb.from('ad_countries').insert({ ad_id: target.id, country_id: c.id, copy: copyObj, meta: false, trad: false, updated_at: now, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
+        }
+      }
+      // Sync vers Drive (1ère copy uniquement)
+      if (driveState.connected) {
+        try {
+          const driveRes = await syncAdCopyToDrive(target.id);
+          if (driveRes?.ok) {
+            toast(`Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
+          }
+        } catch (e) { console.warn('[AD COPY drive sync]', e); }
       }
     }
 
-    toast(`${finalCopies.length} copy${finalCopies.length > 1 ? 's' : ''} enregistrée${finalCopies.length > 1 ? 's' : ''}`, 'success');
-
-    // Sync vers Drive (1ère copy uniquement pour l'instant)
-    if (driveState.connected) {
-      try {
-        const driveRes = await syncAdCopyToDrive(adId);
-        if (driveRes?.ok) {
-          toast(`Doc Drive ${driveRes.action === 'created' ? 'créé' : 'mis à jour'} : ${driveRes.docName}`, 'success', 4000);
-        }
-      } catch (e) { console.warn('[AD COPY drive sync]', e); }
-    }
+    toast(`${finalCopies.length} copy${finalCopies.length > 1 ? 's' : ''} enregistrée${finalCopies.length > 1 ? 's' : ''}${isProduct ? ' au niveau produit' : ''}`, 'success');
     close(null);
     render();
   });
