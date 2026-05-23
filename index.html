@@ -7531,6 +7531,7 @@ function setupMetaDragSelect(container) {
     });
   }
 
+  let mousedownTime = 0;
   container.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return; // seulement clic gauche
     const cell = e.target.closest('.check-cell[data-toggle-meta]');
@@ -7545,6 +7546,7 @@ function setupMetaDragSelect(container) {
     startX = e.clientX;
     startY = e.clientY;
     dragging = false;
+    mousedownTime = Date.now();
     // PAS d'highlight tant qu'on n'a pas bougé au-delà du threshold
   });
   container.addEventListener('mousemove', (e) => {
@@ -7561,13 +7563,16 @@ function setupMetaDragSelect(container) {
   });
   _metaMouseupHandler = async (e) => {
     if (!startCell) return;
+    const elapsed = Date.now() - mousedownTime;
     const wasDrag = dragging;
     const cellsToAct = Array.from(selectedCells);
     const start = startCell;
     startCell = null;
     dragging = false;
-    if (!wasDrag) {
-      // Simple clic : toggle (aucun highlight bleu n'a été appliqué)
+    // Click court (<300ms) ou pas de drag → toujours traiter comme un toggle simple
+    // Évite les drags involontaires (mouse jitter en relâchant)
+    if (!wasDrag || elapsed < 300) {
+      clearSelection(); // au cas où des cells auraient été highlightées
       const [adId, cId] = start.dataset.toggleMeta.split('|');
       await toggleMetaCell(adId, cId);
       return;
