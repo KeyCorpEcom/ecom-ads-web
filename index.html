@@ -7479,30 +7479,124 @@ async function deleteAdFlow(adId) {
 // (ancien override modal supprimé — causait un bug en strict mode)
 
 /* ============================================================
-   FEATURE: META CELL CLICK TOGGLE (drag-select retiré)
-   Avant : drag-select qui créait des sélections fantômes bloquantes.
-   Maintenant : single click = toggle, c'est tout.
+   FEATURE: META CELL CLICK TOGGLE + DRAG-SELECT (style Excel)
+   - Single click → toggle (UI optimiste, pas de full render)
+   - Drag (slide) → toggle toutes les cellules survolées à la valeur opposée
+     de la cellule de départ (style Excel), apply immédiat à la release
+   - Pas de batch action bar : tout est immédiat
    ============================================================ */
 let _metaMouseupHandler = null;
-const DRAG_THRESHOLD = 999999; // disabled
+let _metaMousemoveHandler = null;
+let _metaRenderTimer = null;
 
 function setupMetaDragSelectV2(container) {
-  // Cleanup défensif : retire toute classe batch-selected qui traînerait + retire la batch bar
+  // Cleanup défensif
   container.querySelectorAll('.check-cell.batch-selected').forEach(c => c.classList.remove('batch-selected'));
   document.querySelectorAll('.batch-action-bar').forEach(b => b.remove());
-  // Cleanup ancien mouseup handler s'il existe
-  if (_metaMouseupHandler) {
-    document.removeEventListener('mouseup', _metaMouseupHandler);
-    _metaMouseupHandler = null;
-  }
-  container.addEventListener('click', async (e) => {
+  if (_metaMouseupHandler) { document.removeEventListener('mouseup', _metaMouseupHandler); _metaMouseupHandler = null; }
+  if (_metaMousemoveHandler) { document.removeEventListener('mousemove', _metaMousemoveHandler); _metaMousemoveHandler = null; }
+
+  let dragState = null; // { startCell, startWasChecked, targetChecked, touched: Set<cell> }
+  const DRAG_THRESHOLD_PX = 8;
+
+  container.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
     const cell = e.target.closest('.check-cell[data-toggle-meta]');
     if (!cell) return;
-    if (!canEdit()) { toast('Permission refusée', 'error'); return; }
-    e.stopPropagation();
-    const [adId, cId] = cell.dataset.toggleMeta.split('|');
-    await toggleMetaCell(adId, cId);
+    if (!canEdit()) return;
+    const icon = cell.querySelector('.check-icon.meta');
+    if (!icon) return;
+    e.preventDefault(); // évite la sélection texte
+    const startWasChecked = icon.classList.contains('checked');
+    dragState = {
+      startCell: cell,
+      startX: e.clientX,
+      startY: e.clientY,
+      startWasChecked,
+      targetChecked: !startWasChecked, // nouvelle valeur (opposée du start)
+      touched: new Set([cell]), // cellules touchées (au moins la start)
+      moved: false
+    };
   });
+
+  _metaMousemoveHandler = (e) => {
+    if (!dragState) return;
+    const dist = Math.hypot(e.clientX - dragState.startX, e.clientY - dragState.startY);
+    if (!dragState.moved && dist < DRAG_THRESHOLD_PX) return;
+    dragState.moved = true;
+    // Trouve la cellule sous la souris
+    const elUnder = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = elUnder?.closest('.check-cell[data-toggle-meta]');
+    if (!cell || dragState.touched.has(cell)) return;
+    // Vérifie qu'elle est bien dans le même container (table)
+    if (!container.contains(cell)) return;
+    dragState.touched.add(cell);
+    // Highlight visuel + flip immédiat l'icône (preview)
+    const icon = cell.querySelector('.check-icon.meta');
+    if (icon) icon.classList.toggle('checked', dragState.targetChecked);
+  };
+  document.addEventListener('mousemove', _metaMousemoveHandler);
+
+  _metaMouseupHandler = async (e) => {
+    if (!dragState) return;
+    const state = dragState;
+    dragState = null;
+
+    if (!state.moved) {
+      // Simple click → toggle juste la start cell
+      const cell = state.startCell;
+      const [adId, cId] = cell.dataset.toggleMeta.split('|');
+      // Update visuel optimiste
+      const icon = cell.querySelector('.check-icon.meta');
+      if (icon) icon.classList.toggle('checked', state.targetChecked);
+      // DB en background
+      saveMetaCell(adId, cId, state.targetChecked);
+      return;
+    }
+
+    // Drag : on toggle l'icône de la start cell aussi (elle n'a pas été touchée par mousemove)
+    const startIcon = state.startCell.querySelector('.check-icon.meta');
+    if (startIcon) startIcon.classList.toggle('checked', state.targetChecked);
+
+    // Save all touched cells en parallèle
+    const promises = [];
+    for (const cell of state.touched) {
+      const [adId, cId] = cell.dataset.toggleMeta.split('|');
+      promises.push(saveMetaCell(adId, cId, state.targetChecked));
+    }
+    await Promise.all(promises);
+    toast(`${state.touched.size} case${state.touched.size > 1 ? 's' : ''} Meta ${state.targetChecked ? 'cochée' : 'décochée'}${state.touched.size > 1 ? 's' : ''}`, 'success', 2500);
+  };
+  document.addEventListener('mouseup', _metaMouseupHandler);
+}
+
+// Save direct sans render (UI déjà mise à jour optimistement)
+async function saveMetaCell(adId, cId, newMeta) {
+  const now = new Date().toISOString();
+  try {
+    // Upsert atomique via DB (évite SELECT + UPDATE en 2 round-trips)
+    const { error } = await sb.from('ad_countries')
+      .upsert({
+        ad_id: adId,
+        country_id: cId,
+        meta: newMeta,
+        meta_at: newMeta ? now : null,
+        updated_at: now,
+        updated_by: currentUser.id,
+        workspace_id: currentWorkspaceId
+      }, { onConflict: 'ad_id,country_id' });
+    if (error) throw error;
+    bustFetchAllCache();
+    // Debounced render pour rafraîchir les totaux en bas, ~600ms après le dernier click
+    clearTimeout(_metaRenderTimer);
+    _metaRenderTimer = setTimeout(() => render(), 600);
+  } catch (e) {
+    console.error('[saveMetaCell]', e);
+    toast('Erreur Meta : ' + (e.message || e), 'error', 5000);
+    // Revert visuel
+    const cell = document.querySelector(`.check-cell[data-toggle-meta="${adId}|${cId}"]`);
+    cell?.querySelector('.check-icon.meta')?.classList.toggle('checked', !newMeta);
+  }
 }
 
 // Ancienne fonction conservée mais elle appelle juste V2 (évite de modifier les call sites)
