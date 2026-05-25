@@ -10093,9 +10093,9 @@ async function renderScriptDetail(el, productId) {
                   : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Écrire script"' : 'Le script sera ajouté par l\'admin'}</div>`
                 }
               </div>
-              ${s.voice_file_id ? `
+              ${s.voice_file_id && !voiceUploads.body && (!voiceUploads.hooks || voiceUploads.hooks.length === 0) ? `
                 <div style="margin-top:10px;padding:10px 12px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:6px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                  <div style="font-size:11px;color:var(--purple);font-weight:700;letter-spacing:0.5px">VOIX TTS ${escapeHtml(s.voice_gender || '?')}</div>
+                  <div style="font-size:11px;color:var(--purple);font-weight:700;letter-spacing:0.5px">VOIX TTS LEGACY ${escapeHtml(s.voice_gender || '?')}</div>
                   <audio controls preload="none" style="flex:1;min-width:240px;max-width:480px;height:34px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(s.voice_file_id)}"></audio>
                   <span style="font-size:11px;color:var(--text-dim)">${s.voice_generated_at ? new Date(s.voice_generated_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
                 </div>
@@ -11232,34 +11232,61 @@ async function generateScriptVoiceFlow(scriptId, gender) {
   // 2. Récupère le script
   const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
   if (!scriptAd) { toast('Script introuvable', 'error'); return; }
-  if (!scriptAd.script || !scriptAd.script.trim()) {
-    toast('Le texte du script est vide — ajoute-le avant de générer la voix', 'warn', 6000);
-    return;
-  }
   const { data: product } = await sb.from('products').select('*').eq('id', scriptAd.product_id).single();
   if (!product?.drive_folder_id) { toast('Pas de dossier Drive sur le produit', 'error'); return; }
 
-  // 3. Confirm pour les longs scripts (limite genaipro = 5000 chars côté serveur)
-  const chars = scriptAd.script.trim().length;
-  if (chars > 4000) {
-    const ok = await confirmDialog(`Script long (${chars} caractères)`,
-      `Le script fait ${chars} caractères. La génération coûtera plus de crédits. Continuer ?`);
-    if (!ok) return;
+  // 3. Construit la liste des morceaux à générer (1 voix par hook + 1 voix body)
+  //    Si pas de hooks → fallback legacy : 1 voix pour le script entier (slot body)
+  const pieces = [];
+  const hooks = Array.isArray(scriptAd.hooks) ? scriptAd.hooks : [];
+  const hasHooks = hooks.length > 0;
+  if (hasHooks) {
+    hooks.forEach((h, i) => {
+      const t = (h || '').trim();
+      if (t) pieces.push({ slotKey: `hook:${i}`, label: `Hook ${i + 1}`, text: t });
+    });
+  }
+  const bodyText = (scriptAd.script || '').trim();
+  if (bodyText) pieces.push({ slotKey: 'body', label: 'Body', text: bodyText });
+
+  if (pieces.length === 0) {
+    toast('Aucun texte à générer (ni hooks ni body)', 'warn', 6000);
+    return;
   }
 
-  // 4. Crée la tâche TTS
+  // 4. Confirm
+  const totalChars = pieces.reduce((s, p) => s + p.text.length, 0);
+  const ok = await confirmDialog(
+    `Générer ${pieces.length} voix ${gender === 'F' ? '♀' : '♂'} ?`,
+    `Morceaux : ${pieces.map(p => `${p.label} (${p.text.length}c)`).join(', ')}\nTotal : ${totalChars} caractères.\nÇa peut prendre 10-30s par morceau.`
+  );
+  if (!ok) return;
+
   const jwt = await getCallerJwt();
   if (!jwt) { toast('Session expirée', 'error'); return; }
 
-  toast(`Génération voix ${gender === 'F' ? '♀' : '♂'} en cours... (peut prendre 10-30s)`, 'info', 5000);
-
-  let taskId;
+  // 5. Prépare Drive (1 fois) + récupère le state voice_uploads courant pour merge
+  let voicesFolder;
   try {
+    await ensureDriveReady();
+    const scriptsFolder = await driveEnsureFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+    voicesFolder = await driveEnsureFolder(SCRIPTS_VOICES_FOLDER, scriptsFolder.id);
+  } catch (e) {
+    console.error('[gen voice Drive prep]', e);
+    toast('Erreur préparation Drive : ' + extractGapiError(e), 'error', 8000);
+    return;
+  }
+  const voiceUploads = (scriptAd.voice_uploads && typeof scriptAd.voice_uploads === 'object')
+    ? { hooks: Array.isArray(scriptAd.voice_uploads.hooks) ? [...scriptAd.voice_uploads.hooks] : [], body: scriptAd.voice_uploads.body || null }
+    : { hooks: [], body: null };
+
+  // Helpers locaux pour ne pas dupliquer le code TTS
+  async function createTtsTask(text) {
     const r = await fetch('/api/genaipro-tts-create', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        text: scriptAd.script,
+        text,
         voice_id: voiceId,
         model_id: settings.model_id || 'eleven_multilingual_v2',
         stability: settings.stability ?? 0.75,
@@ -11274,104 +11301,127 @@ async function generateScriptVoiceFlow(scriptId, gender) {
       throw new Error(err.error || `HTTP ${r.status}`);
     }
     const j = await r.json();
-    taskId = j.task_id;
-  } catch (e) {
-    console.error('[tts-create]', e);
-    toast('Erreur création tâche : ' + e.message, 'error', 8000);
-    return;
+    return j.task_id;
   }
-
-  // 5. Polling jusqu'à completion (toutes les 2.5s, timeout 3 min)
-  const maxAttempts = 72; // 72 * 2.5s = 3 min
-  let attempt = 0;
-  let resultUrl = null;
-  while (attempt < maxAttempts) {
-    await new Promise(r => setTimeout(r, 2500));
-    attempt++;
-    try {
-      const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}`, {
-        headers: { 'Authorization': `Bearer ${jwt}` }
-      });
-      if (!r.ok) continue;
-      const j = await r.json();
-      if (j.status === 'completed' && j.result) {
-        resultUrl = j.result;
-        break;
-      }
-      if (j.status === 'failed' || j.status === 'error') {
-        throw new Error(`Tâche échouée : ${j.status}`);
-      }
-    } catch (e) {
-      console.warn('[tts-status poll]', attempt, e.message);
+  async function pollTtsResult(taskId) {
+    const maxAttempts = 72; // 72 * 2.5s = 3 min
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(r => setTimeout(r, 2500));
+      try {
+        const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}`, {
+          headers: { 'Authorization': `Bearer ${jwt}` }
+        });
+        if (!r.ok) continue;
+        const j = await r.json();
+        if (j.status === 'completed' && j.result) return j.result;
+        if (j.status === 'failed' || j.status === 'error') throw new Error(`Tâche TTS échouée : ${j.status}`);
+      } catch (e) { console.warn('[tts-status poll]', attempt, e.message); }
     }
+    throw new Error('Timeout TTS (3 min)');
   }
-
-  if (!resultUrl) {
-    toast('Timeout — la tâche n\'a pas terminé en 3 min. Vérifie tes credits GenAIPro.', 'error', 10000);
-    return;
-  }
-
-  // 6. Récupère le mp3 via le proxy serveur (bypass CORS)
-  toast('Téléchargement du mp3...', 'info', 3000);
-  let mp3Blob;
-  try {
+  async function fetchMp3Blob(taskId) {
     const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}&fetch_mp3=1`, {
       headers: { 'Authorization': `Bearer ${jwt}` }
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    mp3Blob = await r.blob();
-  } catch (e) {
-    console.error('[mp3 fetch]', e);
-    toast('Erreur récup mp3 : ' + e.message, 'error', 8000);
-    return;
+    return r.blob();
   }
 
-  // 7. Upload sur Drive : {produit}/01_Scripts/voices/{Script_Name} - {F|M}.mp3
-  toast('Upload sur Drive...', 'info', 3000);
-  let uploaded;
-  try {
-    await ensureDriveReady();
-    const scriptsFolder = await driveEnsureFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
-    const voicesFolder = await driveEnsureFolder(SCRIPTS_VOICES_FOLDER, scriptsFolder.id);
+  // 6. Boucle : pour chaque morceau, TTS → mp3 → Drive → DB update incrémental
+  let success = 0, failed = 0;
+  const errors = [];
 
-    // Si une voix précédente du même genre existe, on la trash (best effort)
-    if (scriptAd.voice_file_id && scriptAd.voice_gender === gender) {
-      try {
-        await gapi.client.drive.files.update({ fileId: scriptAd.voice_file_id, resource: { trashed: true }, supportsAllDrives: true });
-      } catch (e) { console.warn('[old voice trash]', e); }
+  for (let i = 0; i < pieces.length; i++) {
+    const p = pieces[i];
+    toast(`[${i + 1}/${pieces.length}] ${p.label} : génération TTS ${gender === 'F' ? '♀' : '♂'}...`, 'info', 5000);
+
+    let taskId, mp3Blob, uploaded;
+    try {
+      taskId = await createTtsTask(p.text);
+      await pollTtsResult(taskId);
+      mp3Blob = await fetchMp3Blob(taskId);
+    } catch (e) {
+      console.error(`[gen voice ${p.label} TTS]`, e);
+      failed++;
+      errors.push(`${p.label}: ${e.message}`);
+      toast(`${p.label} : ${e.message}`, 'error', 5000);
+      continue;
     }
 
-    const fileName = `${scriptAd.name} - ${gender}.mp3`;
-    // driveUploadFile attend un File-like avec .size, .type
-    const fileObj = new File([mp3Blob], fileName, { type: 'audio/mpeg' });
-    uploaded = await driveUploadFile(fileObj, voicesFolder.id, fileName);
-    if (!uploaded?.id) throw new Error('Upload Drive sans id');
+    // Trash l'ancien fichier de ce slot s'il existe
+    let prevFileId = null;
+    if (p.slotKey === 'body') prevFileId = voiceUploads.body?.drive_file_id || null;
+    else {
+      const idx = parseInt(p.slotKey.split(':')[1], 10);
+      prevFileId = voiceUploads.hooks.find(h => h.idx === idx)?.drive_file_id || null;
+    }
+    if (prevFileId) {
+      try { await gapi.client.drive.files.update({ fileId: prevFileId, resource: { trashed: true }, supportsAllDrives: true }); }
+      catch (e) { console.warn('[old voice trash]', e); }
+    }
 
-    // Auto-share pour preview inline
+    // Upload Drive
+    const fileName = `${scriptAd.name} - ${p.label} (${gender}).mp3`;
     try {
-      await gapi.client.drive.permissions.create({
-        fileId: uploaded.id,
-        resource: { role: 'reader', type: 'anyone' }
-      });
-    } catch (e) { console.warn('[voice auto-share]', e); }
-  } catch (e) {
-    console.error('[voice upload Drive]', e);
-    toast('Erreur upload Drive : ' + extractGapiError(e), 'error', 8000);
-    return;
+      const fileObj = new File([mp3Blob], fileName, { type: 'audio/mpeg' });
+      uploaded = await driveUploadFile(fileObj, voicesFolder.id, fileName);
+      if (!uploaded?.id) throw new Error('Upload Drive sans id');
+      try {
+        await gapi.client.drive.permissions.create({
+          fileId: uploaded.id,
+          resource: { role: 'reader', type: 'anyone' }
+        });
+      } catch (e) { console.warn('[voice auto-share]', e); }
+    } catch (e) {
+      console.error(`[gen voice ${p.label} Drive]`, e);
+      failed++;
+      errors.push(`${p.label} Drive: ${extractGapiError(e)}`);
+      toast(`${p.label} Drive : ${extractGapiError(e)}`, 'error', 5000);
+      continue;
+    }
+
+    // Update voice_uploads en local + persist DB
+    const entry = {
+      drive_file_id: uploaded.id,
+      file_name: fileName,
+      uploaded_at: new Date().toISOString(),
+      uploaded_by: currentUser?.id || null,
+      gender,
+      voice_id: voiceId,
+      task_id: taskId,
+      source: 'genaipro'
+    };
+    if (p.slotKey === 'body') {
+      voiceUploads.body = entry;
+    } else {
+      const idx = parseInt(p.slotKey.split(':')[1], 10);
+      entry.idx = idx;
+      voiceUploads.hooks = voiceUploads.hooks.filter(h => h.idx !== idx);
+      voiceUploads.hooks.push(entry);
+      voiceUploads.hooks.sort((a, b) => (a.idx || 0) - (b.idx || 0));
+    }
+
+    const { error } = await sb.from('ads').update({ voice_uploads: voiceUploads }).eq('id', scriptId);
+    if (error) {
+      console.error('[gen voice DB save]', error);
+      // On a quand même l'upload Drive, on note l'erreur DB mais on continue
+      failed++;
+      errors.push(`${p.label} DB: ${error.message}`);
+      toast(`${p.label} DB : ${error.message}`, 'error', 5000);
+      continue;
+    }
+
+    success++;
   }
 
-  // 8. Update DB
-  const { error } = await sb.from('ads').update({
-    voice_file_id: uploaded.id,
-    voice_id: voiceId,
-    voice_gender: gender,
-    voice_task_id: taskId,
-    voice_generated_at: new Date().toISOString(),
-    voice_generated_by: currentUser.id
-  }).eq('id', scriptId);
-  if (error) { toast('Voix uploadée mais erreur DB : ' + error.message, 'error', 8000); return; }
-
-  toast(`Voix ${gender === 'F' ? '♀' : '♂'} générée et uploadée sur Drive ✓`, 'success', 5000);
+  // 7. Toast récapitulatif
+  if (success > 0 && failed === 0) {
+    toast(`✓ ${success} voix ${gender === 'F' ? '♀' : '♂'} générée${success > 1 ? 's' : ''} et uploadée${success > 1 ? 's' : ''}`, 'success', 6000);
+  } else if (success > 0 && failed > 0) {
+    toast(`${success} OK / ${failed} échec. Réessaie sur les manqués.`, 'warn', 9000);
+  } else {
+    toast(`Échec total — ${errors[0] || 'voir console'}`, 'error', 10000);
+  }
   render();
 }
 
