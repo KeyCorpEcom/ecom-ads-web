@@ -10225,9 +10225,8 @@ async function renderSingleScript(el, scriptId) {
   };
   const voiceSectionHtml = canManageVoice ? `
     <div style="margin-top:18px;padding:14px 16px;background:rgba(192,132,252,0.04);border:1px solid rgba(192,132,252,0.2);border-radius:8px">
-      <div style="font-weight:700;color:var(--purple);font-size:12px;margin-bottom:10px;letter-spacing:0.5px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
-        <span>🎤 VOIX (post-process FFmpeg auto : ×${FFMPEG_SPEED} + cut silences)</span>
-        <span style="font-size:10px;font-weight:500;color:var(--text-mute);font-style:italic">Hook + Body séparés. Fadel assemble dans son éditeur.</span>
+      <div style="font-weight:700;color:var(--purple);font-size:12px;margin-bottom:10px;letter-spacing:0.5px">
+        🎤 VOIX (post-process FFmpeg auto : ×${FFMPEG_SPEED} + cut silences)
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">
         ${(Array.isArray(s.hooks) ? s.hooks : []).map((h, i) =>
