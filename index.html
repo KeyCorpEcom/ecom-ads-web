@@ -11382,10 +11382,12 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     const j = await r.json();
     return j.task_id;
   }
-  async function pollTtsResult(taskId) {
-    const maxAttempts = 72; // 72 * 2.5s = 3 min
+  async function pollTtsResult(taskId, maxSeconds = 180) {
+    // Timeout dynamique : 3 min de base + 2s par 100 chars (capé à 12 min)
+    const intervalMs = 2500;
+    const maxAttempts = Math.ceil((maxSeconds * 1000) / intervalMs);
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await new Promise(r => setTimeout(r, 2500));
+      await new Promise(r => setTimeout(r, intervalMs));
       try {
         const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}`, {
           headers: { 'Authorization': `Bearer ${jwt}` }
@@ -11396,7 +11398,8 @@ async function generateScriptVoiceFlow(scriptId, gender) {
         if (j.status === 'failed' || j.status === 'error') throw new Error(`Tâche TTS échouée : ${j.status}`);
       } catch (e) { console.warn('[tts-status poll]', attempt, e.message); }
     }
-    throw new Error('Timeout TTS (3 min)');
+    const mins = Math.round(maxSeconds / 60);
+    throw new Error(`Timeout TTS (${mins} min) — GenAIPro est trop lent. Réessaie ou raccourcis le texte.`);
   }
   async function fetchMp3Blob(taskId) {
     const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}&fetch_mp3=1`, {
@@ -11430,11 +11433,13 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     stepLabels.set(p.slotKey, `${p.label}: TTS`);
     refreshOverlay();
     let taskId, mp3Blob, uploaded;
+    // Timeout dynamique : 3 min base + 2s par 100 chars, capé à 12 min
+    const ttsTimeoutSec = Math.min(720, 180 + Math.ceil(p.text.length * 2 / 100));
     try {
       taskId = await createTtsTask(p.text);
-      stepLabels.set(p.slotKey, `${p.label}: polling`);
+      stepLabels.set(p.slotKey, `${p.label}: polling (max ${Math.round(ttsTimeoutSec / 60)}min)`);
       refreshOverlay();
-      await pollTtsResult(taskId);
+      await pollTtsResult(taskId, ttsTimeoutSec);
       stepLabels.set(p.slotKey, `${p.label}: fetch mp3`);
       refreshOverlay();
       mp3Blob = await fetchMp3Blob(taskId);
