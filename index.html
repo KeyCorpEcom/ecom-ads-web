@@ -10282,7 +10282,7 @@ async function renderSingleScript(el, scriptId) {
   const voiceSectionHtml = canManageVoice ? `
     <div style="margin-top:18px;padding:14px 16px;background:rgba(192,132,252,0.04);border:1px solid rgba(192,132,252,0.2);border-radius:8px">
       <div style="font-weight:700;color:var(--purple);font-size:12px;margin-bottom:10px;letter-spacing:0.5px">
-        🎤 VOIX (post-process FFmpeg auto : ×${FFMPEG_SPEED} + cut silences)
+        🎤 VOIX (brute GenAIPro — ajuster vitesse + silences dans l'éditeur vidéo)
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">
         ${(Array.isArray(s.hooks) ? s.hooks : []).map((h, i) =>
@@ -11255,38 +11255,11 @@ async function concatMp3Blobs(blobs) {
  * Si FFmpeg échoue (erreur réseau, mémoire), retourne le blob original (graceful fallback).
  */
 async function processVoiceMp3(inputBlob, fileBaseName = 'voice') {
-  if (!inputBlob || inputBlob.size === 0) return inputBlob;
-  try {
-    const { fetchFile } = FFmpeg;
-    const ff = await getFFmpeg();
-    const inputName = `in_${Date.now()}.mp3`;
-    const outputName = `out_${Date.now()}.mp3`;
-
-    console.log(`[FFmpeg ${fileBaseName}] input: ${inputBlob.size} bytes`);
-    ff.FS('writeFile', inputName, await fetchFile(inputBlob));
-
-    const audioFilter = [
-      `atempo=${FFMPEG_SPEED}`,
-      `silenceremove=stop_periods=-1:stop_duration=${FFMPEG_SILENCE_MIN_DUR}:stop_threshold=${FFMPEG_SILENCE_THRESHOLD}`
-    ].join(',');
-    console.log(`[FFmpeg ${fileBaseName}] running: -af ${audioFilter}`);
-
-    const t0 = performance.now();
-    await ff.run('-i', inputName, '-af', audioFilter, '-y', outputName);
-    console.log(`[FFmpeg ${fileBaseName}] processed in ${Math.round(performance.now() - t0)}ms`);
-
-    const data = ff.FS('readFile', outputName);
-    try { ff.FS('unlink', inputName); } catch {}
-    try { ff.FS('unlink', outputName); } catch {}
-
-    const out = new Blob([data.buffer], { type: 'audio/mpeg' });
-    console.log(`[FFmpeg ${fileBaseName}] ✓ output: ${out.size} bytes (×${FFMPEG_SPEED}, silences <${FFMPEG_SILENCE_MIN_DUR}s coupés)`);
-    return out;
-  } catch (e) {
-    console.error(`[FFmpeg ${fileBaseName}] FAILED, fallback original blob:`, e);
-    toast(`FFmpeg KO sur ${fileBaseName} (${e.message?.slice(0,60) || 'erreur'}) — voix brute uploadée`, 'warn', 7000);
-    return inputBlob;
-  }
+  // FFmpeg.wasm désactivé : nécessite SharedArrayBuffer (= headers COEP qui cassent OAuth).
+  // → on uploade la voix BRUTE depuis GenAIPro. Le video editor ajuste vitesse + silences
+  //   dans son éditeur vidéo (Premiere/CapCut/etc — 1 slider, 5 sec de boulot).
+  // Pour réactiver le speed-up auto un jour, considérer SoundTouch.js (pas FFmpeg.wasm).
+  return inputBlob;
 }
 
 // Récupère le JWT Supabase pour appeler nos endpoints serverless
@@ -11834,9 +11807,7 @@ async function generateScriptVoiceFlow(scriptId, gender) {
         refreshOverlay();
         mp3Blob = await fetchMp3Blob(tid);
       }
-      // Post-process commun : accélère ×1.3 + retire silences via FFmpeg.wasm
-      stepLabels.set(p.slotKey, `${p.label}: FFmpeg (speed ×${FFMPEG_SPEED} + cut silences)`);
-      refreshOverlay();
+      // Post-process désactivé (FFmpeg.wasm bloqué par absence de SAB). Voix uploadée brute.
       mp3Blob = await processVoiceMp3(mp3Blob, p.label);
     } catch (e) {
       console.error(`[gen voice ${p.label} TTS]`, e);
@@ -12001,17 +11972,9 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
   } else {
     toast('Slot voix invalide', 'error'); return;
   }
-  // Post-process FFmpeg : speed + silence removal (toujours en .mp3)
+  // Pas de post-process audio (FFmpeg.wasm désactivé). Upload direct.
   const overlay = createProgressOverlay(`Upload voix ${displayLabel}`);
-  overlay.update(`FFmpeg (speed ×${FFMPEG_SPEED} + cut silences)...`, 0, 2);
-  let processedBlob;
-  try {
-    processedBlob = await processVoiceMp3(file, displayLabel);
-  } catch (e) {
-    console.error('[uploadScriptVoiceFlow FFmpeg]', e);
-    processedBlob = file; // fallback silencieux
-  }
-  // On force toujours .mp3 en sortie (le processBlob est encodé en audio/mpeg)
+  const processedBlob = file;
   const fileName = `${scriptAd.name} - ${displayLabel}.mp3`;
 
   overlay.update('Upload sur Drive...', 1, 2);
@@ -12078,7 +12041,7 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
   overlay.close();
   if (error) { toast('Uploadé sur Drive mais erreur DB : ' + error.message, 'error', 8000); return; }
 
-  toast(`Voix "${displayLabel}" processée (×${FFMPEG_SPEED}) + uploadée ✓`, 'success', 4000);
+  toast(`Voix "${displayLabel}" uploadée ✓`, 'success', 4000);
   render();
 }
 
