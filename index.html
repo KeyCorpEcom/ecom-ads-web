@@ -11406,28 +11406,44 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     return r.blob();
   }
 
-  // 6. Boucle : pour chaque morceau, TTS → mp3 → Drive → DB update incrémental
+  // 6. PARALLÈLE : toutes les pièces lancent leur TTS + Drive upload en même temps.
+  //    Gain : au lieu de N × ~2min (séquentiel), on attend la pièce la plus lente (~2min total).
   let success = 0, failed = 0;
   const errors = [];
   const overlay = createProgressOverlay(`Génération voix ${gender === 'F' ? '♀ Femme' : '♂ Homme'}`);
+  overlay.update(`Lancement de ${pieces.length} TTS en parallèle...`, 0, pieces.length);
 
-  for (let i = 0; i < pieces.length; i++) {
-    const p = pieces[i];
-    overlay.update(`${p.label} → TTS GenAIPro (génération mp3)...`, i, pieces.length);
+  let completedCount = 0;
+  const stepLabels = new Map(); // slotKey → status courant
 
+  function refreshOverlay() {
+    const active = [...stepLabels.entries()]
+      .filter(([_, st]) => st !== 'done')
+      .map(([_, st]) => st)
+      .slice(0, 3);
+    const msg = active.length > 0 ? active.join(' · ') : 'Finalisation...';
+    overlay.update(msg, completedCount, pieces.length);
+  }
+
+  // Pipeline complet pour une pièce (TTS → mp3 → Drive). Pas de DB save ici (race).
+  async function processPiece(p) {
+    stepLabels.set(p.slotKey, `${p.label}: TTS`);
+    refreshOverlay();
     let taskId, mp3Blob, uploaded;
     try {
       taskId = await createTtsTask(p.text);
-      overlay.update(`${p.label} → attente résultat (peut prendre 10-30s)...`, i, pieces.length);
+      stepLabels.set(p.slotKey, `${p.label}: polling`);
+      refreshOverlay();
       await pollTtsResult(taskId);
-      overlay.update(`${p.label} → téléchargement mp3...`, i, pieces.length);
+      stepLabels.set(p.slotKey, `${p.label}: fetch mp3`);
+      refreshOverlay();
       mp3Blob = await fetchMp3Blob(taskId);
     } catch (e) {
       console.error(`[gen voice ${p.label} TTS]`, e);
-      failed++;
-      errors.push(`${p.label}: ${e.message}`);
-      toast(`${p.label} : ${e.message}`, 'error', 5000);
-      continue;
+      stepLabels.set(p.slotKey, 'done');
+      completedCount++;
+      refreshOverlay();
+      return { piece: p, ok: false, error: `${p.label}: ${e.message}` };
     }
 
     // Trash l'ancien fichier de ce slot s'il existe
@@ -11443,8 +11459,9 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     }
 
     // Upload Drive
+    stepLabels.set(p.slotKey, `${p.label}: upload Drive`);
+    refreshOverlay();
     const fileName = `${scriptAd.name} - ${p.label} (${gender}).mp3`;
-    overlay.update(`${p.label} → upload sur Drive...`, i, pieces.length);
     try {
       const fileObj = new File([mp3Blob], fileName, { type: 'audio/mpeg' });
       uploaded = await driveUploadFile(fileObj, voicesFolder.id, fileName);
@@ -11457,45 +11474,64 @@ async function generateScriptVoiceFlow(scriptId, gender) {
       } catch (e) { console.warn('[voice auto-share]', e); }
     } catch (e) {
       console.error(`[gen voice ${p.label} Drive]`, e);
-      failed++;
-      errors.push(`${p.label} Drive: ${extractGapiError(e)}`);
-      toast(`${p.label} Drive : ${extractGapiError(e)}`, 'error', 5000);
-      continue;
+      stepLabels.set(p.slotKey, 'done');
+      completedCount++;
+      refreshOverlay();
+      return { piece: p, ok: false, error: `${p.label} Drive: ${extractGapiError(e)}` };
     }
 
-    // Update voice_uploads en local + persist DB
-    const entry = {
-      drive_file_id: uploaded.id,
-      file_name: fileName,
-      uploaded_at: new Date().toISOString(),
-      uploaded_by: currentUser?.id || null,
-      gender,
-      voice_id: voiceId,
-      task_id: taskId,
-      source: 'genaipro'
+    stepLabels.set(p.slotKey, 'done');
+    completedCount++;
+    refreshOverlay();
+
+    return {
+      piece: p,
+      ok: true,
+      entry: {
+        drive_file_id: uploaded.id,
+        file_name: fileName,
+        uploaded_at: new Date().toISOString(),
+        uploaded_by: currentUser?.id || null,
+        gender,
+        voice_id: voiceId,
+        task_id: taskId,
+        source: 'genaipro'
+      }
     };
-    if (p.slotKey === 'body') {
+  }
+
+  // Lance tout en parallèle
+  const results = await Promise.allSettled(pieces.map(processPiece));
+
+  // Merge dans voice_uploads (séquentiel : évite race condition sur les arrays)
+  for (const r of results) {
+    if (r.status !== 'fulfilled') {
+      failed++;
+      errors.push(r.reason?.message || 'erreur inconnue');
+      continue;
+    }
+    const { ok, piece, entry, error } = r.value;
+    if (!ok) { failed++; errors.push(error); continue; }
+    if (piece.slotKey === 'body') {
       voiceUploads.body = entry;
     } else {
-      const idx = parseInt(p.slotKey.split(':')[1], 10);
+      const idx = parseInt(piece.slotKey.split(':')[1], 10);
       entry.idx = idx;
       voiceUploads.hooks = voiceUploads.hooks.filter(h => h.idx !== idx);
       voiceUploads.hooks.push(entry);
       voiceUploads.hooks.sort((a, b) => (a.idx || 0) - (b.idx || 0));
     }
+    success++;
+  }
 
+  // Save unique en fin (1 seul UPDATE → évite races JSONB)
+  if (success > 0) {
+    overlay.update('Sauvegarde DB...', pieces.length, pieces.length);
     const { error } = await sb.from('ads').update({ voice_uploads: voiceUploads }).eq('id', scriptId);
     if (error) {
       console.error('[gen voice DB save]', error);
-      // On a quand même l'upload Drive, on note l'erreur DB mais on continue
-      failed++;
-      errors.push(`${p.label} DB: ${error.message}`);
-      toast(`${p.label} DB : ${error.message}`, 'error', 5000);
-      continue;
+      toast('Drive uploadé mais erreur DB : ' + error.message, 'error', 12000);
     }
-
-    success++;
-    overlay.update(`${p.label} ✓ terminé`, i + 1, pieces.length);
   }
 
   overlay.close();
