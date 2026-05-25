@@ -10272,7 +10272,8 @@ async function renderSingleScript(el, scriptId) {
         ? `<audio controls preload="none" style="flex:1;min-width:200px;max-width:420px;height:30px" data-drive-audio-fileid="${escapeHtml(fileEntry.drive_file_id)}"></audio>
            <div style="display:flex;gap:2px;align-items:center;flex-shrink:0">
              <button class="btn btn-ghost btn-sm" data-dl-script-voice="${s.id}|${slotKey}" data-voice-fileid="${escapeHtml(fileEntry.drive_file_id)}" data-voice-filename="${escapeHtml(fileEntry.file_name || '')}" title="Télécharger" style="padding:3px 8px">⬇</button>
-             ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-rm-script-voice="${s.id}|${slotKey}" style="color:var(--red);padding:3px 8px" title="Supprimer">×</button>` : ''}
+             ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-up-script-voice="${s.id}|${slotKey}" title="Remplacer par un nouveau fichier (l'ancien sera trash sur Drive)" style="padding:3px 8px;color:var(--gold)">↻</button>` : ''}
+             ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-rm-script-voice="${s.id}|${slotKey}" style="color:var(--red);padding:3px 8px" title="Supprimer définitivement">×</button>` : ''}
            </div>`
         : `<span style="flex:1;font-size:11px;color:var(--text-mute);font-style:italic">— vide —</span>
            ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-up-script-voice="${s.id}|${slotKey}" style="padding:3px 10px;font-size:11px;color:var(--gold)" title="Uploader un fichier audio">+ Upload</button>` : ''}`}
@@ -10292,7 +10293,8 @@ async function renderSingleScript(el, scriptId) {
             <span style="opacity:0.5">→</span>
             <a href="https://bahaasr.com/" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:none">bahaasr cut silences</a>
             <span style="opacity:0.5">→</span>
-            <span style="color:var(--text)">× puis + Upload</span>
+            <span style="color:var(--text)">↻ Remplace</span>
+            <div style="font-size:10px;color:var(--text-mute);margin-top:6px;font-style:italic">Le bouton ↻ remplace direct l'ancien fichier (pas besoin de × avant).</div>
           </div>
         </details>
       </div>
