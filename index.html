@@ -452,6 +452,7 @@ a{color:var(--gold);text-decoration:none}
 .script-ad-row.todo{border-left-color:var(--orange)}
 .script-card-link:hover .script-ad-row{border-color:var(--gold);background:var(--bg-card-hover, var(--bg-card));transform:translateX(2px)}
 .script-card-link:hover .script-ad-row.done{opacity:0.85}
+.voice-slot:last-child{border-bottom:none !important}
 .script-ad-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .script-ad-name{font-size:14px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace}
 .script-status{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px}
@@ -10265,42 +10266,41 @@ async function renderSingleScript(el, scriptId) {
   const canManageVoice = isAdminUser || isVideoEd;
   const voiceSlotHtml = (label, slotKey, fileEntry) => {
     const hasFile = fileEntry && fileEntry.drive_file_id;
-    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border-soft)">
-      <span style="font-size:12px;font-weight:600;color:var(--text-dim);min-width:120px">${escapeHtml(label)}</span>
+    return `<div class="voice-slot" style="display:flex;align-items:center;gap:12px;padding:8px 4px;border-bottom:1px solid var(--border-soft)">
+      <span style="font-size:12px;font-weight:600;color:var(--text);min-width:70px">${escapeHtml(label)}</span>
       ${hasFile
-        ? `<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <audio controls preload="none" style="flex:1;min-width:220px;max-width:420px;height:32px" data-drive-audio-fileid="${escapeHtml(fileEntry.drive_file_id)}"></audio>
-            <button class="btn btn-ghost btn-sm" data-dl-script-voice="${s.id}|${slotKey}" data-voice-fileid="${escapeHtml(fileEntry.drive_file_id)}" data-voice-filename="${escapeHtml(fileEntry.file_name || '')}" title="Télécharger ${escapeHtml(label)}">⬇ Download</button>
-            ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-rm-script-voice="${s.id}|${slotKey}" style="color:var(--red);padding:4px 8px" title="Supprimer ce fichier">×</button>` : ''}
-          </div>`
-        : `<div style="flex:1;display:flex;align-items:center;gap:6px">
-            <span style="font-size:12px;color:var(--text-mute);font-style:italic">Aucun fichier</span>
-            ${isAdminUser ? `<button class="btn btn-sm" data-up-script-voice="${s.id}|${slotKey}" style="padding:4px 10px;font-size:11px">+ Upload</button>` : ''}
-          </div>`}
+        ? `<audio controls preload="none" style="flex:1;min-width:200px;max-width:420px;height:30px" data-drive-audio-fileid="${escapeHtml(fileEntry.drive_file_id)}"></audio>
+           <div style="display:flex;gap:2px;align-items:center;flex-shrink:0">
+             <button class="btn btn-ghost btn-sm" data-dl-script-voice="${s.id}|${slotKey}" data-voice-fileid="${escapeHtml(fileEntry.drive_file_id)}" data-voice-filename="${escapeHtml(fileEntry.file_name || '')}" title="Télécharger" style="padding:3px 8px">⬇</button>
+             ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-rm-script-voice="${s.id}|${slotKey}" style="color:var(--red);padding:3px 8px" title="Supprimer">×</button>` : ''}
+           </div>`
+        : `<span style="flex:1;font-size:11px;color:var(--text-mute);font-style:italic">— vide —</span>
+           ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-up-script-voice="${s.id}|${slotKey}" style="padding:3px 10px;font-size:11px;color:var(--gold)" title="Uploader un fichier audio">+ Upload</button>` : ''}`}
     </div>`;
   };
   const voiceSectionHtml = canManageVoice ? `
-    <div style="margin-top:18px;padding:14px 16px;background:rgba(192,132,252,0.04);border:1px solid rgba(192,132,252,0.2);border-radius:8px">
-      <div style="font-weight:700;color:var(--purple);font-size:12px;margin-bottom:8px;letter-spacing:0.5px">
-        🎤 VOIX (brute GenAIPro)
+    <div style="margin-top:18px;padding:14px 16px;background:rgba(192,132,252,0.04);border-left:3px solid var(--purple);border-radius:8px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">
+        <div style="font-weight:700;color:var(--purple);font-size:12px;letter-spacing:0.5px">🎤 VOIX</div>
+        <details style="font-size:11px;color:var(--text-dim)">
+          <summary style="cursor:pointer;outline:none;user-select:none">💡 Comment processer ?</summary>
+          <div style="margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:4px;line-height:1.7">
+            <span style="opacity:0.7">Workflow externe :</span>
+            <span style="color:var(--text)">⬇ Download</span>
+            <span style="opacity:0.5">→</span>
+            <a href="https://audiotrimmer.com/audio-speed-changer/" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:none">audiotrimmer ×1.3</a>
+            <span style="opacity:0.5">→</span>
+            <a href="https://bahaasr.com/" target="_blank" rel="noopener noreferrer" style="color:var(--blue);text-decoration:none">bahaasr cut silences</a>
+            <span style="opacity:0.5">→</span>
+            <span style="color:var(--text)">× puis + Upload</span>
+          </div>
+        </details>
       </div>
-      <div style="margin-bottom:12px;padding:10px 12px;background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.3);border-radius:6px;font-size:11px;line-height:1.5;color:var(--text)">
-        <div style="font-weight:700;color:var(--orange);font-size:10px;margin-bottom:6px;letter-spacing:0.5px">💡 WORKFLOW PROCESS EXTERNE</div>
-        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span style="background:var(--bg);padding:2px 7px;border-radius:4px;font-weight:600">1. ⬇ Download</span>
-          <span style="color:var(--text-dim)">→</span>
-          <a href="https://audiotrimmer.com/audio-speed-changer/" target="_blank" rel="noopener noreferrer" style="background:var(--bg);padding:2px 7px;border-radius:4px;color:var(--blue);text-decoration:none;font-weight:600">2. 🔗 audiotrimmer (speed ×1.3)</a>
-          <span style="color:var(--text-dim)">→</span>
-          <a href="https://bahaasr.com/" target="_blank" rel="noopener noreferrer" style="background:var(--bg);padding:2px 7px;border-radius:4px;color:var(--blue);text-decoration:none;font-weight:600">3. 🔗 bahaasr (cut silences)</a>
-          <span style="color:var(--text-dim)">→</span>
-          <span style="background:var(--bg);padding:2px 7px;border-radius:4px;font-weight:600">4. × puis + Upload</span>
-        </div>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:8px">
+      <div>
         ${(Array.isArray(s.hooks) ? s.hooks : []).map((h, i) =>
           voiceSlotHtml(`Hook ${i + 1}`, `hook:${i}`, hookVoicesMap[i])
         ).join('')}
-        ${voiceSlotHtml('Body (corps)', 'body', bodyVoice)}
+        ${voiceSlotHtml('Body', 'body', bodyVoice)}
       </div>
     </div>
   ` : '';
