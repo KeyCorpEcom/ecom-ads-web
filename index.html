@@ -420,6 +420,8 @@ a{color:var(--gold);text-decoration:none}
 .script-ad-row{padding:14px 16px;background:var(--bg-input);border-radius:10px;border-left:3px solid var(--border);margin-bottom:10px;transition:all 0.15s}
 .script-ad-row.done{opacity:0.55;border-left-color:var(--green)}
 .script-ad-row.todo{border-left-color:var(--orange)}
+.script-card-link:hover .script-ad-row{border-color:var(--gold);background:var(--bg-card-hover, var(--bg-card));transform:translateX(2px)}
+.script-card-link:hover .script-ad-row.done{opacity:0.85}
 .script-ad-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .script-ad-name{font-size:14px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace}
 .script-status{font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px}
@@ -1132,6 +1134,11 @@ async function render(e) {
     else if (page === 'scripts') {
       if (params[0]) await renderScriptDetail(el, params[0]);
       else await renderScriptsList(el);
+    }
+    else if (page === 'script') {
+      // Page dédiée à UN script (cliqué depuis la liste des scripts d'un produit)
+      if (params[0]) await renderSingleScript(el, params[0]);
+      else el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Script ID manquant</div></div>';
     }
     else el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Page introuvable</div></div>';
   } catch (e) {
@@ -10069,100 +10076,30 @@ async function renderScriptDetail(el, productId) {
         const srcCountry = s.source_country || 'FR';
         const srcBadge = `<span title="Pays source — le master sera produit en langue ${escapeHtml(srcCountry)}" style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:5px;background:rgba(192,132,252,0.12);color:var(--purple);font-size:10px;font-weight:700;letter-spacing:0.4px">SRC ${escapeHtml(srcCountry)}</span>`;
 
-        // Accordion : collapsed par défaut, état mémorisé en localStorage
-        const expandedKey = 'script_expanded_' + s.id;
-        const isExpanded = localStorage.getItem(expandedKey) === 'true';
-        const chevron = `<span class="script-chevron" style="display:inline-block;transition:transform 0.2s;color:var(--text-dim);transform:rotate(${isExpanded ? '90' : '0'}deg);font-size:14px">▸</span>`;
-
-        // Section voix manuelles : 1 upload par hook + 1 body
+        // Calcul du résumé : hooks + voix uploadées + indicateur script écrit
         const voiceUploads = (s.voice_uploads && typeof s.voice_uploads === 'object') ? s.voice_uploads : {};
-        const hookVoicesMap = {};
-        (voiceUploads.hooks || []).forEach(h => { hookVoicesMap[h.idx] = h; });
+        const hookVoiceCount = Array.isArray(voiceUploads.hooks) ? voiceUploads.hooks.length : 0;
         const bodyVoice = voiceUploads.body || null;
-        const canManageVoice = isAdminUser || isVideoEd;
-        const voiceSlotHtml = (label, slotKey, fileEntry) => {
-          const hasFile = fileEntry && fileEntry.drive_file_id;
-          return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border-soft)">
-            <span style="font-size:11px;font-weight:600;color:var(--text-dim);min-width:110px">${escapeHtml(label)}</span>
-            ${hasFile
-              ? `<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                  <audio controls preload="none" style="flex:1;min-width:200px;max-width:380px;height:30px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(fileEntry.drive_file_id)}"></audio>
-                  <button class="btn btn-ghost btn-sm" data-dl-script-voice="${s.id}|${slotKey}" data-voice-fileid="${escapeHtml(fileEntry.drive_file_id)}" data-voice-filename="${escapeHtml(fileEntry.file_name || '')}" title="Télécharger ${escapeHtml(label)}">⬇ Download</button>
-                  ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-rm-script-voice="${s.id}|${slotKey}" style="color:var(--red);padding:4px 8px" title="Supprimer ce fichier">×</button>` : ''}
-                </div>`
-              : `<div style="flex:1;display:flex;align-items:center;gap:6px">
-                  <span style="font-size:11px;color:var(--text-mute);font-style:italic">Aucun fichier</span>
-                  ${isAdminUser ? `<button class="btn btn-sm" data-up-script-voice="${s.id}|${slotKey}" style="padding:4px 10px;font-size:11px">+ Upload</button>` : ''}
-                </div>`}
-          </div>`;
-        };
-        const voiceSectionHtml = canManageVoice ? `
-          <div style="margin-top:10px;padding:10px 12px;background:rgba(192,132,252,0.04);border:1px solid rgba(192,132,252,0.2);border-radius:6px">
-            <div style="font-weight:700;color:var(--purple);font-size:11px;margin-bottom:8px;letter-spacing:0.5px;display:flex;align-items:center;justify-content:space-between">
-              <span>🎤 VOIX (uploads manuels — bypass GenAIPro)</span>
-              <span style="font-size:10px;font-weight:500;color:var(--text-mute);font-style:italic">Hook + Body séparés. Fadel assemble dans son éditeur.</span>
-            </div>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              ${(Array.isArray(s.hooks) ? s.hooks : []).map((h, i) =>
-                voiceSlotHtml(`Hook ${i + 1}`, `hook:${i}`, hookVoicesMap[i])
-              ).join('')}
-              ${voiceSlotHtml('Body (corps)', 'body', bodyVoice)}
-            </div>
-          </div>
-        ` : '';
-
-        // Résumé compact pour le mode collapsed
         const summaryBits = [];
         if (Array.isArray(s.hooks) && s.hooks.length > 0) summaryBits.push(`${s.hooks.length} hook${s.hooks.length > 1 ? 's' : ''}`);
-        const hookVoiceCount = Object.keys(hookVoicesMap).length;
         if (hookVoiceCount > 0 || bodyVoice) summaryBits.push(`🎤 ${hookVoiceCount + (bodyVoice ? 1 : 0)} voix`);
-        const collapsedSummary = summaryBits.length > 0 ? `<span style="font-size:11px;color:var(--text-mute);margin-left:8px">${summaryBits.join(' · ')}</span>` : '';
+        if (script) summaryBits.push(`📝 ${script.length}c`);
+        const summary = summaryBits.length > 0 ? summaryBits.join(' · ') : 'Vide';
 
         return `
-          <div class="script-ad-row ${rowClass}" data-script-id="${s.id}">
-            <div class="script-ad-head" data-toggle-script="${s.id}" style="cursor:pointer">
-              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1">
-                ${chevron}
-                <span class="script-ad-name">${escapeHtml(s.name)}</span>
-                ${srcBadge}
-                ${statusBadge}
-                ${!isExpanded ? collapsedSummary : ''}
+          <a class="script-card-link" href="#script/${escapeHtml(s.id)}" style="display:block;text-decoration:none;color:inherit">
+            <div class="script-ad-row ${rowClass} script-card-clickable" data-script-id="${s.id}" style="cursor:pointer;transition:background 0.15s,border-color 0.15s">
+              <div class="script-ad-head" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1;min-width:0">
+                  <span class="script-ad-name" style="font-weight:600">${escapeHtml(s.name)}</span>
+                  ${srcBadge}
+                  ${statusBadge}
+                  <span style="font-size:11px;color:var(--text-mute);margin-left:4px">${summary}</span>
+                </div>
+                <span style="color:var(--text-dim);font-size:18px;line-height:1;flex-shrink:0" title="Ouvrir le script">→</span>
               </div>
-              ${isExpanded ? `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap" onclick="event.stopPropagation()">
-                ${actionBtns.join('')}
-              </div>` : ''}
             </div>
-            <div class="script-ad-body" style="${isExpanded ? '' : 'display:none'}">
-              ${isRejected && s.master_feedback ? `
-                <div style="padding:10px 12px;background:rgba(248,113,113,0.08);border-left:3px solid var(--red);border-radius:6px;margin-bottom:10px">
-                  <div style="font-weight:700;color:var(--red);font-size:11px;margin-bottom:6px;letter-spacing:0.5px">FEEDBACK ADMIN</div>
-                  <div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${escapeHtml(s.master_feedback)}</div>
-                </div>
-              ` : ''}
-              ${Array.isArray(s.hooks) && s.hooks.length > 0 ? `
-                <div style="margin-bottom:10px;padding:10px 12px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:6px">
-                  <div style="font-weight:700;color:var(--purple);font-size:11px;margin-bottom:8px;letter-spacing:0.5px">🎯 HOOKS À TESTER (${s.hooks.length} variante${s.hooks.length > 1 ? 's' : ''} — 1 vidéo par hook)</div>
-                  <ol style="margin:0;padding-left:22px;font-size:13px;line-height:1.6;color:var(--text)">
-                    ${s.hooks.map(h => `<li style="margin-bottom:4px"><span style="color:var(--text)">${escapeHtml(h)}</span></li>`).join('')}
-                  </ol>
-                </div>
-              ` : ''}
-              ${voiceSectionHtml}
-              <div style="margin-top:10px">
-                ${script
-                  ? `<div class="script-text">${escapeHtml(script)}</div>`
-                  : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Écrire script"' : 'Le script sera ajouté par l\'admin'}</div>`
-                }
-              </div>
-              ${s.voice_file_id && !voiceUploads.body && (!voiceUploads.hooks || voiceUploads.hooks.length === 0) ? `
-                <div style="margin-top:10px;padding:10px 12px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:6px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-                  <div style="font-size:11px;color:var(--purple);font-weight:700;letter-spacing:0.5px">VOIX TTS LEGACY ${escapeHtml(s.voice_gender || '?')}</div>
-                  <audio controls preload="none" style="flex:1;min-width:240px;max-width:480px;height:34px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(s.voice_file_id)}"></audio>
-                  <span style="font-size:11px;color:var(--text-dim)">${s.voice_generated_at ? new Date(s.voice_generated_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
-                </div>
-              ` : ''}
-            </div>
-          </div>
+          </a>
         `;
       }).join('')}
     </div>
@@ -10184,90 +10121,214 @@ async function renderScriptDetail(el, productId) {
     });
   });
 
-  // Boutons admin
+  // Boutons d'en-tête : nouveau script + paramètres produit
   document.getElementById('btn-new-script')?.addEventListener('click', () => createScriptFlow(productId));
   document.getElementById('btn-edit-product-from-scripts')?.addEventListener('click', () => editProductFlow(productId));
   document.getElementById('prio-badge-clickable')?.addEventListener('click', () => editProductFlow(productId));
-  el.querySelectorAll('[data-edit-script]').forEach(btn => btn.addEventListener('click', () => editAdScriptFlow(btn.dataset.editScript)));
-  el.querySelectorAll('[data-delete-script]').forEach(btn => btn.addEventListener('click', () => deleteScriptFlow(btn.dataset.deleteScript)));
 
-  // Bouton upload master (admin + video_editor)
-  el.querySelectorAll('[data-upload-script-master]').forEach(btn => {
-    btn.addEventListener('click', () => uploadScriptMasterFlow(btn.dataset.uploadScriptMaster, btn.dataset.scriptName));
-  });
-
-  // Bouton download master FR (pour HeyGen / ZapCap)
-  el.querySelectorAll('[data-download-script-master]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const fileId = btn.dataset.downloadScriptMaster;
-      const name = btn.dataset.scriptName;
-      downloadDriveFile(fileId, `${name}.mp4`);
-    });
-  });
-
-  // Boutons admin : valider / rejeter
-  el.querySelectorAll('[data-approve-script]').forEach(btn => {
-    btn.addEventListener('click', () => approveScriptMasterFlow(btn.dataset.approveScript));
-  });
-  el.querySelectorAll('[data-reject-script]').forEach(btn => {
-    btn.addEventListener('click', () => rejectScriptMasterFlow(btn.dataset.rejectScript));
-  });
-
-  // Boutons génération voix TTS (admin + video_editor)
-  el.querySelectorAll('[data-gen-voice-f]').forEach(btn => {
-    btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceF, 'F'));
-  });
-  el.querySelectorAll('[data-gen-voice-m]').forEach(btn => {
-    btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceM, 'M'));
-  });
-
-  // Accordion : toggle expand/collapse au clic sur l'en-tête du script
-  el.querySelectorAll('[data-toggle-script]').forEach(head => {
-    head.addEventListener('click', (ev) => {
-      // Ignore les clics sur boutons / liens à l'intérieur (ils ont stopPropagation déjà sur le wrapper d'actions, mais belt+suspenders)
-      const tag = (ev.target && ev.target.closest('button, a, input, audio, [data-no-toggle]'));
-      if (tag) return;
-      const scriptId = head.dataset.toggleScript;
-      const key = 'script_expanded_' + scriptId;
-      const isOpen = localStorage.getItem(key) === 'true';
-      localStorage.setItem(key, isOpen ? 'false' : 'true');
-      // Toggle visuellement sans re-render complet
-      const row = head.closest('.script-ad-row');
-      const body = row?.querySelector('.script-ad-body');
-      const chev = head.querySelector('.script-chevron');
-      if (body) body.style.display = isOpen ? 'none' : '';
-      if (chev) chev.style.transform = `rotate(${isOpen ? '0' : '90'}deg)`;
-      // Re-render pour réafficher/cacher le résumé + les boutons d'action dans le head
-      render();
-    });
-  });
-
-  // Voix manuelles : upload, download, remove
-  el.querySelectorAll('[data-up-script-voice]').forEach(btn => {
-    btn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const [scriptId, slotKey] = btn.dataset.upScriptVoice.split('|');
-      uploadScriptVoiceFlow(scriptId, slotKey);
-    });
-  });
-  el.querySelectorAll('[data-dl-script-voice]').forEach(btn => {
-    btn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const fileId = btn.dataset.voiceFileid;
-      const fileName = btn.dataset.voiceFilename || 'voice.mp3';
-      downloadDriveFile(fileId, fileName);
-    });
-  });
-  el.querySelectorAll('[data-rm-script-voice]').forEach(btn => {
-    btn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      const [scriptId, slotKey] = btn.dataset.rmScriptVoice.split('|');
-      removeScriptVoiceFlow(scriptId, slotKey);
-    });
-  });
+  // Les rows sont des <a href="#script/...">, le navigateur gère la navigation
+  // (plus de toggle/accordion : page dédiée pour le détail)
 
   // Charger B-rolls si onglet actif
   if (activeTab === 'brolls') loadBRollsTab(product, isAdminUser);
+}
+
+// =====================================================
+// Page dédiée à UN script (route #script/<scriptId>)
+// Remplace l'ancien accordion inline dans la liste des scripts.
+// =====================================================
+async function renderSingleScript(el, scriptId) {
+  const isAdminUser = isAdmin();
+  const isVideoEd = isVideoEditor();
+
+  const { data: s, error } = await sb.from('ads').select('*').eq('id', scriptId).maybeSingle();
+  if (error || !s) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon"></div><div class="empty-title">Script introuvable</div><a class="btn mt-md" href="#scripts">← Retour scripts</a></div>';
+    return;
+  }
+  const { data: product } = await sb.from('products').select('*').eq('id', s.product_id).maybeSingle();
+
+  const script = s.script || '';
+  const status = s.master_status;
+  const isApproved = status === 'approved' || !!s.master_file_id;
+  const isPending = status === 'pending';
+  const isRejected = status === 'rejected';
+  const approvedUrl = s.master_file_id ? `https://drive.google.com/file/d/${s.master_file_id}/view` : null;
+  const pendingUrl = s.master_pending_file_id ? `https://drive.google.com/file/d/${s.master_pending_file_id}/view` : null;
+
+  let statusBadge;
+  if (isApproved) statusBadge = '<span class="script-status done">✓ Validé</span>';
+  else if (isPending) statusBadge = '<span class="script-status" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏱ À valider par admin</span>';
+  else if (isRejected) statusBadge = '<span class="script-status" style="background:rgba(248,113,113,0.15);color:var(--red)">✗ Rejeté — à refaire</span>';
+  else statusBadge = '<span class="script-status todo">À produire</span>';
+
+  // Action buttons (mêmes que dans l'ancienne expanded view)
+  const actionBtns = [];
+  if (isApproved && approvedUrl) {
+    actionBtns.push(`<a href="${escapeHtml(approvedUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir la vidéo ↗</a>`);
+    if (isAdminUser || isVideoEd) {
+      actionBtns.push(`<button class="btn btn-ghost btn-sm" data-download-script-master="${s.master_file_id}" data-script-name="${escapeHtml(s.name)}" title="Télécharger le master FR pour le traduire en HeyGen + ZapCap">⬇ Télécharger master</button>`);
+      actionBtns.push(`<a href="#produit/${escapeHtml(s.product_id)}" class="btn btn-sm" style="background:rgba(96,165,250,0.15);color:var(--blue);border:1px solid rgba(96,165,250,0.35);font-weight:600">Aller traduire →</a>`);
+    }
+  }
+  if (isPending && pendingUrl) {
+    actionBtns.push(`<a href="${escapeHtml(pendingUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Voir la vidéo uploadée ↗</a>`);
+    if (isAdminUser) {
+      actionBtns.push(`<button class="btn btn-sm" style="background:var(--green);color:#000" data-approve-script="${s.id}">✓ Valider</button>`);
+      actionBtns.push(`<button class="btn btn-sm btn-danger" data-reject-script="${s.id}">Rejeter</button>`);
+    }
+  }
+  if (isRejected) {
+    if (pendingUrl) actionBtns.push(`<a href="${escapeHtml(pendingUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir la vidéo rejetée ↗</a>`);
+    if (isAdminUser || isVideoEd) {
+      actionBtns.push(`<button class="btn btn-sm" data-upload-script-master="${s.id}" data-script-name="${escapeHtml(s.name)}">Re-uploader corrigé</button>`);
+    }
+  }
+  if (!isApproved && !isPending && !isRejected) {
+    if (isAdminUser || isVideoEd) {
+      actionBtns.push(`<button class="btn btn-sm" data-upload-script-master="${s.id}" data-script-name="${escapeHtml(s.name)}">Uploader la vidéo produite</button>`);
+    }
+  }
+  if ((isAdminUser || isVideoEd) && script) {
+    actionBtns.push(`<button class="btn btn-ghost btn-sm" data-gen-voice-f="${s.id}" title="Générer la voix ♀ via GenAIPro">🔊 ♀</button>`);
+    actionBtns.push(`<button class="btn btn-ghost btn-sm" data-gen-voice-m="${s.id}" title="Générer la voix ♂ via GenAIPro">🔊 ♂</button>`);
+  }
+  if (isAdminUser) {
+    actionBtns.push(`<button class="btn btn-ghost btn-sm" data-edit-script="${s.id}">${script ? 'Éditer script' : '+ Écrire script'}</button>`);
+    actionBtns.push(`<button class="btn btn-ghost btn-sm" data-delete-script="${s.id}" style="color:var(--red)">Supprimer</button>`);
+  }
+
+  const srcCountry = s.source_country || 'FR';
+  const srcBadge = `<span title="Pays source — master en langue ${escapeHtml(srcCountry)}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:5px;background:rgba(192,132,252,0.12);color:var(--purple);font-size:11px;font-weight:700;letter-spacing:0.4px">SRC ${escapeHtml(srcCountry)}</span>`;
+
+  // Section voix
+  const voiceUploads = (s.voice_uploads && typeof s.voice_uploads === 'object') ? s.voice_uploads : {};
+  const hookVoicesMap = {};
+  (voiceUploads.hooks || []).forEach(h => { hookVoicesMap[h.idx] = h; });
+  const bodyVoice = voiceUploads.body || null;
+  const canManageVoice = isAdminUser || isVideoEd;
+  const voiceSlotHtml = (label, slotKey, fileEntry) => {
+    const hasFile = fileEntry && fileEntry.drive_file_id;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-input);border-radius:6px;border:1px solid var(--border-soft)">
+      <span style="font-size:12px;font-weight:600;color:var(--text-dim);min-width:120px">${escapeHtml(label)}</span>
+      ${hasFile
+        ? `<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <audio controls preload="none" style="flex:1;min-width:220px;max-width:420px;height:32px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(fileEntry.drive_file_id)}"></audio>
+            <button class="btn btn-ghost btn-sm" data-dl-script-voice="${s.id}|${slotKey}" data-voice-fileid="${escapeHtml(fileEntry.drive_file_id)}" data-voice-filename="${escapeHtml(fileEntry.file_name || '')}" title="Télécharger ${escapeHtml(label)}">⬇ Download</button>
+            ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-rm-script-voice="${s.id}|${slotKey}" style="color:var(--red);padding:4px 8px" title="Supprimer ce fichier">×</button>` : ''}
+          </div>`
+        : `<div style="flex:1;display:flex;align-items:center;gap:6px">
+            <span style="font-size:12px;color:var(--text-mute);font-style:italic">Aucun fichier</span>
+            ${isAdminUser ? `<button class="btn btn-sm" data-up-script-voice="${s.id}|${slotKey}" style="padding:4px 10px;font-size:11px">+ Upload</button>` : ''}
+          </div>`}
+    </div>`;
+  };
+  const voiceSectionHtml = canManageVoice ? `
+    <div style="margin-top:18px;padding:14px 16px;background:rgba(192,132,252,0.04);border:1px solid rgba(192,132,252,0.2);border-radius:8px">
+      <div style="font-weight:700;color:var(--purple);font-size:12px;margin-bottom:10px;letter-spacing:0.5px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px">
+        <span>🎤 VOIX (post-process FFmpeg auto : ×${FFMPEG_SPEED} + cut silences)</span>
+        <span style="font-size:10px;font-weight:500;color:var(--text-mute);font-style:italic">Hook + Body séparés. Fadel assemble dans son éditeur.</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${(Array.isArray(s.hooks) ? s.hooks : []).map((h, i) =>
+          voiceSlotHtml(`Hook ${i + 1}`, `hook:${i}`, hookVoicesMap[i])
+        ).join('')}
+        ${voiceSlotHtml('Body (corps)', 'body', bodyVoice)}
+      </div>
+    </div>
+  ` : '';
+
+  const backHref = `#scripts/${escapeHtml(s.product_id)}`;
+  const productHref = `#produit/${escapeHtml(s.product_id)}`;
+
+  el.innerHTML = `
+    <div class="page-head">
+      <div style="flex:1;min-width:0">
+        <a class="btn btn-ghost btn-sm" href="${backHref}" style="margin-bottom:8px">← Scripts du produit</a>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="page-title" style="font-size:22px">${escapeHtml(s.name)}</div>
+          ${srcBadge}
+          ${statusBadge}
+        </div>
+        <div class="page-subtitle" style="margin-top:6px">
+          <a href="${productHref}" style="color:var(--gold);text-decoration:none;font-family:monospace">${escapeHtml(s.product_id)}</a>
+          <span style="color:var(--text-dim)"> · ${escapeHtml(product?.name || '—')}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+        ${actionBtns.join('')}
+      </div>
+    </div>
+
+    ${isRejected && s.master_feedback ? `
+      <div style="padding:14px 16px;background:rgba(248,113,113,0.08);border-left:3px solid var(--red);border-radius:8px;margin-bottom:14px">
+        <div style="font-weight:700;color:var(--red);font-size:12px;margin-bottom:6px;letter-spacing:0.5px">FEEDBACK ADMIN</div>
+        <div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${escapeHtml(s.master_feedback)}</div>
+      </div>
+    ` : ''}
+
+    ${Array.isArray(s.hooks) && s.hooks.length > 0 ? `
+      <div style="margin-bottom:14px;padding:14px 16px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:8px">
+        <div style="font-weight:700;color:var(--purple);font-size:12px;margin-bottom:10px;letter-spacing:0.5px">🎯 HOOKS À TESTER (${s.hooks.length} variante${s.hooks.length > 1 ? 's' : ''} — 1 vidéo par hook)</div>
+        <ol style="margin:0;padding-left:24px;font-size:14px;line-height:1.7;color:var(--text)">
+          ${s.hooks.map(h => `<li style="margin-bottom:6px"><span style="color:var(--text)">${escapeHtml(h)}</span></li>`).join('')}
+        </ol>
+      </div>
+    ` : ''}
+
+    ${voiceSectionHtml}
+
+    <div style="margin-top:18px">
+      <div style="font-weight:700;color:var(--text-dim);font-size:12px;margin-bottom:8px;letter-spacing:0.5px">📝 SCRIPT (BODY)</div>
+      ${script
+        ? `<div class="script-text" style="white-space:pre-wrap;line-height:1.6">${escapeHtml(script)}</div>`
+        : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Écrire script"' : 'Le script sera ajouté par l\'admin'}</div>`
+      }
+    </div>
+
+    ${s.voice_file_id && !voiceUploads.body && (!voiceUploads.hooks || voiceUploads.hooks.length === 0) ? `
+      <div style="margin-top:14px;padding:12px 14px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="font-size:11px;color:var(--purple);font-weight:700;letter-spacing:0.5px">VOIX TTS LEGACY ${escapeHtml(s.voice_gender || '?')}</div>
+        <audio controls preload="none" style="flex:1;min-width:240px;max-width:480px;height:34px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(s.voice_file_id)}"></audio>
+        <span style="font-size:11px;color:var(--text-dim)">${s.voice_generated_at ? new Date(s.voice_generated_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
+      </div>
+    ` : ''}
+  `;
+
+  // === Event listeners ===
+  el.querySelectorAll('[data-edit-script]').forEach(btn => btn.addEventListener('click', () => editAdScriptFlow(btn.dataset.editScript)));
+  el.querySelectorAll('[data-delete-script]').forEach(btn => btn.addEventListener('click', () => deleteScriptFlow(btn.dataset.deleteScript)));
+  el.querySelectorAll('[data-upload-script-master]').forEach(btn => {
+    btn.addEventListener('click', () => uploadScriptMasterFlow(btn.dataset.uploadScriptMaster, btn.dataset.scriptName));
+  });
+  el.querySelectorAll('[data-download-script-master]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      downloadDriveFile(btn.dataset.downloadScriptMaster, `${btn.dataset.scriptName}.mp4`);
+    });
+  });
+  el.querySelectorAll('[data-approve-script]').forEach(btn => btn.addEventListener('click', () => approveScriptMasterFlow(btn.dataset.approveScript)));
+  el.querySelectorAll('[data-reject-script]').forEach(btn => btn.addEventListener('click', () => rejectScriptMasterFlow(btn.dataset.rejectScript)));
+  el.querySelectorAll('[data-gen-voice-f]').forEach(btn => btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceF, 'F')));
+  el.querySelectorAll('[data-gen-voice-m]').forEach(btn => btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceM, 'M')));
+
+  // Voix manuelles : upload, download, remove
+  el.querySelectorAll('[data-up-script-voice]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sid, slotKey] = btn.dataset.upScriptVoice.split('|');
+      uploadScriptVoiceFlow(sid, slotKey);
+    });
+  });
+  el.querySelectorAll('[data-dl-script-voice]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      downloadDriveFile(btn.dataset.voiceFileid, btn.dataset.voiceFilename || 'voice.mp3');
+    });
+  });
+  el.querySelectorAll('[data-rm-script-voice]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sid, slotKey] = btn.dataset.rmScriptVoice.split('|');
+      removeScriptVoiceFlow(sid, slotKey);
+    });
+  });
 }
 
 // Helper : s'assure que gapi.client.drive est initialisé ET que le token OAuth est bien set
