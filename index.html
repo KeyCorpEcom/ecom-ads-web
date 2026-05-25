@@ -11109,31 +11109,15 @@ function splitTextForTts(text, maxChars = 800) {
 }
 
 /**
- * Concat N blobs mp3 en un seul blob mp3 via FFmpeg.wasm.
- * Le protocole "concat:" marche au byte-level pour les mp3 (frames self-contained).
+ * Concat N blobs mp3 en un seul blob mp3.
+ * → BYTE-LEVEL : les frames MP3 sont self-contained, on peut juste coller les bytes
+ *   sans passer par FFmpeg.wasm (qui aurait besoin de SharedArrayBuffer = COEP headers).
+ * Le post-process FFmpeg suivant (silenceremove) viendra effacer la mini-pause entre chunks.
  */
 async function concatMp3Blobs(blobs) {
   if (!blobs || blobs.length === 0) throw new Error('Aucun blob à concaténer');
   if (blobs.length === 1) return blobs[0];
-  const { fetchFile } = FFmpeg;
-  const ff = await getFFmpeg();
-  const baseTs = Date.now();
-  const inputs = [];
-  for (let i = 0; i < blobs.length; i++) {
-    const name = `chunk_${baseTs}_${i}.mp3`;
-    ff.FS('writeFile', name, await fetchFile(blobs[i]));
-    inputs.push(name);
-  }
-  const concatInput = `concat:${inputs.join('|')}`;
-  const outputName = `concat_${baseTs}.mp3`;
-  try {
-    await ff.run('-i', concatInput, '-acodec', 'copy', '-y', outputName);
-    const data = ff.FS('readFile', outputName);
-    return new Blob([data.buffer], { type: 'audio/mpeg' });
-  } finally {
-    for (const name of inputs) { try { ff.FS('unlink', name); } catch {} }
-    try { ff.FS('unlink', outputName); } catch {}
-  }
+  return new Blob(blobs, { type: 'audio/mpeg' });
 }
 
 /**
