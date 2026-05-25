@@ -11653,20 +11653,25 @@ async function generateScriptVoiceFlow(scriptId, gender) {
       catch (e) { console.warn('[old voice trash]', e); }
     }
 
-    // Upload Drive
+    // Upload Drive (wrap dans driveCallWithRetry pour gérer le token expiré après long polling TTS)
     stepLabels.set(p.slotKey, `${p.label}: upload Drive`);
     refreshOverlay();
     const fileName = `${scriptAd.name} - ${p.label} (${gender}).mp3`;
     try {
-      const fileObj = new File([mp3Blob], fileName, { type: 'audio/mpeg' });
-      uploaded = await driveUploadFile(fileObj, voicesFolder.id, fileName);
-      if (!uploaded?.id) throw new Error('Upload Drive sans id');
-      try {
-        await gapi.client.drive.permissions.create({
-          fileId: uploaded.id,
-          resource: { role: 'reader', type: 'anyone' }
-        });
-      } catch (e) { console.warn('[voice auto-share]', e); }
+      uploaded = await driveCallWithRetry(async () => {
+        // ensureDriveReady refresh le token si expiré (ce qui arrive souvent après >5 min de TTS)
+        await ensureDriveReady();
+        const fileObj = new File([mp3Blob], fileName, { type: 'audio/mpeg' });
+        const up = await driveUploadFile(fileObj, voicesFolder.id, fileName);
+        if (!up?.id) throw new Error('Upload Drive sans id');
+        try {
+          await gapi.client.drive.permissions.create({
+            fileId: up.id,
+            resource: { role: 'reader', type: 'anyone' }
+          });
+        } catch (e) { console.warn('[voice auto-share]', e); }
+        return up;
+      });
     } catch (e) {
       console.error(`[gen voice ${p.label} Drive]`, e);
       stepLabels.set(p.slotKey, 'done');
