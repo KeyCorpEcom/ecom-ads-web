@@ -12,7 +12,10 @@
 <!-- FFmpeg.wasm v0.11 (single-thread, pas besoin de COEP/COOP) — pour processing audio (speed + remove silences) -->
 <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 <!-- lamejs : MP3 encoder pur JS (sans SharedArrayBuffer) — pour concat propre des chunks TTS -->
-<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+<!-- Fork breezystack = version maintenue, expose lamejs global -->
+<script src="https://cdn.jsdelivr.net/npm/@breezystack/lamejs@1.2.7/dist/lame.min.js"
+        onload="console.log('[lamejs] loaded OK, version:', typeof lamejs !== 'undefined' ? 'present' : 'MISSING global')"
+        onerror="console.error('[lamejs] FAILED to load from CDN — body chunks will fallback to byte-concat (not playable in HTML5 audio)')"></script>
 <!-- Chart.js : chargé en lazy uniquement sur la page Analytics (gain ~80 KB au login) -->
 <!-- Google Identity + gapi : chargés en lazy au 1er besoin Drive (gain ~150 KB pour les users qui ne touchent jamais Drive) -->
 
@@ -11124,15 +11127,18 @@ async function concatMp3Blobs(blobs) {
   if (blobs.length === 1) return blobs[0];
 
   try {
-    if (typeof lamejs === 'undefined') throw new Error('lamejs non chargé');
+    console.log(`[concatMp3Blobs] start: ${blobs.length} blobs, total ${blobs.reduce((s,b) => s+b.size, 0)} bytes`);
+    if (typeof lamejs === 'undefined') throw new Error('lamejs non chargé (script CDN bloqué ou pas encore initialisé)');
+    if (!lamejs.Mp3Encoder) throw new Error('lamejs.Mp3Encoder absent (mauvaise version chargée)');
 
     // 1. Décodage de chaque mp3 → AudioBuffer
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     const ctx = new AudioCtx();
     const buffers = [];
-    for (const blob of blobs) {
-      const ab = await blob.arrayBuffer();
+    for (let i = 0; i < blobs.length; i++) {
+      const ab = await blobs[i].arrayBuffer();
       const decoded = await ctx.decodeAudioData(ab.slice(0));
+      console.log(`[concatMp3Blobs] decoded chunk ${i+1}/${blobs.length}: ${decoded.duration.toFixed(2)}s @ ${decoded.sampleRate}Hz, ${decoded.numberOfChannels}ch`);
       buffers.push(decoded);
     }
 
@@ -11169,10 +11175,12 @@ async function concatMp3Blobs(blobs) {
     const end = encoder.flush();
     if (end.length > 0) mp3Chunks.push(end);
 
-    return new Blob(mp3Chunks, { type: 'audio/mpeg' });
+    const out = new Blob(mp3Chunks, { type: 'audio/mpeg' });
+    console.log(`[concatMp3Blobs] ✓ encoded MP3: ${out.size} bytes`);
+    return out;
   } catch (e) {
-    console.warn('[concatMp3Blobs] Web Audio + lamejs failed, fallback byte-concat:', e);
-    toast('Concat propre échoué, fallback byte-concat (peut ne pas marcher dans le player browser)', 'warn', 6000);
+    console.error('[concatMp3Blobs] FAILED, fallback byte-concat:', e);
+    toast(`Concat propre KO (${e.message}) — fallback byte-concat (peut ne pas marcher dans le player)`, 'warn', 9000);
     return new Blob(blobs, { type: 'audio/mpeg' });
   }
 }
