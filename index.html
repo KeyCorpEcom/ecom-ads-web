@@ -10266,10 +10266,25 @@ async function renderSingleScript(el, scriptId) {
   const canManageVoice = isAdminUser || isVideoEd;
   const voiceSlotHtml = (label, slotKey, fileEntry) => {
     const hasFile = fileEntry && fileEntry.drive_file_id;
-    return `<div class="voice-slot" style="display:flex;align-items:center;gap:12px;padding:8px 4px;border-bottom:1px solid var(--border-soft)">
-      <span style="font-size:12px;font-weight:600;color:var(--text);min-width:70px">${escapeHtml(label)}</span>
+    // Badge état : 🟠 brute (GenAIPro, à processer) · 🟢 processée (re-uploaded) · — vide
+    let statusDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--border);flex-shrink:0" title="Vide"></span>';
+    let statusBadge = '';
+    if (hasFile) {
+      const isBrute = fileEntry.source === 'genaipro';
+      if (isBrute) {
+        statusDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange);flex-shrink:0" title="Voix brute GenAIPro — à processer (speed + cut silences) puis ↻ Replace"></span>';
+        statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(251,191,36,0.18);color:var(--orange);letter-spacing:0.5px;flex-shrink:0" title="À processer dans audiotrimmer puis bahaasr">À PROCESSER</span>`;
+      } else {
+        statusDot = '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0" title="Voix processée et uploadée — prête pour Fadel"></span>';
+        statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.18);color:var(--green);letter-spacing:0.5px;flex-shrink:0" title="Prête à utiliser">✓ PRÊTE</span>`;
+      }
+    }
+    return `<div class="voice-slot" style="display:flex;align-items:center;gap:10px;padding:8px 4px;border-bottom:1px solid var(--border-soft)">
+      ${statusDot}
+      <span style="font-size:12px;font-weight:600;color:var(--text);min-width:60px">${escapeHtml(label)}</span>
+      ${statusBadge}
       ${hasFile
-        ? `<audio controls preload="none" style="flex:1;min-width:200px;max-width:420px;height:30px" data-drive-audio-fileid="${escapeHtml(fileEntry.drive_file_id)}"></audio>
+        ? `<audio controls preload="none" style="flex:1;min-width:180px;max-width:400px;height:30px" data-drive-audio-fileid="${escapeHtml(fileEntry.drive_file_id)}"></audio>
            <div style="display:flex;gap:2px;align-items:center;flex-shrink:0">
              <button class="btn btn-ghost btn-sm" data-dl-script-voice="${s.id}|${slotKey}" data-voice-fileid="${escapeHtml(fileEntry.drive_file_id)}" data-voice-filename="${escapeHtml(fileEntry.file_name || '')}" title="Télécharger" style="padding:3px 8px">⬇</button>
              ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-up-script-voice="${s.id}|${slotKey}" title="Remplacer par un nouveau fichier (l'ancien sera trash sur Drive)" style="padding:3px 8px;color:var(--gold)">↻</button>` : ''}
@@ -10279,10 +10294,24 @@ async function renderSingleScript(el, scriptId) {
            ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-up-script-voice="${s.id}|${slotKey}" style="padding:3px 10px;font-size:11px;color:var(--gold)" title="Uploader un fichier audio">+ Upload</button>` : ''}`}
     </div>`;
   };
+  // Compteur progression : X processées sur Y attendues (hooks + body)
+  const totalSlots = (Array.isArray(s.hooks) ? s.hooks.length : 0) + 1; // hooks + body
+  const allEntries = [...(voiceUploads.hooks || []), bodyVoice].filter(Boolean);
+  const processedCount = allEntries.filter(e => e.source !== 'genaipro').length;
+  const bruteCount = allEntries.filter(e => e.source === 'genaipro').length;
+  const emptyCount = totalSlots - allEntries.length;
+  let summaryLabel;
+  if (processedCount === totalSlots) summaryLabel = `<span style="color:var(--green)">✓ ${totalSlots}/${totalSlots} prêtes</span>`;
+  else if (allEntries.length === 0) summaryLabel = `<span style="color:var(--text-dim)">0/${totalSlots}</span>`;
+  else summaryLabel = `<span style="color:var(--text-dim)">${processedCount}/${totalSlots} prêtes</span>${bruteCount > 0 ? ` <span style="color:var(--orange)">· ${bruteCount} à processer</span>` : ''}${emptyCount > 0 ? ` <span style="color:var(--text-mute)">· ${emptyCount} vide${emptyCount > 1 ? 's' : ''}</span>` : ''}`;
+
   const voiceSectionHtml = canManageVoice ? `
     <div style="margin-top:18px;padding:14px 16px;background:rgba(192,132,252,0.04);border-left:3px solid var(--purple);border-radius:8px">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-        <div style="font-weight:700;color:var(--purple);font-size:12px;letter-spacing:0.5px">🎤 VOIX</div>
+        <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+          <div style="font-weight:700;color:var(--purple);font-size:12px;letter-spacing:0.5px">🎤 VOIX</div>
+          <span style="font-size:11px;font-weight:500">${summaryLabel}</span>
+        </div>
         <details style="font-size:11px;color:var(--text-dim)">
           <summary style="cursor:pointer;outline:none;user-select:none">💡 Comment processer ?</summary>
           <div style="margin-top:8px;padding:8px 10px;background:var(--bg);border-radius:4px;line-height:1.7">
@@ -12037,8 +12066,8 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
     file_name: fileName,
     uploaded_at: new Date().toISOString(),
     uploaded_by: currentUser?.id || null,
-    processed: true,
-    speed: FFMPEG_SPEED
+    source: 'manual',     // ← marqueur : voix processée externe (audiotrimmer/bahaasr/etc)
+    processed: true
   };
   if (slotKey === 'body') {
     current.body = entry;
