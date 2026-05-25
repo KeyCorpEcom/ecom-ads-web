@@ -10915,6 +10915,12 @@ const VOICE_MODEL_OPTIONS = [
   { id: 'eleven_flash_v2_5',      label: 'Flash v2.5 — ultra rapide', desc: 'Latence minimale' }
 ];
 
+// Voix par défaut FR (utilisées si workspace_voice_settings est vide pour ce workspace)
+// → permet de cliquer 🔊 ♀/♂ sans devoir configurer dans Settings d'abord
+const DEFAULT_VOICE_ID_FEMALE = '3C1zYzXNXNzrB66ON8rj';
+const DEFAULT_VOICE_ID_MALE   = 'aQROLel5sQbj1vuIVi6B';
+const DEFAULT_VOICE_MODEL     = 'eleven_multilingual_v2';
+
 // Récupère le JWT Supabase pour appeler nos endpoints serverless
 async function getCallerJwt() {
   const { data: { session } } = await sb.auth.getSession();
@@ -11223,11 +11229,25 @@ async function generateScriptVoiceFlow(scriptId, gender) {
 
   // 1. Settings voix configurés ?
   const settings = await loadVoiceSettings();
-  const voiceId = gender === 'F' ? settings?.voice_id_female : settings?.voice_id_male;
-  if (!settings || !voiceId) {
-    toast(`Configure d'abord la voix ${gender === 'F' ? '♀' : '♂'} dans 🎤 Settings voix`, 'warn', 6000);
+  // Si pas configuré dans Settings → fallback sur les voix FR par défaut
+  const voiceId = gender === 'F'
+    ? (settings?.voice_id_female || DEFAULT_VOICE_ID_FEMALE)
+    : (settings?.voice_id_male || DEFAULT_VOICE_ID_MALE);
+  const modelId = settings?.model_id || DEFAULT_VOICE_MODEL;
+  if (!voiceId) {
+    toast(`Pas de voice_id ${gender === 'F' ? '♀' : '♂'} disponible`, 'error', 6000);
     return;
   }
+  // Settings "effectifs" (fusion DB + defaults) pour la suite du flow
+  const effectiveSettings = {
+    ...(settings || {}),
+    model_id: modelId,
+    stability: settings?.stability ?? 0.75,
+    similarity: settings?.similarity ?? 0.5,
+    style: settings?.style ?? 0,
+    speed: settings?.speed ?? 1,
+    use_speaker_boost: settings?.use_speaker_boost ?? true
+  };
 
   // 2. Récupère le script
   const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
@@ -11288,12 +11308,12 @@ async function generateScriptVoiceFlow(scriptId, gender) {
       body: JSON.stringify({
         text,
         voice_id: voiceId,
-        model_id: settings.model_id || 'eleven_multilingual_v2',
-        stability: settings.stability ?? 0.75,
-        similarity: settings.similarity ?? 0.5,
-        style: settings.style ?? 0,
-        speed: settings.speed ?? 1,
-        use_speaker_boost: settings.use_speaker_boost ?? true
+        model_id: effectiveSettings.model_id,
+        stability: effectiveSettings.stability,
+        similarity: effectiveSettings.similarity,
+        style: effectiveSettings.style,
+        speed: effectiveSettings.speed,
+        use_speaker_boost: effectiveSettings.use_speaker_boost
       })
     });
     if (!r.ok) {
