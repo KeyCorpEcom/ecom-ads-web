@@ -11539,18 +11539,20 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     const j = await r.json();
     return j.task_id;
   }
-  async function pollTtsResult(taskId, maxSeconds = 600) {
-    // Timeout dynamique + abandon précoce si 20 502/5xx consécutifs (= GenAIPro/proxy KO)
-    // + log status toutes les 30s pour visibilité dans la console
+  async function pollTtsResult(taskId, _ignored) {
+    // Pas de timeout : on poll à l'infini tant que GenAIPro répond pending/processing.
+    // Seul garde-fou : 20 réponses 5xx d'affilée (= 50s) → API down, on abort.
+    // L'utilisateur peut toujours fermer l'onglet pour stopper.
     const intervalMs = 2500;
-    const maxAttempts = Math.ceil((maxSeconds * 1000) / intervalMs);
-    const MAX_CONSECUTIVE_5XX = 20; // = 50s consécutifs de 5xx → abandon
-    const LOG_EVERY = 12; // toutes les ~30s
+    const MAX_CONSECUTIVE_5XX = 20;
+    const LOG_EVERY = 12; // ~30s
     let consecutive5xx = 0;
     let last5xxStatus = null;
     let lastKnownStatus = 'starting';
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let attempt = 0;
+    while (true) {
       await new Promise(r => setTimeout(r, intervalMs));
+      attempt++;
       try {
         const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}`, {
           headers: { 'Authorization': `Bearer ${jwt}` }
@@ -11560,13 +11562,13 @@ async function generateScriptVoiceFlow(scriptId, gender) {
             consecutive5xx++;
             last5xxStatus = r.status;
             if (attempt % LOG_EVERY === 0) {
-              console.log(`[tts ${taskId.slice(0,8)}] attempt ${attempt}/${maxAttempts} — HTTP ${r.status} (5xx streak: ${consecutive5xx}/${MAX_CONSECUTIVE_5XX})`);
+              console.log(`[tts ${taskId.slice(0,8)}] attempt ${attempt} — HTTP ${r.status} (5xx streak: ${consecutive5xx}/${MAX_CONSECUTIVE_5XX})`);
             }
             if (consecutive5xx >= MAX_CONSECUTIVE_5XX) {
               throw new Error(`GenAIPro injoignable (${MAX_CONSECUTIVE_5XX} × HTTP ${last5xxStatus} d'affilée). Leur API est down — réessaie dans 5-10 min.`);
             }
           } else if (attempt % LOG_EVERY === 0) {
-            console.log(`[tts ${taskId.slice(0,8)}] attempt ${attempt}/${maxAttempts} — HTTP ${r.status} (non-5xx)`);
+            console.log(`[tts ${taskId.slice(0,8)}] attempt ${attempt} — HTTP ${r.status} (non-5xx)`);
           }
           continue;
         }
@@ -11574,7 +11576,8 @@ async function generateScriptVoiceFlow(scriptId, gender) {
         const j = await r.json();
         lastKnownStatus = j.status || 'unknown';
         if (attempt % LOG_EVERY === 0) {
-          console.log(`[tts ${taskId.slice(0,8)}] attempt ${attempt}/${maxAttempts} — status: ${lastKnownStatus}`, j);
+          const minsRunning = ((attempt * intervalMs) / 60000).toFixed(1);
+          console.log(`[tts ${taskId.slice(0,8)}] ${minsRunning}min — status: ${lastKnownStatus}`, j);
         }
         if (j.status === 'completed' && j.result) return j.result;
         if (j.status === 'failed' || j.status === 'error') throw new Error(`Tâche TTS échouée : ${j.status}`);
@@ -11583,8 +11586,6 @@ async function generateScriptVoiceFlow(scriptId, gender) {
         console.warn('[tts-status poll]', attempt, e.message);
       }
     }
-    const mins = Math.round(maxSeconds / 60);
-    throw new Error(`Timeout TTS (${mins} min, dernier status: "${lastKnownStatus}") — GenAIPro trop lent.`);
   }
   async function fetchMp3Blob(taskId) {
     const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}&fetch_mp3=1`, {
@@ -11618,15 +11619,12 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     stepLabels.set(p.slotKey, `${p.label}: TTS`);
     refreshOverlay();
     let taskId, mp3Blob, uploaded;
-    // Timeout dynamique : 10 min base + 5s par 100 chars, capé à 25 min
-    // (GenAIPro est parfois TRÈS lent même sur leur site direct, mieux vaut attendre que cramer des credits)
-    // Le 502 streak detection (50s) abort vite si leur API est carrément down.
-    const ttsTimeoutSec = Math.min(1500, 600 + Math.ceil(p.text.length * 5 / 100));
+    // Pas de timeout : on attend que GenAIPro réponde "completed" (ou abort si 502 streak)
     try {
       taskId = await createTtsTask(p.text);
-      stepLabels.set(p.slotKey, `${p.label}: polling (max ${Math.round(ttsTimeoutSec / 60)}min)`);
+      stepLabels.set(p.slotKey, `${p.label}: polling (sans timeout)`);
       refreshOverlay();
-      await pollTtsResult(taskId, ttsTimeoutSec);
+      await pollTtsResult(taskId);
       stepLabels.set(p.slotKey, `${p.label}: fetch mp3`);
       refreshOverlay();
       mp3Blob = await fetchMp3Blob(taskId);
@@ -11700,14 +11698,21 @@ async function generateScriptVoiceFlow(scriptId, gender) {
   const results = await Promise.allSettled(pieces.map(processPiece));
 
   // Merge dans voice_uploads (séquentiel : évite race condition sur les arrays)
+  const failedLabels = [];
   for (const r of results) {
     if (r.status !== 'fulfilled') {
       failed++;
       errors.push(r.reason?.message || 'erreur inconnue');
+      failedLabels.push('?');
       continue;
     }
     const { ok, piece, entry, error } = r.value;
-    if (!ok) { failed++; errors.push(error); continue; }
+    if (!ok) {
+      failed++;
+      errors.push(error);
+      failedLabels.push(piece?.label || '?');
+      continue;
+    }
     if (piece.slotKey === 'body') {
       voiceUploads.body = entry;
     } else {
@@ -11732,13 +11737,13 @@ async function generateScriptVoiceFlow(scriptId, gender) {
 
   overlay.close();
 
-  // 7. Toast récapitulatif
+  // 7. Toast récapitulatif (avec nom du/des slots qui ont échoué pour faciliter le retry)
   if (success > 0 && failed === 0) {
     toast(`✓ ${success} voix ${gender === 'F' ? '♀' : '♂'} générée${success > 1 ? 's' : ''} et uploadée${success > 1 ? 's' : ''}`, 'success', 6000);
   } else if (success > 0 && failed > 0) {
-    toast(`${success} OK / ${failed} échec. Réessaie sur les manqués.`, 'warn', 9000);
+    toast(`${success} OK · ❌ ${failedLabels.join(', ')} échec. Re-clique 🔊 pour retry (les OK seront skip).`, 'warn', 12000);
   } else {
-    toast(`Échec total — ${errors[0] || 'voir console'}`, 'error', 10000);
+    toast(`Échec total : ${failedLabels.join(', ')} — ${errors[0] || 'voir console'}`, 'error', 12000);
   }
   render();
 }
