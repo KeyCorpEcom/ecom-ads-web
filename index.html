@@ -9954,6 +9954,12 @@ async function renderScriptDetail(el, productId) {
         const actionBtns = [];
         if (isApproved && approvedUrl) {
           actionBtns.push(`<a href="${escapeHtml(approvedUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir la vidéo ↗</a>`);
+          // Download master (pour HeyGen / ZapCap) — visible video_editor + admin
+          if (isAdminUser || isVideoEd) {
+            actionBtns.push(`<button class="btn btn-ghost btn-sm" data-download-script-master="${s.master_file_id}" data-script-name="${escapeHtml(s.name)}" title="Télécharger le master FR pour le traduire en HeyGen + ZapCap">⬇ Télécharger master</button>`);
+            // Bouton "Aller traduire" → navigue vers la page Produit (toutes les ads + dropzones par pays)
+            actionBtns.push(`<a href="#produit/${escapeHtml(s.product_id)}" class="btn btn-sm" style="background:rgba(96,165,250,0.15);color:var(--blue);border:1px solid rgba(96,165,250,0.35);font-weight:600" title="Aller sur la page Produit pour uploader les traductions par pays">Aller traduire →</a>`);
+          }
         }
         if (isPending && pendingUrl) {
           actionBtns.push(`<a href="${escapeHtml(pendingUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Voir la vidéo uploadée ↗</a>`);
@@ -10066,6 +10072,15 @@ async function renderScriptDetail(el, productId) {
   // Bouton upload master (admin + video_editor)
   el.querySelectorAll('[data-upload-script-master]').forEach(btn => {
     btn.addEventListener('click', () => uploadScriptMasterFlow(btn.dataset.uploadScriptMaster, btn.dataset.scriptName));
+  });
+
+  // Bouton download master FR (pour HeyGen / ZapCap)
+  el.querySelectorAll('[data-download-script-master]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const fileId = btn.dataset.downloadScriptMaster;
+      const name = btn.dataset.scriptName;
+      downloadDriveFile(fileId, `${name}.mp4`);
+    });
   });
 
   // Boutons admin : valider / rejeter
