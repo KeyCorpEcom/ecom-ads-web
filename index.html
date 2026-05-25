@@ -11,6 +11,8 @@
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
 <!-- FFmpeg.wasm v0.11 (single-thread, pas besoin de COEP/COOP) — pour processing audio (speed + remove silences) -->
 <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<!-- lamejs : MP3 encoder pur JS (sans SharedArrayBuffer) — pour concat propre des chunks TTS -->
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
 <!-- Chart.js : chargé en lazy uniquement sur la page Analytics (gain ~80 KB au login) -->
 <!-- Google Identity + gapi : chargés en lazy au 1er besoin Drive (gain ~150 KB pour les users qui ne touchent jamais Drive) -->
 
@@ -11109,15 +11111,70 @@ function splitTextForTts(text, maxChars = 800) {
 }
 
 /**
- * Concat N blobs mp3 en un seul blob mp3.
- * → BYTE-LEVEL : les frames MP3 sont self-contained, on peut juste coller les bytes
- *   sans passer par FFmpeg.wasm (qui aurait besoin de SharedArrayBuffer = COEP headers).
- * Le post-process FFmpeg suivant (silenceremove) viendra effacer la mini-pause entre chunks.
+ * Concat N blobs mp3 en un seul blob mp3 PROPRE et PLAYABLE.
+ * Pipeline :
+ *   1. Web Audio API décode chaque mp3 en AudioBuffer (samples PCM)
+ *   2. Concat les samples dans un nouvel AudioBuffer
+ *   3. lamejs ré-encode le tout en mp3 valide (128kbps mono)
+ * → Fonctionne sans SharedArrayBuffer, produit un mp3 lisible par tous les players (browser inclus).
+ * Fallback si Web Audio ou lamejs échoue : byte-concat brut (jouable par Premiere/VLC mais pas HTML5 audio).
  */
 async function concatMp3Blobs(blobs) {
   if (!blobs || blobs.length === 0) throw new Error('Aucun blob à concaténer');
   if (blobs.length === 1) return blobs[0];
-  return new Blob(blobs, { type: 'audio/mpeg' });
+
+  try {
+    if (typeof lamejs === 'undefined') throw new Error('lamejs non chargé');
+
+    // 1. Décodage de chaque mp3 → AudioBuffer
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    const buffers = [];
+    for (const blob of blobs) {
+      const ab = await blob.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(ab.slice(0));
+      buffers.push(decoded);
+    }
+
+    // 2. Concat des samples (downmix en mono si stéréo)
+    const sampleRate = buffers[0].sampleRate;
+    const totalLength = buffers.reduce((s, b) => s + b.length, 0);
+    const mono = new Float32Array(totalLength);
+    let offset = 0;
+    for (const buf of buffers) {
+      const chs = buf.numberOfChannels;
+      const ch0 = buf.getChannelData(0);
+      const ch1 = chs > 1 ? buf.getChannelData(1) : null;
+      for (let i = 0; i < buf.length; i++) {
+        mono[offset + i] = ch1 ? (ch0[i] + ch1[i]) * 0.5 : ch0[i];
+      }
+      offset += buf.length;
+    }
+    try { ctx.close(); } catch {}
+
+    // 3. Encode en MP3 128kbps mono via lamejs
+    const samplesInt16 = new Int16Array(mono.length);
+    for (let i = 0; i < mono.length; i++) {
+      const s = Math.max(-1, Math.min(1, mono[i]));
+      samplesInt16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    const encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
+    const mp3Chunks = [];
+    const blockSize = 1152;
+    for (let i = 0; i < samplesInt16.length; i += blockSize) {
+      const chunk = samplesInt16.subarray(i, i + blockSize);
+      const enc = encoder.encodeBuffer(chunk);
+      if (enc.length > 0) mp3Chunks.push(enc);
+    }
+    const end = encoder.flush();
+    if (end.length > 0) mp3Chunks.push(end);
+
+    return new Blob(mp3Chunks, { type: 'audio/mpeg' });
+  } catch (e) {
+    console.warn('[concatMp3Blobs] Web Audio + lamejs failed, fallback byte-concat:', e);
+    toast('Concat propre échoué, fallback byte-concat (peut ne pas marcher dans le player browser)', 'warn', 6000);
+    return new Blob(blobs, { type: 'audio/mpeg' });
+  }
 }
 
 /**
