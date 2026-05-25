@@ -10015,6 +10015,14 @@ async function renderScriptDetail(el, productId) {
                 <div style="font-size:13px;line-height:1.5;white-space:pre-wrap">${escapeHtml(s.master_feedback)}</div>
               </div>
             ` : ''}
+            ${Array.isArray(s.hooks) && s.hooks.length > 0 ? `
+              <div style="margin-bottom:10px;padding:10px 12px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:6px">
+                <div style="font-weight:700;color:var(--purple);font-size:11px;margin-bottom:8px;letter-spacing:0.5px">🎯 HOOKS À TESTER (${s.hooks.length} variante${s.hooks.length > 1 ? 's' : ''} — 1 vidéo par hook)</div>
+                <ol style="margin:0;padding-left:22px;font-size:13px;line-height:1.6;color:var(--text)">
+                  ${s.hooks.map(h => `<li style="margin-bottom:4px"><span style="color:var(--text)">${escapeHtml(h)}</span></li>`).join('')}
+                </ol>
+              </div>
+            ` : ''}
             ${script
               ? `<div class="script-text">${escapeHtml(script)}</div>`
               : `<div class="script-text empty">${isAdminUser ? 'Pas encore de script — clique "+ Écrire script"' : 'Le script sera ajouté par l\'admin'}</div>`
@@ -10277,7 +10285,6 @@ async function editAdScriptFlow(adId) {
   const { data: ad } = await sb.from('ads').select('*').eq('id', adId).single();
   if (!ad) { toast('Ad introuvable', 'error'); return; }
 
-  // Pays disponibles pour ce produit
   const { data: product } = await sb.from('products').select('enabled_countries').eq('id', ad.product_id).maybeSingle();
   const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
   const enabled = (product?.enabled_countries?.length ? product.enabled_countries : (countriesAll || []).map(c => c.id));
@@ -10287,38 +10294,29 @@ async function editAdScriptFlow(adId) {
     .map(c => `<option value="${escapeHtml(c.id)}"${c.id === currentSrc ? ' selected' : ''}>${escapeHtml(c.id)} — ${escapeHtml(c.name || c.id)}</option>`)
     .join('');
 
-  const r = await modal(`
-    <div class="modal-title">Script — ${escapeHtml(ad.name)}</div>
-    <div class="text-sm text-dim mb-md">Le script que le video editor verra pour produire cette vidéo. Texte libre — angle, hook, copy, idées B-rolls, etc.</div>
-    <div class="input-group">
-      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Pays source (langue du master produit)</label>
-      <select class="input" data-field="source_country" style="margin-bottom:14px">
-        ${sourceCountryOptions}
-      </select>
-    </div>
-    <div class="input-group">
-      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Script</label>
-      <textarea class="input" data-field="script" style="min-height:220px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ...">${escapeHtml(ad.script || '')}</textarea>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>Enregistrer</button>
-    </div>
-  `);
+  const r = await openScriptEditorModal({
+    title: `Script — ${ad.name}`,
+    intro: 'Édite le script + ses hooks. Chaque hook = 1 vidéo séparée à produire avec le même corps.',
+    sourceCountryOptions,
+    sourceCountryDefault: currentSrc,
+    script: ad.script || '',
+    hooks: Array.isArray(ad.hooks) ? ad.hooks : [],
+    okLabel: 'Enregistrer'
+  });
   if (!r) return;
-  const script = (r.script || '').trim() || null;
-  const source_country = (r.source_country || 'FR').trim();
-  const { error } = await sb.from('ads').update({ script, source_country }).eq('id', adId);
+  const { error } = await sb.from('ads').update({
+    script: r.script,
+    source_country: r.source_country,
+    hooks: r.hooks
+  }).eq('id', adId);
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
-  toast('Script enregistré', 'success');
+  toast(`Script enregistré (${r.hooks.length} hook${r.hooks.length !== 1 ? 's' : ''})`, 'success');
   render();
 }
 
 // Crée un nouveau script (= ad source='script') pour un produit. Admin only.
 async function createScriptFlow(productId) {
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
-  // Calcule le prochain numéro de script — on regarde uniquement les noms "Script N"
-  // (les scripts validés ont été renommés en "Ad N", on les ignore)
   const { data: existing } = await sb.from('ads').select('name').eq('product_id', productId).eq('source', 'script');
   const maxN = (existing || []).reduce((m, a) => {
     const m2 = a.name && a.name.match(/^Script\s*(\d+)/i);
@@ -10327,7 +10325,6 @@ async function createScriptFlow(productId) {
   const nextN = maxN + 1;
   const newName = `Script ${nextN}`;
 
-  // Pays disponibles pour ce produit (pour choisir le pays source)
   const { data: product } = await sb.from('products').select('enabled_countries').eq('id', productId).maybeSingle();
   const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
   const enabled = (product?.enabled_countries?.length ? product.enabled_countries : (countriesAll || []).map(c => c.id));
@@ -10336,42 +10333,134 @@ async function createScriptFlow(productId) {
     .map(c => `<option value="${escapeHtml(c.id)}"${c.id === 'FR' ? ' selected' : ''}>${escapeHtml(c.id)} — ${escapeHtml(c.name || c.id)}</option>`)
     .join('');
 
-  const r = await modal(`
-    <div class="modal-title">Nouveau script — ${escapeHtml(newName)}</div>
-    <div class="text-sm text-dim mb-md">Rédige le script que le video editor suivra pour produire cette vidéo. Tu pourras l'éditer plus tard.</div>
-    <div class="input-group">
-      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Pays source (langue du master produit)</label>
-      <select class="input" data-field="source_country" style="margin-bottom:4px">
-        ${sourceCountryOptions}
-      </select>
-      <div class="text-sm text-dim" style="font-size:11px;line-height:1.5;margin-bottom:14px">
-        Le video_editor produit le master dans cette langue. L'ads_translator ajoute ensuite les sous-titres natifs pour ce pays, et HeyGen + sous-titres locaux pour les autres.
-      </div>
-    </div>
-    <div class="input-group">
-      <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Script</label>
-      <textarea class="input" data-field="script" style="min-height:220px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" autofocus placeholder="Ex: Hook douleur — Tu te réveilles avec mal au dos depuis des mois ?\n\nB-rolls suggérés : visage grimace, gros plan dos, scène réveil\n\nCopy : ..."></textarea>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" data-modal-close>Annuler</button>
-      <button class="btn" data-modal-ok>Créer</button>
-    </div>
-  `);
+  const r = await openScriptEditorModal({
+    title: `Nouveau script — ${newName}`,
+    intro: 'Rédige le script que le video editor suivra. Ajoute plusieurs hooks pour tester différentes accroches sur Meta (1 vidéo produite par hook).',
+    sourceCountryOptions,
+    sourceCountryDefault: 'FR',
+    script: '',
+    hooks: [],
+    okLabel: 'Créer'
+  });
   if (!r) return;
-  const script = (r.script || '').trim() || null;
-  const source_country = (r.source_country || 'FR').trim();
   const { error } = await sb.from('ads').insert({
     product_id: productId,
     name: newName,
     position: nextN,
     source: 'script',
-    source_country,
-    script,
+    source_country: r.source_country,
+    script: r.script,
+    hooks: r.hooks,
     workspace_id: currentWorkspaceId
   });
   if (error) { toast('Erreur création : ' + error.message, 'error'); return; }
-  toast(`${newName} créé (source ${source_country})`, 'success');
+  toast(`${newName} créé (${r.hooks.length} hook${r.hooks.length !== 1 ? 's' : ''})`, 'success');
   render();
+}
+
+// Modal réutilisable pour créer/éditer un script avec hooks dynamiques.
+// Retourne { source_country, script, hooks } ou null si cancel.
+async function openScriptEditorModal(opts) {
+  const hooks = [...(opts.hooks || [])]; // mutable copy
+
+  return new Promise(resolve => {
+    const container = document.getElementById('modal-container');
+    const bd = document.createElement('div');
+    bd.className = 'modal-backdrop';
+    bd.innerHTML = `
+      <div class="modal" style="max-width:680px;max-height:92vh;display:flex;flex-direction:column">
+        <div class="modal-title">${escapeHtml(opts.title)}</div>
+        <div class="text-sm text-dim mb-md">${escapeHtml(opts.intro)}</div>
+
+        ${opts.sourceCountryOptions ? `
+          <div class="input-group">
+            <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Pays source (langue du master produit)</label>
+            <select class="input" data-field="source_country">${opts.sourceCountryOptions}</select>
+            <div class="text-sm text-dim" style="font-size:11px;line-height:1.5;margin-top:6px">
+              Master produit dans cette langue. Les autres pays : HeyGen + sous-titres.
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="input-group">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label class="text-sm" style="color:var(--text-dim)">🎯 Hooks (variantes à tester en A/B)</label>
+            <button type="button" class="btn btn-ghost btn-sm" id="add-hook" style="padding:4px 10px;font-size:11px">+ Ajouter un hook</button>
+          </div>
+          <div id="hooks-list" style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px"></div>
+          <div class="text-sm text-dim" style="font-size:11px;line-height:1.5">
+            Chaque hook = 1 vidéo séparée à produire avec le même corps de script mais une intro différente. Laisse vide si tu n'as qu'un seul hook (dans le script).
+          </div>
+        </div>
+
+        <div class="input-group" style="flex:1;display:flex;flex-direction:column;min-height:200px">
+          <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">📝 Script (corps commun à tous les hooks)</label>
+          <textarea class="input" data-field="script" style="flex:1;min-height:160px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6" placeholder="Ex: B-rolls suggérés : visage grimace, gros plan dos, scène réveil&#10;Copy : ...&#10;CTA : commande avant ce soir, livraison demain.">${escapeHtml(opts.script || '')}</textarea>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" id="script-cancel">Annuler</button>
+          <button class="btn" id="script-ok">${escapeHtml(opts.okLabel || 'Enregistrer')}</button>
+        </div>
+      </div>
+    `;
+    container.appendChild(bd);
+
+    const hooksList = bd.querySelector('#hooks-list');
+
+    function renderHooks() {
+      if (hooks.length === 0) {
+        hooksList.innerHTML = '<div class="text-sm text-dim" style="font-style:italic;padding:6px 0">Aucun hook ajouté — clique "+ Ajouter un hook" pour en créer.</div>';
+        return;
+      }
+      hooksList.innerHTML = hooks.map((h, i) => `
+        <div style="display:flex;gap:6px;align-items:flex-start">
+          <span style="flex-shrink:0;padding:6px 8px;background:rgba(192,132,252,0.15);color:var(--purple);border-radius:4px;font-size:11px;font-weight:700;line-height:1.4">${i + 1}</span>
+          <textarea class="input" data-hook-idx="${i}" style="flex:1;min-height:48px;font-size:12px;line-height:1.4;resize:vertical" placeholder="Ex: Mensonge numéro 3...">${escapeHtml(h)}</textarea>
+          <button type="button" class="btn btn-ghost btn-sm" data-del-hook="${i}" style="padding:6px 8px;color:var(--red);flex-shrink:0" title="Supprimer ce hook">×</button>
+        </div>
+      `).join('');
+      hooksList.querySelectorAll('[data-hook-idx]').forEach(t => {
+        t.addEventListener('input', () => {
+          const i = parseInt(t.dataset.hookIdx, 10);
+          hooks[i] = t.value;
+        });
+      });
+      hooksList.querySelectorAll('[data-del-hook]').forEach(b => {
+        b.addEventListener('click', () => {
+          const i = parseInt(b.dataset.delHook, 10);
+          hooks.splice(i, 1);
+          renderHooks();
+        });
+      });
+    }
+
+    bd.querySelector('#add-hook').addEventListener('click', () => {
+      hooks.push('');
+      renderHooks();
+      // Focus le nouveau hook
+      setTimeout(() => {
+        const last = hooksList.querySelector(`[data-hook-idx="${hooks.length - 1}"]`);
+        last?.focus();
+      }, 50);
+    });
+
+    renderHooks();
+
+    const close = (val) => { bd.remove(); resolve(val); };
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelector('#script-cancel').addEventListener('click', () => close(null));
+    bd.querySelector('#script-ok').addEventListener('click', () => {
+      const script = (bd.querySelector('[data-field="script"]')?.value || '').trim() || null;
+      const source_country = (bd.querySelector('[data-field="source_country"]')?.value || 'FR').trim();
+      // Nettoie : retire les hooks vides
+      const cleanedHooks = hooks.map(h => (h || '').trim()).filter(h => h.length > 0);
+      close({ script, source_country, hooks: cleanedHooks });
+    });
+
+    // Focus initial sur le script
+    setTimeout(() => bd.querySelector('[data-field="script"]')?.focus(), 80);
+  });
 }
 
 // Supprime un script (admin only). Si master déjà uploadé, le fichier Drive est mis à la corbeille.
