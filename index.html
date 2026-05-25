@@ -11539,7 +11539,7 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     const j = await r.json();
     return j.task_id;
   }
-  async function pollTtsResult(taskId, maxSeconds = 300) {
+  async function pollTtsResult(taskId, maxSeconds = 600) {
     // Timeout dynamique + abandon précoce si 20 502/5xx consécutifs (= GenAIPro/proxy KO)
     // + log status toutes les 30s pour visibilité dans la console
     const intervalMs = 2500;
@@ -11618,9 +11618,10 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     stepLabels.set(p.slotKey, `${p.label}: TTS`);
     refreshOverlay();
     let taskId, mp3Blob, uploaded;
-    // Timeout dynamique : 5 min base + 4s par 100 chars, capé à 15 min
-    // (GenAIPro est parfois TRÈS lent, mieux vaut attendre que cramer des credits en retry)
-    const ttsTimeoutSec = Math.min(900, 300 + Math.ceil(p.text.length * 4 / 100));
+    // Timeout dynamique : 10 min base + 5s par 100 chars, capé à 25 min
+    // (GenAIPro est parfois TRÈS lent même sur leur site direct, mieux vaut attendre que cramer des credits)
+    // Le 502 streak detection (50s) abort vite si leur API est carrément down.
+    const ttsTimeoutSec = Math.min(1500, 600 + Math.ceil(p.text.length * 5 / 100));
     try {
       taskId = await createTtsTask(p.text);
       stepLabels.set(p.slotKey, `${p.label}: polling (max ${Math.round(ttsTimeoutSec / 60)}min)`);
