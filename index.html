@@ -11079,6 +11079,64 @@ async function getFFmpeg() {
 }
 
 /**
+ * Split un long texte en chunks d'au max maxChars caractères, en respectant
+ * les fins de phrase (. ! ?) pour préserver la prosodie au moment du concat audio.
+ * Si une phrase fait > maxChars, on force-coupe au milieu (rare).
+ */
+function splitTextForTts(text, maxChars = 800) {
+  if (!text || text.length <= maxChars) return [text || ''];
+  // Split sur fin de phrase (point/exclamation/question suivi d'espace)
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+  const chunks = [];
+  let current = '';
+  for (const s of sentences) {
+    const candidate = current ? `${current} ${s}` : s;
+    if (candidate.length > maxChars && current) {
+      chunks.push(current.trim());
+      current = s;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  // Edge case : une phrase seule > maxChars → force-split brut
+  return chunks.flatMap(c => {
+    if (c.length <= maxChars) return [c];
+    const subs = [];
+    for (let i = 0; i < c.length; i += maxChars) subs.push(c.slice(i, i + maxChars));
+    return subs;
+  });
+}
+
+/**
+ * Concat N blobs mp3 en un seul blob mp3 via FFmpeg.wasm.
+ * Le protocole "concat:" marche au byte-level pour les mp3 (frames self-contained).
+ */
+async function concatMp3Blobs(blobs) {
+  if (!blobs || blobs.length === 0) throw new Error('Aucun blob à concaténer');
+  if (blobs.length === 1) return blobs[0];
+  const { fetchFile } = FFmpeg;
+  const ff = await getFFmpeg();
+  const baseTs = Date.now();
+  const inputs = [];
+  for (let i = 0; i < blobs.length; i++) {
+    const name = `chunk_${baseTs}_${i}.mp3`;
+    ff.FS('writeFile', name, await fetchFile(blobs[i]));
+    inputs.push(name);
+  }
+  const concatInput = `concat:${inputs.join('|')}`;
+  const outputName = `concat_${baseTs}.mp3`;
+  try {
+    await ff.run('-i', concatInput, '-acodec', 'copy', '-y', outputName);
+    const data = ff.FS('readFile', outputName);
+    return new Blob([data.buffer], { type: 'audio/mpeg' });
+  } finally {
+    for (const name of inputs) { try { ff.FS('unlink', name); } catch {} }
+    try { ff.FS('unlink', outputName); } catch {}
+  }
+}
+
+/**
  * Process un Blob mp3 : accélère la voix (atempo) + retire les silences (silenceremove).
  * Filtres FFmpeg :
  *   atempo=N           → change la vitesse SANS changer le pitch (limite 0.5–2.0 par filtre, on chaine si > 2)
@@ -11473,7 +11531,13 @@ async function generateScriptVoiceFlow(scriptId, gender) {
   }
   const bodyText = (scriptAd.script || '').trim();
   if (bodyText) {
+    // Body : si > 800c, split en chunks (chacun = 1 task TTS, concat à la fin)
+    const BODY_CHUNK_THRESHOLD = 800;
     const piece = { slotKey: 'body', label: 'Body', text: bodyText };
+    if (bodyText.length > BODY_CHUNK_THRESHOLD) {
+      piece.subTexts = splitTextForTts(bodyText, BODY_CHUNK_THRESHOLD);
+      piece.label = `Body (${piece.subTexts.length} chunks)`;
+    }
     if (existingBody) skippedPieces.push(piece);
     else pieces.push(piece);
   }
@@ -11615,21 +11679,47 @@ async function generateScriptVoiceFlow(scriptId, gender) {
   }
 
   // Pipeline complet pour une pièce (TTS → mp3 → Drive). Pas de DB save ici (race).
+  // Si p.subTexts existe → compound piece : N sub-TTS en parallèle puis concat avant FFmpeg.
   async function processPiece(p) {
     stepLabels.set(p.slotKey, `${p.label}: TTS`);
     refreshOverlay();
-    let taskId, mp3Blob, uploaded;
-    // Timeout 25 min flat (assez pour GenAIPro même lent, abort 50s si 5xx streak)
-    const ttsTimeoutSec = 1500;
+    let mp3Blob, uploaded;
+    let taskIds = [];
+    const ttsTimeoutSec = 1500; // 25 min max par sub-task
+
     try {
-      taskId = await createTtsTask(p.text);
-      stepLabels.set(p.slotKey, `${p.label}: polling (max 25min)`);
-      refreshOverlay();
-      await pollTtsResult(taskId, ttsTimeoutSec);
-      stepLabels.set(p.slotKey, `${p.label}: fetch mp3`);
-      refreshOverlay();
-      mp3Blob = await fetchMp3Blob(taskId);
-      // Post-process : accélère ×1.3 + retire silences via FFmpeg.wasm
+      if (Array.isArray(p.subTexts) && p.subTexts.length > 1) {
+        // Compound : sub-TTS en parallèle
+        const totalSubs = p.subTexts.length;
+        let doneSubs = 0;
+        stepLabels.set(p.slotKey, `${p.label}: 0/${totalSubs} chunks (TTS parallèle)`);
+        refreshOverlay();
+        const subBlobs = await Promise.all(p.subTexts.map(async (txt, i) => {
+          const tid = await createTtsTask(txt);
+          taskIds.push(tid);
+          await pollTtsResult(tid, ttsTimeoutSec);
+          const blob = await fetchMp3Blob(tid);
+          doneSubs++;
+          stepLabels.set(p.slotKey, `${p.label}: ${doneSubs}/${totalSubs} chunks OK`);
+          refreshOverlay();
+          return blob;
+        }));
+        // Concat tous les chunks en 1 seul mp3
+        stepLabels.set(p.slotKey, `${p.label}: concat ${totalSubs} chunks`);
+        refreshOverlay();
+        mp3Blob = await concatMp3Blobs(subBlobs);
+      } else {
+        // Simple : 1 TTS unique
+        const tid = await createTtsTask(p.text);
+        taskIds.push(tid);
+        stepLabels.set(p.slotKey, `${p.label}: polling (max 25min)`);
+        refreshOverlay();
+        await pollTtsResult(tid, ttsTimeoutSec);
+        stepLabels.set(p.slotKey, `${p.label}: fetch mp3`);
+        refreshOverlay();
+        mp3Blob = await fetchMp3Blob(tid);
+      }
+      // Post-process commun : accélère ×1.3 + retire silences via FFmpeg.wasm
       stepLabels.set(p.slotKey, `${p.label}: FFmpeg (speed ×${FFMPEG_SPEED} + cut silences)`);
       refreshOverlay();
       mp3Blob = await processVoiceMp3(mp3Blob, p.label);
@@ -11694,7 +11784,9 @@ async function generateScriptVoiceFlow(scriptId, gender) {
         uploaded_by: currentUser?.id || null,
         gender,
         voice_id: voiceId,
-        task_id: taskId,
+        task_id: taskIds[0] || null,
+        task_ids: taskIds.length > 1 ? taskIds : undefined,
+        chunks: taskIds.length > 1 ? taskIds.length : undefined,
         source: 'genaipro'
       }
     };
