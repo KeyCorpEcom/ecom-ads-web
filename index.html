@@ -10372,15 +10372,9 @@ async function openScriptEditorModal(opts) {
         <div class="modal-title">${escapeHtml(opts.title)}</div>
         <div class="text-sm text-dim mb-md">${escapeHtml(opts.intro)}</div>
 
-        ${opts.sourceCountryOptions ? `
-          <div class="input-group">
-            <label class="text-sm" style="display:block;margin-bottom:6px;color:var(--text-dim)">Pays source (langue du master produit)</label>
-            <select class="input" data-field="source_country">${opts.sourceCountryOptions}</select>
-            <div class="text-sm text-dim" style="font-size:11px;line-height:1.5;margin-top:6px">
-              Master produit dans cette langue. Les autres pays : HeyGen + sous-titres.
-            </div>
-          </div>
-        ` : ''}
+        <div style="padding:8px 12px;background:rgba(96,165,250,0.06);border-left:3px solid var(--blue);border-radius:6px;margin-bottom:14px;font-size:11px;line-height:1.5;color:var(--text-dim)">
+          🇫🇷 <strong style="color:var(--text)">Master en français</strong> — Fadel produit la vidéo en FR, puis traduit pour les autres pays (HeyGen + sous-titres locaux).
+        </div>
 
         <div class="input-group">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -10452,8 +10446,8 @@ async function openScriptEditorModal(opts) {
     bd.querySelector('#script-cancel').addEventListener('click', () => close(null));
     bd.querySelector('#script-ok').addEventListener('click', () => {
       const script = (bd.querySelector('[data-field="script"]')?.value || '').trim() || null;
-      const source_country = (bd.querySelector('[data-field="source_country"]')?.value || 'FR').trim();
-      // Nettoie : retire les hooks vides
+      // Master toujours en FR (le dropdown a été retiré, FR est le standard du workflow)
+      const source_country = 'FR';
       const cleanedHooks = hooks.map(h => (h || '').trim()).filter(h => h.length > 0);
       close({ script, source_country, hooks: cleanedHooks });
     });
