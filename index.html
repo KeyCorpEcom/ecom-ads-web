@@ -6193,31 +6193,35 @@ function driveUploadWithProgress(file, parentId, name, onProgress) {
 
 // Crée toute la structure Drive pour un produit
 async function createProductDriveStructure(product, countries) {
-  if (!driveState.connected || !driveState.accessToken) throw new Error('Pas connecté à Drive');
-  await ensureDriveReady(); // s'assure que gapi.client.drive a bien le token OAuth
+  if (!driveState.connected) throw new Error('Pas connecté à Drive');
+  await ensureDriveReady();
   const { data: cfg } = await sb.from('drive_config').select('*').eq('workspace_id', currentWorkspaceId).single();
   const rootId = cfg?.root_folder_id;
   if (!rootId) throw new Error('Dossier racine Drive non configuré');
 
   const folderName = driveProductFolderName(product);
-  let productFolder = await driveFindFolder(folderName, rootId);
-  if (!productFolder) productFolder = await driveFindFolder(product.id, rootId);
-  if (!productFolder) {
-    productFolder = await driveCreateFolder(folderName, rootId);
-  } else if (productFolder.name !== folderName) {
-    await driveRenameFile(productFolder.id, folderName);
-  }
-  await driveEnsureFolder(CONCURRENT_FOLDER_NAME, productFolder.id);
-  await driveEnsureFolder(MASTER_FOLDER_NAME, productFolder.id);
-  await driveEnsureFolder(B_ROLLS_FOLDER_NAME, productFolder.id);
-  await driveEnsureFolder(SCRIPTS_FOLDER_NAME, productFolder.id);
-  for (const c of countries) {
-    await driveEnsureFolder(c.id, productFolder.id);
-  }
-  // Update product with folder id
-  await sb.from('products').update({ drive_folder_id: productFolder.id }).eq('id', product.id);
-  await logSync(` Structure Drive créée : ${folderName}`, 'success');
-  return productFolder.id;
+  // Toutes les calls Drive wrappées avec retry-on-401 → si le token expire pendant
+  // l'opération (qui peut prendre 10-20s pour un produit avec beaucoup de pays),
+  // refresh silencieux + retry au lieu de tout cracher
+  return await driveCallWithRetry(async () => {
+    let productFolder = await driveFindFolder(folderName, rootId);
+    if (!productFolder) productFolder = await driveFindFolder(product.id, rootId);
+    if (!productFolder) {
+      productFolder = await driveCreateFolder(folderName, rootId);
+    } else if (productFolder.name !== folderName) {
+      await driveRenameFile(productFolder.id, folderName);
+    }
+    await driveEnsureFolder(CONCURRENT_FOLDER_NAME, productFolder.id);
+    await driveEnsureFolder(MASTER_FOLDER_NAME, productFolder.id);
+    await driveEnsureFolder(B_ROLLS_FOLDER_NAME, productFolder.id);
+    await driveEnsureFolder(SCRIPTS_FOLDER_NAME, productFolder.id);
+    for (const c of countries) {
+      await driveEnsureFolder(c.id, productFolder.id);
+    }
+    await sb.from('products').update({ drive_folder_id: productFolder.id }).eq('id', product.id);
+    await logSync(` Structure Drive créée : ${folderName}`, 'success');
+    return productFolder.id;
+  });
 }
 
 // Modal avec barres de progression pour l'upload
@@ -10112,16 +10116,65 @@ async function ensureDriveReady() {
     await initGapiClient(cfg.api_key);
     if (!window.gapi?.client?.drive) throw new Error('gapi.client.drive ne s\'est pas chargé');
   }
-  // 2. Toujours réappliquer le token OAuth — sans ça les calls partent avec juste l'API key
-  //    et Google répond "API keys are not supported by this API"
-  if (!driveState.accessToken) {
-    throw new Error('Pas connecté à Drive — clique "Connecter Drive" sur la page Drive d\'abord');
+  // 2. Si pas de token ou token expiré → silent refresh AVANT de continuer
+  const stored = getStoredToken();
+  const tokenIsValid = stored && driveState.accessToken === stored;
+  if (!driveState.accessToken || !tokenIsValid) {
+    console.log('[ensureDriveReady] Token expiré ou absent, silent refresh...');
+    const refreshed = await refreshDriveTokenAndWait();
+    if (!refreshed || !driveState.accessToken) {
+      throw new Error('Token Drive expiré — clique "Reconnecter Drive" sur la page Drive');
+    }
   }
+  // 3. Toujours réappliquer le token OAuth sur gapi.client
   const current = gapi.client.getToken();
   if (!current || current.access_token !== driveState.accessToken) {
     try { gapi.client.setToken({ access_token: driveState.accessToken }); } catch (e) { console.warn('[setToken]', e); }
   }
   return true;
+}
+
+// Helper : déclenche un silent refresh OAuth et attend qu'il soit complet
+// (le callback de driveConnect met à jour driveState.accessToken)
+async function refreshDriveTokenAndWait() {
+  const oldToken = driveState.accessToken;
+  try { driveConnect({ silent: true }); } catch (e) { console.warn('[refresh init]', e); }
+  return new Promise(resolve => {
+    let attempts = 0;
+    const maxAttempts = 30; // ~6s max
+    const interval = setInterval(() => {
+      attempts++;
+      // Le callback OAuth a remplacé le token par un neuf
+      const stored = getStoredToken();
+      if (driveState.accessToken && stored && driveState.accessToken !== oldToken) {
+        clearInterval(interval);
+        resolve(true);
+      } else if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        console.warn('[refreshDriveTokenAndWait] Timeout 6s sans nouveau token');
+        resolve(false);
+      }
+    }, 200);
+  });
+}
+
+// Wrapper pour les appels Drive : auto-retry une fois sur 401
+async function driveCallWithRetry(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    const status = e?.status || e?.result?.error?.code;
+    const msg = e?.message || e?.result?.error?.message || '';
+    const is401 = status === 401 || /invalid.?authentication|invalid.?credentials|401/i.test(msg);
+    if (!is401) throw e;
+    // Token expiré en cours d'opération → refresh + retry
+    console.log('[driveCallWithRetry] 401 détecté, silent refresh + retry...');
+    const refreshed = await refreshDriveTokenAndWait();
+    if (!refreshed) throw new Error('Token Drive expiré, reconnexion silencieuse échouée — clique "Reconnecter Drive"');
+    // Re-applique le token sur gapi avant retry
+    try { gapi.client.setToken({ access_token: driveState.accessToken }); } catch (err) {}
+    return await fn();
+  }
 }
 
 // Stack de navigation pour les B-Rolls (chemin de dossiers en cours)
