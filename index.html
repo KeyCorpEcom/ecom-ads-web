@@ -9,6 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
+<!-- FFmpeg.wasm v0.11 (single-thread, pas besoin de COEP/COOP) — pour processing audio (speed + remove silences) -->
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 <!-- Chart.js : chargé en lazy uniquement sur la page Analytics (gain ~80 KB au login) -->
 <!-- Google Identity + gapi : chargés en lazy au 1er besoin Drive (gain ~150 KB pour les users qui ne touchent jamais Drive) -->
 
@@ -10980,6 +10982,80 @@ const DEFAULT_VOICE_ID_FEMALE = '3C1zYzXNXNzrB66ON8rj';
 const DEFAULT_VOICE_ID_MALE   = 'W71zT1VwIFFx3mMGH2uZ'; // version FR
 const DEFAULT_VOICE_MODEL     = 'eleven_multilingual_v2';
 
+// ============================================================
+// Audio post-processing : speed + silence removal via FFmpeg.wasm
+// Appliqué à TOUTE voix (GenAIPro auto + uploads manuels)
+// ============================================================
+const FFMPEG_SPEED            = 1.30;   // 1.0 = vitesse normale, 1.3 = +30%
+const FFMPEG_SILENCE_MIN_DUR  = 0.4;    // coupe les silences > 0.4s
+const FFMPEG_SILENCE_THRESHOLD = '-35dB'; // seuil de détection silence
+
+let _ffmpegInstance = null;
+let _ffmpegLoadPromise = null;
+
+async function getFFmpeg() {
+  if (_ffmpegInstance && _ffmpegInstance.isLoaded()) return _ffmpegInstance;
+  if (_ffmpegLoadPromise) return _ffmpegLoadPromise;
+
+  _ffmpegLoadPromise = (async () => {
+    if (typeof FFmpeg === 'undefined') {
+      throw new Error('FFmpeg.wasm pas chargé (script CDN manquant ou bloqué)');
+    }
+    const { createFFmpeg } = FFmpeg;
+    const ff = createFFmpeg({
+      log: false,
+      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+    });
+    await ff.load(); // ~25MB download au premier appel (puis cache navigateur)
+    _ffmpegInstance = ff;
+    return ff;
+  })();
+
+  try {
+    return await _ffmpegLoadPromise;
+  } finally {
+    _ffmpegLoadPromise = null;
+  }
+}
+
+/**
+ * Process un Blob mp3 : accélère la voix (atempo) + retire les silences (silenceremove).
+ * Filtres FFmpeg :
+ *   atempo=N           → change la vitesse SANS changer le pitch (limite 0.5–2.0 par filtre, on chaine si > 2)
+ *   silenceremove=...  → retire les silences > FFMPEG_SILENCE_MIN_DUR sous FFMPEG_SILENCE_THRESHOLD
+ * Si FFmpeg échoue (erreur réseau, mémoire), retourne le blob original (graceful fallback).
+ */
+async function processVoiceMp3(inputBlob, fileBaseName = 'voice') {
+  if (!inputBlob || inputBlob.size === 0) return inputBlob;
+  try {
+    const { fetchFile } = FFmpeg;
+    const ff = await getFFmpeg();
+    const inputName = `in_${Date.now()}.mp3`;
+    const outputName = `out_${Date.now()}.mp3`;
+
+    ff.FS('writeFile', inputName, await fetchFile(inputBlob));
+
+    // atempo accepte 0.5-2.0 par filtre. Pour 1.3 c'est ok en une passe.
+    // silenceremove : retire les silences au début, fin, ET au milieu (stop_periods=-1)
+    const audioFilter = [
+      `atempo=${FFMPEG_SPEED}`,
+      `silenceremove=stop_periods=-1:stop_duration=${FFMPEG_SILENCE_MIN_DUR}:stop_threshold=${FFMPEG_SILENCE_THRESHOLD}`
+    ].join(',');
+
+    await ff.run('-i', inputName, '-af', audioFilter, '-y', outputName);
+
+    const data = ff.FS('readFile', outputName);
+    try { ff.FS('unlink', inputName); } catch {}
+    try { ff.FS('unlink', outputName); } catch {}
+
+    return new Blob([data.buffer], { type: 'audio/mpeg' });
+  } catch (e) {
+    console.error('[processVoiceMp3] FFmpeg failed, fallback original:', e);
+    toast(`FFmpeg KO sur ${fileBaseName}, voix originale utilisée`, 'warn', 5000);
+    return inputBlob;
+  }
+}
+
 // Récupère le JWT Supabase pour appeler nos endpoints serverless
 async function getCallerJwt() {
   const { data: { session } } = await sb.auth.getSession();
@@ -11443,6 +11519,10 @@ async function generateScriptVoiceFlow(scriptId, gender) {
       stepLabels.set(p.slotKey, `${p.label}: fetch mp3`);
       refreshOverlay();
       mp3Blob = await fetchMp3Blob(taskId);
+      // Post-process : accélère ×1.3 + retire silences via FFmpeg.wasm
+      stepLabels.set(p.slotKey, `${p.label}: FFmpeg (speed ×${FFMPEG_SPEED} + cut silences)`);
+      refreshOverlay();
+      mp3Blob = await processVoiceMp3(mp3Blob, p.label);
     } catch (e) {
       console.error(`[gen voice ${p.label} TTS]`, e);
       stepLabels.set(p.slotKey, 'done');
@@ -11592,10 +11672,20 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
   } else {
     toast('Slot voix invalide', 'error'); return;
   }
-  const ext = (file.name.split('.').pop() || 'mp3').toLowerCase();
-  const fileName = `${scriptAd.name} - ${displayLabel}.${ext}`;
+  // Post-process FFmpeg : speed + silence removal (toujours en .mp3)
+  const overlay = createProgressOverlay(`Upload voix ${displayLabel}`);
+  overlay.update(`FFmpeg (speed ×${FFMPEG_SPEED} + cut silences)...`, 0, 2);
+  let processedBlob;
+  try {
+    processedBlob = await processVoiceMp3(file, displayLabel);
+  } catch (e) {
+    console.error('[uploadScriptVoiceFlow FFmpeg]', e);
+    processedBlob = file; // fallback silencieux
+  }
+  // On force toujours .mp3 en sortie (le processBlob est encodé en audio/mpeg)
+  const fileName = `${scriptAd.name} - ${displayLabel}.mp3`;
 
-  toast('Upload sur Drive...', 'info', 3000);
+  overlay.update('Upload sur Drive...', 1, 2);
   let uploaded;
   try {
     await ensureDriveReady();
@@ -11615,7 +11705,9 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
       catch (e) { console.warn('[old script voice trash]', e); }
     }
 
-    uploaded = await driveUploadFile(file, voicesFolder.id, fileName);
+    // Wrap blob processed dans un File-like avec le bon nom
+    const fileToUpload = new File([processedBlob], fileName, { type: 'audio/mpeg' });
+    uploaded = await driveUploadFile(fileToUpload, voicesFolder.id, fileName);
     if (!uploaded?.id) throw new Error('Upload Drive sans id');
 
     // Auto-share pour preview inline
@@ -11627,6 +11719,7 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
     } catch (e) { console.warn('[script voice auto-share]', e); }
   } catch (e) {
     console.error('[uploadScriptVoiceFlow]', e);
+    overlay.close();
     toast('Erreur upload Drive : ' + extractGapiError(e), 'error', 8000);
     return;
   }
@@ -11637,7 +11730,9 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
     drive_file_id: uploaded.id,
     file_name: fileName,
     uploaded_at: new Date().toISOString(),
-    uploaded_by: currentUser?.id || null
+    uploaded_by: currentUser?.id || null,
+    processed: true,
+    speed: FFMPEG_SPEED
   };
   if (slotKey === 'body') {
     current.body = entry;
@@ -11651,9 +11746,10 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
   }
 
   const { error } = await sb.from('ads').update({ voice_uploads: current }).eq('id', scriptId);
+  overlay.close();
   if (error) { toast('Uploadé sur Drive mais erreur DB : ' + error.message, 'error', 8000); return; }
 
-  toast(`Voix "${displayLabel}" uploadée ✓`, 'success', 4000);
+  toast(`Voix "${displayLabel}" processée (×${FFMPEG_SPEED}) + uploadée ✓`, 'success', 4000);
   render();
 }
 
