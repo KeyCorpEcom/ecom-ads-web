@@ -11452,18 +11452,36 @@ async function generateScriptVoiceFlow(scriptId, gender) {
 
   // 3. Construit la liste des morceaux à générer (1 voix par hook + 1 voix body)
   //    Si pas de hooks → fallback legacy : 1 voix pour le script entier (slot body)
+  //    On SKIP les slots déjà remplis pour éviter de cramer des credits sur retries
+  //    (utilise le × pour supprimer si tu veux régénérer un slot existant)
+  const existingVu = (scriptAd.voice_uploads && typeof scriptAd.voice_uploads === 'object') ? scriptAd.voice_uploads : {};
+  const existingHookIdxs = new Set((existingVu.hooks || []).map(h => h.idx));
+  const existingBody = !!existingVu.body;
+
   const pieces = [];
+  const skippedPieces = [];
   const hooks = Array.isArray(scriptAd.hooks) ? scriptAd.hooks : [];
   const hasHooks = hooks.length > 0;
   if (hasHooks) {
     hooks.forEach((h, i) => {
       const t = (h || '').trim();
-      if (t) pieces.push({ slotKey: `hook:${i}`, label: `Hook ${i + 1}`, text: t });
+      if (!t) return;
+      const piece = { slotKey: `hook:${i}`, label: `Hook ${i + 1}`, text: t };
+      if (existingHookIdxs.has(i)) skippedPieces.push(piece);
+      else pieces.push(piece);
     });
   }
   const bodyText = (scriptAd.script || '').trim();
-  if (bodyText) pieces.push({ slotKey: 'body', label: 'Body', text: bodyText });
+  if (bodyText) {
+    const piece = { slotKey: 'body', label: 'Body', text: bodyText };
+    if (existingBody) skippedPieces.push(piece);
+    else pieces.push(piece);
+  }
 
+  if (pieces.length === 0 && skippedPieces.length > 0) {
+    toast('Toutes les voix sont déjà uploadées. Clique × sur un slot pour le supprimer puis re-clique 🔊.', 'info', 9000);
+    return;
+  }
   if (pieces.length === 0) {
     toast('Aucun texte à générer (ni hooks ni body)', 'warn', 6000);
     return;
@@ -11471,9 +11489,12 @@ async function generateScriptVoiceFlow(scriptId, gender) {
 
   // 4. Confirm
   const totalChars = pieces.reduce((s, p) => s + p.text.length, 0);
+  const skippedNote = skippedPieces.length > 0
+    ? `\n\nSKIP (déjà uploadés) : ${skippedPieces.map(p => p.label).join(', ')}.\nClique × sur un slot puis re-🔊 pour le refaire.`
+    : '';
   const ok = await confirmDialog(
     `Générer ${pieces.length} voix ${gender === 'F' ? '♀' : '♂'} ?`,
-    `Morceaux : ${pieces.map(p => `${p.label} (${p.text.length}c)`).join(', ')}\nTotal : ${totalChars} caractères.\nÇa peut prendre 10-30s par morceau.`
+    `À générer : ${pieces.map(p => `${p.label} (${p.text.length}c)`).join(', ')}\nTotal : ${totalChars} caractères.\nÇa peut prendre 10-30s par morceau.${skippedNote}`
   );
   if (!ok) return;
 
@@ -11519,23 +11540,40 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     return j.task_id;
   }
   async function pollTtsResult(taskId, maxSeconds = 180) {
-    // Timeout dynamique : 3 min de base + 2s par 100 chars (capé à 12 min)
+    // Timeout dynamique + abandon précoce si 20 502/5xx consécutifs (= GenAIPro/proxy KO)
     const intervalMs = 2500;
     const maxAttempts = Math.ceil((maxSeconds * 1000) / intervalMs);
+    const MAX_CONSECUTIVE_5XX = 20; // = 50s consécutifs de 5xx → abandon
+    let consecutive5xx = 0;
+    let last5xxStatus = null;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise(r => setTimeout(r, intervalMs));
       try {
         const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}`, {
           headers: { 'Authorization': `Bearer ${jwt}` }
         });
-        if (!r.ok) continue;
+        if (!r.ok) {
+          if (r.status >= 500) {
+            consecutive5xx++;
+            last5xxStatus = r.status;
+            if (consecutive5xx >= MAX_CONSECUTIVE_5XX) {
+              throw new Error(`GenAIPro injoignable (${MAX_CONSECUTIVE_5XX} × HTTP ${last5xxStatus} d'affilée). Leur API est down — réessaie dans 5-10 min.`);
+            }
+          }
+          continue;
+        }
+        consecutive5xx = 0; // reset si une réponse OK passe
         const j = await r.json();
         if (j.status === 'completed' && j.result) return j.result;
         if (j.status === 'failed' || j.status === 'error') throw new Error(`Tâche TTS échouée : ${j.status}`);
-      } catch (e) { console.warn('[tts-status poll]', attempt, e.message); }
+      } catch (e) {
+        // Re-throw l'erreur GenAIPro injoignable (sinon on swallow et on continue à poll)
+        if (e.message && e.message.startsWith('GenAIPro injoignable')) throw e;
+        console.warn('[tts-status poll]', attempt, e.message);
+      }
     }
     const mins = Math.round(maxSeconds / 60);
-    throw new Error(`Timeout TTS (${mins} min) — GenAIPro est trop lent. Réessaie ou raccourcis le texte.`);
+    throw new Error(`Timeout TTS (${mins} min) — GenAIPro trop lent. Réessaie ou raccourcis le texte.`);
   }
   async function fetchMp3Blob(taskId) {
     const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}&fetch_mp3=1`, {
