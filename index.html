@@ -12,10 +12,35 @@
 <!-- FFmpeg.wasm v0.11 (single-thread, pas besoin de COEP/COOP) — pour processing audio (speed + remove silences) -->
 <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
 <!-- lamejs : MP3 encoder pur JS (sans SharedArrayBuffer) — pour concat propre des chunks TTS -->
-<!-- Fork breezystack = version maintenue, expose lamejs global -->
-<script src="https://cdn.jsdelivr.net/npm/@breezystack/lamejs@1.2.7/dist/lame.min.js"
-        onload="console.log('[lamejs] loaded OK, version:', typeof lamejs !== 'undefined' ? 'present' : 'MISSING global')"
-        onerror="console.error('[lamejs] FAILED to load from CDN — body chunks will fallback to byte-concat (not playable in HTML5 audio)')"></script>
+<!-- Fallback chain : on essaie plusieurs CDN/URL au cas où une serait dead -->
+<script>
+(function loadLamejs() {
+  const urls = [
+    'https://cdn.jsdelivr.net/npm/@breezystack/lamejs@1.2.7/dist/lame.all.js',
+    'https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.all.js',
+    'https://unpkg.com/lamejs@1.2.0/lame.all.js',
+    'https://cdn.jsdelivr.net/gh/zhuker/lamejs@master/lame.all.js'
+  ];
+  let i = 0;
+  function tryNext() {
+    if (i >= urls.length) {
+      console.error('[lamejs] All CDN URLs failed — body concat fallback byte-concat (not playable in HTML5 audio)');
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = urls[i];
+    s.async = false;
+    s.onload = () => {
+      const ok = typeof lamejs !== 'undefined' && lamejs.Mp3Encoder;
+      console.log(`[lamejs] loaded from ${urls[i]} — Mp3Encoder ${ok ? 'OK' : 'MISSING'}`);
+      if (!ok) { i++; tryNext(); }
+    };
+    s.onerror = () => { console.warn(`[lamejs] failed ${urls[i]}, trying next...`); i++; tryNext(); };
+    document.head.appendChild(s);
+  }
+  tryNext();
+})();
+</script>
 <!-- Chart.js : chargé en lazy uniquement sur la page Analytics (gain ~80 KB au login) -->
 <!-- Google Identity + gapi : chargés en lazy au 1er besoin Drive (gain ~150 KB pour les users qui ne touchent jamais Drive) -->
 
@@ -3146,6 +3171,32 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
 // Helper : télécharge un fichier depuis Drive (utilisé pour les masters)
 // Tente l'API Drive en priorité (meilleure UX, nom de fichier correct).
 // Si ça plante, bascule sur le lien Drive direct (ouverture dans nouvel onglet).
+/**
+ * Charge un fichier audio Drive via OAuth + blob URL et l'assigne au <audio>.
+ * Workaround pour les URLs `drive.google.com/uc?export=download` qui ne se
+ * chargent plus dans HTML5 audio (CORS / Drive sharing restrictions).
+ * Utilisé pour tous les players inline (voix scripts, voix legacy).
+ */
+async function setAudioSrcFromDrive(audioEl, fileId) {
+  if (!audioEl || !fileId || audioEl._driveLoaded) return;
+  try {
+    await ensureDriveReady();
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
+      headers: { 'Authorization': `Bearer ${driveState.accessToken}` }
+    });
+    if (!res.ok) throw new Error(`Drive HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    if (audioEl._driveBlobUrl) { try { URL.revokeObjectURL(audioEl._driveBlobUrl); } catch {} }
+    audioEl.src = url;
+    audioEl._driveBlobUrl = url;
+    audioEl._driveLoaded = true;
+  } catch (e) {
+    console.warn('[setAudioSrcFromDrive]', fileId, e.message);
+    audioEl.title = 'Erreur chargement audio : ' + e.message;
+  }
+}
+
 async function downloadDriveFile(fileId, suggestedName) {
   if (!fileId) { toast('Pas de fichier disponible', 'warn'); return; }
   console.log('[DOWNLOAD] Start', { fileId, suggestedName, driveConnected: driveState.connected, hasToken: !!driveState.accessToken });
@@ -10218,7 +10269,7 @@ async function renderSingleScript(el, scriptId) {
       <span style="font-size:12px;font-weight:600;color:var(--text-dim);min-width:120px">${escapeHtml(label)}</span>
       ${hasFile
         ? `<div style="flex:1;min-width:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <audio controls preload="none" style="flex:1;min-width:220px;max-width:420px;height:32px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(fileEntry.drive_file_id)}"></audio>
+            <audio controls preload="none" style="flex:1;min-width:220px;max-width:420px;height:32px" data-drive-audio-fileid="${escapeHtml(fileEntry.drive_file_id)}"></audio>
             <button class="btn btn-ghost btn-sm" data-dl-script-voice="${s.id}|${slotKey}" data-voice-fileid="${escapeHtml(fileEntry.drive_file_id)}" data-voice-filename="${escapeHtml(fileEntry.file_name || '')}" title="Télécharger ${escapeHtml(label)}">⬇ Download</button>
             ${isAdminUser ? `<button class="btn btn-ghost btn-sm" data-rm-script-voice="${s.id}|${slotKey}" style="color:var(--red);padding:4px 8px" title="Supprimer ce fichier">×</button>` : ''}
           </div>`
@@ -10293,7 +10344,7 @@ async function renderSingleScript(el, scriptId) {
     ${s.voice_file_id && !voiceUploads.body && (!voiceUploads.hooks || voiceUploads.hooks.length === 0) ? `
       <div style="margin-top:14px;padding:12px 14px;background:rgba(192,132,252,0.06);border-left:3px solid var(--purple);border-radius:8px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <div style="font-size:11px;color:var(--purple);font-weight:700;letter-spacing:0.5px">VOIX TTS LEGACY ${escapeHtml(s.voice_gender || '?')}</div>
-        <audio controls preload="none" style="flex:1;min-width:240px;max-width:480px;height:34px" src="https://drive.google.com/uc?export=download&id=${escapeHtml(s.voice_file_id)}"></audio>
+        <audio controls preload="none" style="flex:1;min-width:240px;max-width:480px;height:34px" data-drive-audio-fileid="${escapeHtml(s.voice_file_id)}"></audio>
         <span style="font-size:11px;color:var(--text-dim)">${s.voice_generated_at ? new Date(s.voice_generated_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : ''}</span>
       </div>
     ` : ''}
@@ -10332,6 +10383,12 @@ async function renderSingleScript(el, scriptId) {
       const [sid, slotKey] = btn.dataset.rmScriptVoice.split('|');
       removeScriptVoiceFlow(sid, slotKey);
     });
+  });
+
+  // Charge chaque <audio> via OAuth Drive API + blob URL
+  // (les URLs publiques drive.google.com/uc?export=download ne marchent plus inline)
+  el.querySelectorAll('audio[data-drive-audio-fileid]').forEach(audio => {
+    setAudioSrcFromDrive(audio, audio.dataset.driveAudioFileid);
   });
 }
 
