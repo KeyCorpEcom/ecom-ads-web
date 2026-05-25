@@ -9,8 +9,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
-<!-- FFmpeg.wasm v0.11 (single-thread, pas besoin de COEP/COOP) — pour processing audio (speed + remove silences) -->
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+<!-- FFmpeg.wasm v0.10 (single-thread NATIF, sans bricolage proxy_main) — pour processing audio (speed + remove silences) -->
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
 <!-- lamejs : MP3 encoder pur JS (sans SharedArrayBuffer) — pour concat propre des chunks TTS -->
 <!-- Fallback chain : on essaie plusieurs CDN/URL au cas où une serait dead -->
 <script>
@@ -11124,15 +11124,13 @@ async function getFFmpeg() {
       throw new Error('FFmpeg.wasm pas chargé (script CDN manquant ou bloqué)');
     }
     const { createFFmpeg } = FFmpeg;
-    // IMPORTANT : @ffmpeg/core (MT) requiert SharedArrayBuffer (=COEP headers).
-    // On utilise core-st (single-thread) qui marche sans SAB. Plus lent mais robuste.
-    // mainName: 'main' = core-st expose `main`, alors que le MT default expose `proxy_main`.
+    // v0.10.0 du core = single-thread NATIF, pas de SharedArrayBuffer requis,
+    // pas de bricolage proxy_main/main. Plus lent que MT mais robuste partout.
     const ff = createFFmpeg({
       log: false,
-      mainName: 'main',
-      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js'
     });
-    console.log('[FFmpeg] chargement du core single-thread (~25MB)...');
+    console.log('[FFmpeg] chargement du core v0.10 single-thread (~25MB)...');
     const t0 = performance.now();
     await ff.load();
     console.log(`[FFmpeg] chargé en ${Math.round(performance.now() - t0)}ms`);
