@@ -681,6 +681,65 @@ function toast(msg, type = 'info', duration = 3000) {
   setTimeout(() => { t.style.opacity = '0'; t.style.transition = 'opacity 0.3s'; setTimeout(() => t.remove(), 300); }, duration);
 }
 
+/**
+ * Sticky progress overlay with live elapsed-time counter.
+ * Returns { update(stepMsg, stepIdx, totalSteps), close() }
+ * Renders bottom-right of the page, persists until close() is called.
+ * Use for long-running operations (TTS gen, batch uploads, etc.).
+ */
+function createProgressOverlay(title) {
+  const el = document.createElement('div');
+  el.style.cssText = `
+    position:fixed;bottom:20px;right:20px;z-index:99999;
+    background:var(--bg-card,#1a1a1f);border:1px solid var(--purple,#c084fc);
+    border-radius:10px;padding:14px 18px;min-width:300px;max-width:420px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 0 1px rgba(192,132,252,0.2);
+    font-size:13px;color:var(--text,#fff);
+  `;
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div class="spinner" style="width:18px;height:18px;border-width:2px;flex-shrink:0"></div>
+      <div style="font-weight:700;color:var(--purple,#c084fc);font-size:12px;letter-spacing:0.4px;text-transform:uppercase">${escapeHtml(title)}</div>
+    </div>
+    <div data-progress-step style="font-size:13px;line-height:1.4;color:var(--text);margin-bottom:6px">Démarrage...</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text-dim)">
+      <span data-progress-count></span>
+      <span data-progress-elapsed style="font-variant-numeric:tabular-nums">0s</span>
+    </div>
+    <div data-progress-bar style="margin-top:8px;height:3px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden">
+      <div data-progress-fill style="height:100%;width:0%;background:var(--purple,#c084fc);transition:width 0.3s"></div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  const stepEl = el.querySelector('[data-progress-step]');
+  const countEl = el.querySelector('[data-progress-count]');
+  const elapsedEl = el.querySelector('[data-progress-elapsed]');
+  const fillEl = el.querySelector('[data-progress-fill]');
+  const start = Date.now();
+  const tick = setInterval(() => {
+    const s = Math.floor((Date.now() - start) / 1000);
+    const min = Math.floor(s / 60);
+    const sec = s % 60;
+    elapsedEl.textContent = min > 0 ? `${min}m ${sec}s` : `${sec}s`;
+  }, 500);
+  return {
+    update(stepMsg, stepIdx, totalSteps) {
+      if (stepMsg) stepEl.textContent = stepMsg;
+      if (stepIdx != null && totalSteps != null) {
+        countEl.textContent = `${stepIdx}/${totalSteps}`;
+        fillEl.style.width = `${Math.round((stepIdx / totalSteps) * 100)}%`;
+      }
+    },
+    close() {
+      clearInterval(tick);
+      el.style.transition = 'opacity 0.3s, transform 0.3s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(10px)';
+      setTimeout(() => el.remove(), 300);
+    }
+  };
+}
+
 function modal(contentHtml) {
   return new Promise(resolve => {
     const container = document.getElementById('modal-container');
@@ -10918,7 +10977,7 @@ const VOICE_MODEL_OPTIONS = [
 // Voix par défaut FR (utilisées si workspace_voice_settings est vide pour ce workspace)
 // → permet de cliquer 🔊 ♀/♂ sans devoir configurer dans Settings d'abord
 const DEFAULT_VOICE_ID_FEMALE = '3C1zYzXNXNzrB66ON8rj';
-const DEFAULT_VOICE_ID_MALE   = 'aQROLel5sQbj1vuIVi6B';
+const DEFAULT_VOICE_ID_MALE   = 'W71zT1VwIFFx3mMGH2uZ'; // version FR
 const DEFAULT_VOICE_MODEL     = 'eleven_multilingual_v2';
 
 // Récupère le JWT Supabase pour appeler nos endpoints serverless
@@ -11350,15 +11409,18 @@ async function generateScriptVoiceFlow(scriptId, gender) {
   // 6. Boucle : pour chaque morceau, TTS → mp3 → Drive → DB update incrémental
   let success = 0, failed = 0;
   const errors = [];
+  const overlay = createProgressOverlay(`Génération voix ${gender === 'F' ? '♀ Femme' : '♂ Homme'}`);
 
   for (let i = 0; i < pieces.length; i++) {
     const p = pieces[i];
-    toast(`[${i + 1}/${pieces.length}] ${p.label} : génération TTS ${gender === 'F' ? '♀' : '♂'}...`, 'info', 5000);
+    overlay.update(`${p.label} → TTS GenAIPro (génération mp3)...`, i, pieces.length);
 
     let taskId, mp3Blob, uploaded;
     try {
       taskId = await createTtsTask(p.text);
+      overlay.update(`${p.label} → attente résultat (peut prendre 10-30s)...`, i, pieces.length);
       await pollTtsResult(taskId);
+      overlay.update(`${p.label} → téléchargement mp3...`, i, pieces.length);
       mp3Blob = await fetchMp3Blob(taskId);
     } catch (e) {
       console.error(`[gen voice ${p.label} TTS]`, e);
@@ -11382,6 +11444,7 @@ async function generateScriptVoiceFlow(scriptId, gender) {
 
     // Upload Drive
     const fileName = `${scriptAd.name} - ${p.label} (${gender}).mp3`;
+    overlay.update(`${p.label} → upload sur Drive...`, i, pieces.length);
     try {
       const fileObj = new File([mp3Blob], fileName, { type: 'audio/mpeg' });
       uploaded = await driveUploadFile(fileObj, voicesFolder.id, fileName);
@@ -11432,7 +11495,10 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     }
 
     success++;
+    overlay.update(`${p.label} ✓ terminé`, i + 1, pieces.length);
   }
+
+  overlay.close();
 
   // 7. Toast récapitulatif
   if (success > 0 && failed === 0) {
