@@ -11124,11 +11124,16 @@ async function getFFmpeg() {
       throw new Error('FFmpeg.wasm pas chargé (script CDN manquant ou bloqué)');
     }
     const { createFFmpeg } = FFmpeg;
+    // IMPORTANT : @ffmpeg/core (MT) requiert SharedArrayBuffer (=COEP headers).
+    // On utilise core-st (single-thread) qui marche sans SAB. Plus lent mais robuste.
     const ff = createFFmpeg({
       log: false,
-      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js'
+      corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
     });
-    await ff.load(); // ~25MB download au premier appel (puis cache navigateur)
+    console.log('[FFmpeg] chargement du core single-thread (~25MB)...');
+    const t0 = performance.now();
+    await ff.load();
+    console.log(`[FFmpeg] chargé en ${Math.round(performance.now() - t0)}ms`);
     _ffmpegInstance = ff;
     return ff;
   })();
@@ -11257,25 +11262,29 @@ async function processVoiceMp3(inputBlob, fileBaseName = 'voice') {
     const inputName = `in_${Date.now()}.mp3`;
     const outputName = `out_${Date.now()}.mp3`;
 
+    console.log(`[FFmpeg ${fileBaseName}] input: ${inputBlob.size} bytes`);
     ff.FS('writeFile', inputName, await fetchFile(inputBlob));
 
-    // atempo accepte 0.5-2.0 par filtre. Pour 1.3 c'est ok en une passe.
-    // silenceremove : retire les silences au début, fin, ET au milieu (stop_periods=-1)
     const audioFilter = [
       `atempo=${FFMPEG_SPEED}`,
       `silenceremove=stop_periods=-1:stop_duration=${FFMPEG_SILENCE_MIN_DUR}:stop_threshold=${FFMPEG_SILENCE_THRESHOLD}`
     ].join(',');
+    console.log(`[FFmpeg ${fileBaseName}] running: -af ${audioFilter}`);
 
+    const t0 = performance.now();
     await ff.run('-i', inputName, '-af', audioFilter, '-y', outputName);
+    console.log(`[FFmpeg ${fileBaseName}] processed in ${Math.round(performance.now() - t0)}ms`);
 
     const data = ff.FS('readFile', outputName);
     try { ff.FS('unlink', inputName); } catch {}
     try { ff.FS('unlink', outputName); } catch {}
 
-    return new Blob([data.buffer], { type: 'audio/mpeg' });
+    const out = new Blob([data.buffer], { type: 'audio/mpeg' });
+    console.log(`[FFmpeg ${fileBaseName}] ✓ output: ${out.size} bytes (×${FFMPEG_SPEED}, silences <${FFMPEG_SILENCE_MIN_DUR}s coupés)`);
+    return out;
   } catch (e) {
-    console.error('[processVoiceMp3] FFmpeg failed, fallback original:', e);
-    toast(`FFmpeg KO sur ${fileBaseName}, voix originale utilisée`, 'warn', 5000);
+    console.error(`[FFmpeg ${fileBaseName}] FAILED, fallback original blob:`, e);
+    toast(`FFmpeg KO sur ${fileBaseName} (${e.message?.slice(0,60) || 'erreur'}) — voix brute uploadée`, 'warn', 7000);
     return inputBlob;
   }
 }
