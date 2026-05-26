@@ -1116,7 +1116,7 @@ async function render(e) {
   if (!isAdmin()) {
     const allowedPages = new Set();
     if (hasRole('ads_translator')) ['ads', 'drive', 'formations', 'formation', 'produit', 'tools'].forEach(p => allowedPages.add(p));
-    if (hasRole('video_editor'))   ['scripts', 'drive', 'formations', 'formation', 'tools'].forEach(p => allowedPages.add(p));
+    if (hasRole('video_editor'))   ['scripts', 'script', 'drive', 'formations', 'formation', 'tools'].forEach(p => allowedPages.add(p));
     if (hasRole('page_builder'))   ['pages', 'page', 'sections', 'drive', 'formations', 'formation', 'tools', 'produit'].forEach(p => allowedPages.add(p));
     if (hasRole('viewer'))         ['ads', 'pages', 'drive', 'formations', 'formation', 'tools', 'produit'].forEach(p => allowedPages.add(p));
 
