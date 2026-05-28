@@ -10440,41 +10440,44 @@ async function renderSingleScript(el, scriptId) {
     }
 
     const buttons = [];
+    const btnStyle = 'padding:5px 10px;font-size:12px';
     if (driveUrl) {
-      buttons.push(`<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px">↗ Voir</a>`);
+      buttons.push(`<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" style="${btnStyle}">↗ Voir</a>`);
     }
     if (status === 'pending') {
       if (isAdminUser) {
-        buttons.push(`<button class="btn btn-ghost btn-sm" data-approve-hook-master="${escapeHtml(s.id)}|${hookIdx}" title="Valider ce hook" style="padding:3px 8px;font-size:11px;color:var(--green)">✓ Valider</button>`);
-        buttons.push(`<button class="btn btn-ghost btn-sm" data-reject-hook-master="${escapeHtml(s.id)}|${hookIdx}" title="Rejeter avec feedback" style="padding:3px 8px;font-size:11px;color:var(--red)">✗ Rejeter</button>`);
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-approve-hook-master="${escapeHtml(s.id)}|${hookIdx}" title="Valider ce hook" style="${btnStyle};color:var(--green)">✓ Valider</button>`);
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-reject-hook-master="${escapeHtml(s.id)}|${hookIdx}" title="Rejeter avec feedback" style="${btnStyle};color:var(--red)">✗ Rejeter</button>`);
       }
       if (canManageMasters) {
-        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Remplacer la vidéo" style="padding:3px 8px;font-size:11px;color:var(--gold)">↻ Remplacer</button>`);
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Remplacer la vidéo" style="${btnStyle};color:var(--gold)">↻ Remplacer</button>`);
       }
     } else if (status === 'approved') {
       if (canManageMasters) {
-        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Remplacer la vidéo" style="padding:3px 8px;font-size:11px;color:var(--gold)">↻ Remplacer</button>`);
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Remplacer la vidéo" style="${btnStyle};color:var(--gold)">↻ Remplacer</button>`);
       }
     } else if (status === 'rejected') {
       if (canManageMasters) {
-        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Re-uploader" style="padding:3px 10px;font-size:11px;color:var(--gold)">↻ Re-upload</button>`);
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Re-uploader" style="${btnStyle};color:var(--gold)">↻ Re-upload</button>`);
       }
     } else {
       // empty
       if (canManageMasters) {
-        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Uploader la vidéo de ce hook" style="padding:3px 10px;font-size:11px;color:var(--gold)">+ Upload</button>`);
+        buttons.push(`<button class="btn btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Uploader la vidéo de ce hook" style="${btnStyle};background:var(--gold);color:#000;font-weight:600">+ Upload</button>`);
       }
     }
 
-    return `<div class="master-slot" style="padding:10px 12px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:6px;display:flex;flex-direction:column;gap:6px">
+    return `<div class="master-slot" style="padding:12px 14px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:8px;display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <span style="font-size:12px;font-weight:600;color:var(--text);min-width:55px">Hook ${hookIdx + 1}</span>
+        <span style="font-size:13px;font-weight:700;color:var(--text);min-width:60px">Hook ${hookIdx + 1}</span>
         ${statusBadge}
-        <div style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap">${buttons.join('')}</div>
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">${buttons.join('')}</div>
       </div>
-      <div style="font-size:11px;color:var(--text-dim);line-height:1.4">${escapeHtml(hookText)}</div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.5">${escapeHtml(hookText)}</div>
       ${status === 'rejected' && feedback ? `
-        <div style="margin-top:2px;padding:6px 10px;font-size:11px;color:var(--text-dim);border-left:2px solid var(--red);white-space:pre-wrap">${escapeHtml(feedback)}</div>
+        <div style="margin-top:4px;padding:8px 12px;font-size:12px;color:var(--text);background:rgba(248,113,113,0.04);border-left:2px solid var(--red);border-radius:4px;white-space:pre-wrap;line-height:1.5">
+          <span style="font-size:10px;font-weight:700;color:var(--red);letter-spacing:0.4px;display:block;margin-bottom:4px">FEEDBACK ADMIN</span>${escapeHtml(feedback)}
+        </div>
       ` : ''}
     </div>`;
   };
@@ -10489,17 +10492,17 @@ async function renderSingleScript(el, scriptId) {
     else mastersSummary = `<span style="color:var(--text-dim)">${approvedHooks}/${totalHooks} validés</span>${pendingHooks > 0 ? `<span style="color:var(--orange)"> · ${pendingHooks} à valider</span>` : ''}`;
   }
 
-  // Banner minimaliste : juste le compteur, pas de gradient ni d'emoji
+  // Section Masters vidéo : style aligné avec Voix + Hooks (border-left coloré + titre 12px gras)
   const missingHooks = hasHooks ? totalHooks - approvedHooks - pendingHooks : 0;
-  const ctaBannerHtml = ''; // intentionnellement vide — le compteur est dans le header de la section ci-dessous
+  const ctaBannerHtml = ''; // pas de banner — le compteur est dans le header de la section
 
   const mastersByHookSectionHtml = (hasHooks && canManageMasters) ? `
-    <div id="masters-by-hook-section" style="margin-bottom:18px">
-      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border-soft)">
-        <div style="font-size:11px;font-weight:600;color:var(--text-dim);letter-spacing:0.6px;text-transform:uppercase">Masters vidéo</div>
-        <span style="font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace">${approvedHooks}/${totalHooks}${pendingHooks > 0 ? ` · ${pendingHooks} pending` : ''}</span>
+    <div id="masters-by-hook-section" style="margin-bottom:14px;padding:14px 16px;background:rgba(96,165,250,0.04);border-left:3px solid var(--blue);border-radius:8px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+        <div style="font-weight:700;color:var(--blue);font-size:12px;letter-spacing:0.5px">🎬 MASTERS VIDÉO</div>
+        <span style="font-size:11px;font-weight:500;color:var(--text-dim)">${approvedHooks}/${totalHooks} validé${approvedHooks > 1 ? 's' : ''}${pendingHooks > 0 ? ` · ${pendingHooks} en attente` : ''}</span>
       </div>
-      <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;flex-direction:column;gap:8px">
         ${s.hooks.map((h, i) => masterSlotHtml(i, h)).join('')}
       </div>
     </div>
