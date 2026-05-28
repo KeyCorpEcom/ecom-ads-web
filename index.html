@@ -9870,9 +9870,10 @@ async function renderScriptsList(el) {
 
   // On lit UNIQUEMENT les produits validés POST-testing (= rentables, prêts à scaler)
   // + les ads source='script' SAUF celles en mode IMAGE (pas de vidéo à produire pour ces ads)
+  // On récupère hooks + masters_by_hook + master_status pour pouvoir agréger le statut multi-master
   const [{ data: products }, { data: scriptsRaw }] = await Promise.all([
     sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').eq('passed_testing', true).order('created_at', { ascending: false }),
-    sb.from('ads').select('id, product_id, name, master_file_id, position, translation_type').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
+    sb.from('ads').select('id, product_id, name, master_file_id, master_status, master_pending_file_id, master_feedback, hooks, masters_by_hook, position, translation_type, created_at').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
   ]);
   // IMAGE et SUBS : pas de master vidéo à produire (image statique / VO concurrent conservée)
   const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image' && s.translation_type !== 'subs_only');
@@ -9883,8 +9884,10 @@ async function renderScriptsList(el) {
 
   const productStats = (products || []).map(p => {
     const pScripts = scriptsByProduct[p.id] || [];
-    const todo = pScripts.filter(s => !s.master_file_id).length;
-    const done = pScripts.length - todo;
+    // Un script est "done" SEULEMENT si computeScriptStatus.isApproved est true
+    // (en multi-master : tous les hooks validés ; en legacy : master_status === 'approved')
+    const done = pScripts.filter(s => computeScriptStatus(s).isApproved).length;
+    const todo = pScripts.length - done;
     const priority = p.priority || 'normal';
     const priorityWeight = PRIORITY_META[priority]?.weight || 2;
     return { p, pScripts, todo, done, priority, priorityWeight, hasScripts: pScripts.length > 0, allDone: pScripts.length > 0 && todo === 0 };
@@ -10084,8 +10087,10 @@ async function renderScriptDetail(el, productId) {
     return;
   }
 
-  const todoScripts = (scripts || []).filter(a => !a.master_file_id);
-  const doneScripts = (scripts || []).filter(a => a.master_file_id);
+  // Un script est "done" SEULEMENT si computeScriptStatus.isApproved est true
+  // (en multi-master : tous les hooks validés ; en legacy : master_status === 'approved')
+  const doneScripts = (scripts || []).filter(a => computeScriptStatus(a).isApproved);
+  const todoScripts = (scripts || []).filter(a => !computeScriptStatus(a).isApproved);
   const priority = product.priority || 'normal';
 
   // Tab actif (state local, sauvegardé en localStorage par produit)
