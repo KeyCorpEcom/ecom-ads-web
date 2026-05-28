@@ -10428,22 +10428,15 @@ async function renderSingleScript(el, scriptId) {
     const driveUrl = (fileId || pendingFileId) ? `https://drive.google.com/file/d/${fileId || pendingFileId}/view` : null;
 
     let statusBadge = '';
-    let statusBg = 'var(--bg-input)';
-    let statusBorder = 'var(--border-soft)';
+    // Style minimaliste : pas de background coloré, juste un point + texte
     if (status === 'pending') {
-      statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(251,191,36,0.18);color:var(--orange);letter-spacing:0.5px">⏱ EN ATTENTE</span>`;
-      statusBg = 'rgba(251,191,36,0.06)';
-      statusBorder = 'rgba(251,191,36,0.3)';
+      statusBadge = `<span style="font-size:10px;color:var(--orange);font-weight:500;display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--orange)"></span>en attente</span>`;
     } else if (status === 'approved') {
-      statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.18);color:var(--green);letter-spacing:0.5px">✓ VALIDÉ</span>`;
-      statusBg = 'rgba(52,211,153,0.06)';
-      statusBorder = 'rgba(52,211,153,0.3)';
+      statusBadge = `<span style="font-size:10px;color:var(--green);font-weight:500;display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--green)"></span>validé</span>`;
     } else if (status === 'rejected') {
-      statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(248,113,113,0.18);color:var(--red);letter-spacing:0.5px">✗ REJETÉ</span>`;
-      statusBg = 'rgba(248,113,113,0.06)';
-      statusBorder = 'rgba(248,113,113,0.3)';
+      statusBadge = `<span style="font-size:10px;color:var(--red);font-weight:500;display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--red)"></span>rejeté</span>`;
     } else {
-      statusBadge = `<span style="font-size:9px;font-weight:600;padding:2px 6px;border-radius:4px;background:var(--bg-input);color:var(--text-mute);letter-spacing:0.5px">— VIDE —</span>`;
+      statusBadge = `<span style="font-size:10px;color:var(--text-mute);font-weight:500;display:inline-flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--text-mute);opacity:0.5"></span>vide</span>`;
     }
 
     const buttons = [];
@@ -10473,18 +10466,15 @@ async function renderSingleScript(el, scriptId) {
       }
     }
 
-    return `<div class="master-slot" style="padding:10px 12px;background:${statusBg};border:1px solid ${statusBorder};border-radius:6px;display:flex;flex-direction:column;gap:6px">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <span style="font-size:12px;font-weight:700;color:var(--text);min-width:60px">Hook ${hookIdx + 1}</span>
+    return `<div class="master-slot" style="padding:10px 12px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:6px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:600;color:var(--text);min-width:55px">Hook ${hookIdx + 1}</span>
         ${statusBadge}
         <div style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap">${buttons.join('')}</div>
       </div>
-      <div style="font-size:12px;color:var(--text-dim);line-height:1.4">${escapeHtml(hookText)}</div>
+      <div style="font-size:11px;color:var(--text-dim);line-height:1.4">${escapeHtml(hookText)}</div>
       ${status === 'rejected' && feedback ? `
-        <div style="margin-top:4px;padding:8px 10px;background:rgba(248,113,113,0.05);border-left:2px solid var(--red);border-radius:4px;font-size:11px;color:var(--text)">
-          <span style="font-weight:700;color:var(--red);font-size:10px;letter-spacing:0.4px">FEEDBACK ADMIN</span><br>
-          <span style="white-space:pre-wrap">${escapeHtml(feedback)}</span>
-        </div>
+        <div style="margin-top:2px;padding:6px 10px;font-size:11px;color:var(--text-dim);border-left:2px solid var(--red);white-space:pre-wrap">${escapeHtml(feedback)}</div>
       ` : ''}
     </div>`;
   };
@@ -10499,31 +10489,17 @@ async function renderSingleScript(el, scriptId) {
     else mastersSummary = `<span style="color:var(--text-dim)">${approvedHooks}/${totalHooks} validés</span>${pendingHooks > 0 ? `<span style="color:var(--orange)"> · ${pendingHooks} à valider</span>` : ''}`;
   }
 
-  // Banner CTA très visible quand il reste des hooks à uploader (multi-master partiel)
+  // Banner minimaliste : juste le compteur, pas de gradient ni d'emoji
   const missingHooks = hasHooks ? totalHooks - approvedHooks - pendingHooks : 0;
-  const ctaBannerHtml = (hasHooks && canManageMasters && !isApproved && totalHooks > 0) ? `
-    <div style="padding:14px 18px;background:linear-gradient(90deg,rgba(192,132,252,0.12),rgba(96,165,250,0.10));border:1px solid rgba(192,132,252,0.35);border-radius:10px;margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
-      <div style="font-size:24px;line-height:1;flex-shrink:0">🎬</div>
-      <div style="flex:1;min-width:200px">
-        <div style="font-weight:700;color:var(--text);font-size:14px;margin-bottom:2px">
-          ${missingHooks > 0
-            ? `Il te reste <span style="color:var(--gold)">${missingHooks} vidéo${missingHooks > 1 ? 's' : ''}</span> à uploader (${approvedHooks}/${totalHooks} validée${approvedHooks > 1 ? 's' : ''}${pendingHooks > 0 ? `, ${pendingHooks} en attente` : ''})`
-            : `${pendingHooks}/${totalHooks} vidéo${pendingHooks > 1 ? 's' : ''} en attente de validation admin`
-          }
-        </div>
-        <div style="font-size:12px;color:var(--text-dim)">1 vidéo par hook variant — utilise les boutons <strong>+ Upload</strong> ci-dessous</div>
-      </div>
-      ${missingHooks > 0 ? '<button class="btn btn-sm" data-scroll-to-masters style="background:var(--purple);color:#fff;font-weight:600;flex-shrink:0">↓ Aller uploader</button>' : ''}
-    </div>
-  ` : '';
+  const ctaBannerHtml = ''; // intentionnellement vide — le compteur est dans le header de la section ci-dessous
 
   const mastersByHookSectionHtml = (hasHooks && canManageMasters) ? `
-    <div id="masters-by-hook-section" style="padding:14px 16px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.25);border-left:3px solid var(--blue);border-radius:8px;margin-bottom:14px">
-      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap">
-        <div style="font-weight:700;color:var(--blue);font-size:13px;letter-spacing:0.5px">🎬 MASTERS VIDÉO (1 par hook)</div>
-        <span style="font-size:11px;font-weight:500">${mastersSummary}</span>
+    <div id="masters-by-hook-section" style="margin-bottom:18px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border-soft)">
+        <div style="font-size:11px;font-weight:600;color:var(--text-dim);letter-spacing:0.6px;text-transform:uppercase">Masters vidéo</div>
+        <span style="font-size:11px;color:var(--text-dim);font-family:'JetBrains Mono',monospace">${approvedHooks}/${totalHooks}${pendingHooks > 0 ? ` · ${pendingHooks} pending` : ''}</span>
       </div>
-      <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;flex-direction:column;gap:6px">
         ${s.hooks.map((h, i) => masterSlotHtml(i, h)).join('')}
       </div>
     </div>
