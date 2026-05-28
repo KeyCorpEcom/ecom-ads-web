@@ -10808,6 +10808,9 @@ function renderBRollItem(f, opts = {}) {
           : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`
     }</div>`;
 
+  const renameBtn = opts.canRename
+    ? `<button class="btn btn-ghost btn-sm" data-broll-rename-file="${f.id}" data-broll-rename-current="${escapeHtml(f.name)}" title="Renommer ce fichier">✎ Renommer</button>`
+    : '';
   return `
     <div class="broll-row">
       ${thumbHtml}
@@ -10818,6 +10821,7 @@ function renderBRollItem(f, opts = {}) {
       <div class="broll-actions">
         <a href="${escapeHtml(viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir</a>
         <button class="btn btn-secondary btn-sm" data-download-broll="${f.id}" data-broll-name="${escapeHtml(f.name)}">Télécharger</button>
+        ${renameBtn}
       </div>
     </div>
   `;
@@ -10947,7 +10951,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
         ` : ''}
         ${matchFiles.length > 0 ? `
           <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Fichiers (${matchFiles.length})</div>
-          <div>${matchFiles.map(m => renderBRollItem(m.file, { path: m.path })).join('')}</div>
+          <div>${matchFiles.map(m => renderBRollItem(m.file, { path: m.path, canRename: isAdminUser })).join('')}</div>
         ` : ''}
       `);
       bindCommonHandlers();
@@ -10974,7 +10978,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
 
       ${realFiles.length > 0 ? `
         <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Fichiers (${realFiles.length})</div>
-        <div>${realFiles.map(f => renderBRollItem(f)).join('')}</div>
+        <div>${realFiles.map(f => renderBRollItem(f, { canRename: isAdminUser })).join('')}</div>
       ` : ''}
     `);
     bindCommonHandlers();
@@ -11030,6 +11034,43 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
       // Download
       wrap.querySelectorAll('[data-download-broll]').forEach(btn => {
         btn.addEventListener('click', () => downloadDriveFile(btn.dataset.downloadBroll, btn.dataset.brollName));
+      });
+
+      // Renommer un fichier (admin)
+      wrap.querySelectorAll('[data-broll-rename-file]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const fileId = btn.dataset.brollRenameFile;
+          const currentName = btn.dataset.brollRenameCurrent;
+          // Sépare nom + extension pour pré-remplir uniquement le nom modifiable
+          const lastDot = currentName.lastIndexOf('.');
+          const baseName = lastDot > 0 ? currentName.slice(0, lastDot) : currentName;
+          const ext = lastDot > 0 ? currentName.slice(lastDot) : '';
+          const r = await modal(`
+            <div class="modal-title">Renommer le fichier</div>
+            <div class="text-sm text-dim" style="margin-bottom:10px">Nom actuel : <span style="font-family:'JetBrains Mono',monospace;color:var(--text)">${escapeHtml(currentName)}</span></div>
+            <div style="display:flex;align-items:center;gap:0;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:0 12px">
+              <input class="input" data-field="name" value="${escapeHtml(baseName)}" autofocus style="flex:1;background:transparent;border:none;padding:8px 0"/>
+              <span style="color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-size:13px;flex-shrink:0">${escapeHtml(ext)}</span>
+            </div>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" data-modal-close>Annuler</button>
+              <button class="btn" data-modal-ok>Renommer</button>
+            </div>
+          `);
+          if (!r || !r.name || !r.name.trim()) return;
+          const newName = r.name.trim() + ext;
+          if (newName === currentName) return;
+          try {
+            await ensureDriveReady();
+            await driveRenameFile(fileId, newName);
+            invalidateBRollsCache(bRollsRoot.id);
+            toast(`Renommé en "${newName}"`, 'success');
+            loadBRollsTab(product, isAdminUser, null);
+          } catch (e) {
+            console.error('[BROLLS rename file]', e);
+            toast('Erreur renommage : ' + extractGapiError(e), 'error', 6000);
+          }
+        });
       });
 
       // Déplacer un dossier (via le bouton "Déplacer")
