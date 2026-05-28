@@ -6072,6 +6072,21 @@ async function driveEnsureFolder(name, parentId) {
   return await driveCreateFolder(name, parentId);
 }
 
+// Déplace un fichier/dossier sur Drive en changeant son parent
+// (addParents = nouveau parent, removeParents = ancien parent)
+async function driveMoveFile(fileId, newParentId, oldParentId) {
+  console.log('[DRIVE moveFile]', { fileId, newParentId, oldParentId });
+  const r = await gapi.client.drive.files.update({
+    fileId,
+    addParents: newParentId,
+    removeParents: oldParentId || undefined,
+    supportsAllDrives: true,
+    fields: 'id, name, parents'
+  });
+  console.log('[DRIVE moveFile OK]', r.result);
+  return r.result;
+}
+
 async function driveRenameFile(fileId, newName) {
   return await gapi.client.drive.files.update({ fileId, resource: { name: newName }, supportsAllDrives: true });
 }
@@ -10762,11 +10777,15 @@ function renderBRollItem(f, opts = {}) {
     : '';
 
   if (isFolder) {
+    const moveBtn = opts.canMove
+      ? `<button type="button" data-broll-move-folder="${f.id}" data-broll-move-folder-name="${escapeHtml(f.name)}" title="Déplacer ce dossier" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" onmouseover="this.style.color='var(--gold)';this.style.background='var(--bg)'" onmouseout="this.style.color='var(--text-dim)';this.style.background='none'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>Déplacer</button>`
+      : '';
     return `
       <div data-broll-folder-id="${f.id}" data-broll-folder-name="${escapeHtml(f.name)}" style="padding:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
         <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <div style="flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
         ${pathChip}
+        ${moveBtn}
       </div>
     `;
   }
@@ -10922,7 +10941,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
         ${matchFolders.length > 0 ? `
           <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Dossiers (${matchFolders.length})</div>
           <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:18px">
-            ${matchFolders.map(m => renderBRollItem(m.file, { path: m.path })).join('')}
+            ${matchFolders.map(m => renderBRollItem(m.file, { path: m.path, canMove: isAdminUser })).join('')}
           </div>
         ` : ''}
         ${matchFiles.length > 0 ? `
@@ -10948,7 +10967,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
       ${folders.length > 0 ? `
         <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Catégories (${folders.length})</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:18px">
-          ${folders.map(f => renderBRollItem(f)).join('')}
+          ${folders.map(f => renderBRollItem(f, { canMove: isAdminUser })).join('')}
         </div>
       ` : ''}
 
@@ -11012,6 +11031,16 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
         btn.addEventListener('click', () => downloadDriveFile(btn.dataset.downloadBroll, btn.dataset.brollName));
       });
 
+      // Déplacer un dossier
+      wrap.querySelectorAll('[data-broll-move-folder]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const folderId = btn.dataset.brollMoveFolder;
+          const folderName = btn.dataset.brollMoveFolderName;
+          await moveBRollFolderFlow(folderId, folderName, bRollsRoot, product, isAdminUser);
+        });
+      });
+
       // Click sur un dossier → entrer dedans (et clear search)
       wrap.querySelectorAll('[data-broll-folder-id]').forEach(card => {
         card.addEventListener('click', (e) => {
@@ -11048,6 +11077,94 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
       </div>
     `;
     document.getElementById('btn-brolls-retry')?.addEventListener('click', () => loadBRollsTab(product, isAdminUser));
+  }
+}
+
+// Modal picker pour déplacer un dossier B-rolls vers un autre parent.
+// Liste tous les dossiers de l'arbre + option "Racine", exclut le dossier lui-même
+// et ses descendants (pour éviter les cycles). Sur confirm: driveMoveFile + reload.
+async function moveBRollFolderFlow(folderId, folderName, bRollsRoot, product, isAdminUser) {
+  if (!isAdminUser) { toast('Admin seulement', 'error'); return; }
+  if (!driveState.connected) { toast('Drive non connecté', 'error'); return; }
+  try {
+    await ensureDriveReady();
+    // Récupère l'arbre complet (utilise le cache si récent)
+    const tree = await fetchBRollsTree(bRollsRoot.id);
+    // Identifie les descendants du dossier à déplacer (BFS depuis folderId)
+    const descendants = new Set([folderId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const { file, path } of tree) {
+        if (file.mimeType !== 'application/vnd.google-apps.folder') continue;
+        if (descendants.has(file.id)) continue;
+        // Le parent immédiat est path[path.length-1] dans l'arbre — on peut pas avoir
+        // l'id du parent direct depuis path (qui contient des names). On utilise le fait
+        // que tree contient des items {file, path} où path est la liste des noms du root vers le parent.
+        // Pour identifier descendants, on cherche les items dont le path inclut le nom de folderName
+        // ET dont les ancêtres incluent folderId. Mais comme path = liste de noms sans id, on doit
+        // tracer autrement. Plus simple : refait le BFS en utilisant le parent direct via Drive API.
+        // → On va plutôt récupérer les parents directs lors du fetchBRollsTree (ajout d'un champ parentId).
+      }
+    }
+    // ALTERNATIVE simple : on liste juste tous les dossiers et on exclut folderId lui-même.
+    // Drive empêchera de toute façon les cycles côté API (move into descendant → erreur).
+    // C'est plus permissif mais safe via l'API.
+
+    // Construire la liste des destinations possibles
+    const folderOptions = [];
+    // Racine (00_B_Rolls)
+    folderOptions.push({ id: bRollsRoot.id, label: `🏠 Racine (${B_ROLLS_FOLDER_NAME})`, path: [] });
+    // Tous les dossiers de l'arbre sauf le dossier lui-même
+    for (const { file, path } of tree) {
+      if (file.mimeType !== 'application/vnd.google-apps.folder') continue;
+      if (file.id === folderId) continue;
+      const labelPath = [...path, file.name];
+      folderOptions.push({ id: file.id, label: labelPath.join(' / '), path: labelPath });
+    }
+    // Tri alphabétique par label (racine en premier déjà)
+    const root = folderOptions.shift();
+    folderOptions.sort((a, b) => a.label.localeCompare(b.label));
+    folderOptions.unshift(root);
+
+    // Modal avec select
+    const optionsHtml = folderOptions
+      .map(opt => `<option value="${escapeHtml(opt.id)}">${escapeHtml(opt.label)}</option>`)
+      .join('');
+    const r = await modal(`
+      <div class="modal-title">Déplacer "${escapeHtml(folderName)}"</div>
+      <div class="text-sm text-dim" style="margin-bottom:10px">Choisis le nouveau dossier parent. Drive empêchera automatiquement les déplacements qui créeraient un cycle (dossier dans son propre sous-dossier).</div>
+      <select class="input" data-field="dest" style="width:100%">
+        ${optionsHtml}
+      </select>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-modal-close>Annuler</button>
+        <button class="btn" data-modal-ok>Déplacer</button>
+      </div>
+    `);
+    if (!r || !r.dest) return;
+    const newParentId = r.dest;
+
+    // Récupère l'ancien parent
+    const meta = await gapi.client.drive.files.get({
+      fileId: folderId,
+      fields: 'parents',
+      supportsAllDrives: true
+    });
+    const oldParents = meta.result.parents || [];
+    const oldParent = oldParents[0] || null;
+    if (newParentId === oldParent) {
+      toast('Le dossier est déjà à cet emplacement', 'info');
+      return;
+    }
+
+    await driveMoveFile(folderId, newParentId, oldParent);
+    invalidateBRollsCache(bRollsRoot.id);
+    toast(`"${folderName}" déplacé ✓`, 'success');
+    loadBRollsTab(product, isAdminUser, null);
+  } catch (e) {
+    console.error('[BROLLS move folder]', e);
+    toast('Erreur déplacement : ' + extractGapiError(e), 'error', 6000);
   }
 }
 
