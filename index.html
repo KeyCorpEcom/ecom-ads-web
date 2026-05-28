@@ -10301,6 +10301,103 @@ async function renderSingleScript(el, scriptId) {
     </div>
   ` : '';
 
+  // === Section "Masters vidéo" par hook (1 master par hook variant) ===
+  const hasHooks = Array.isArray(s.hooks) && s.hooks.length > 0;
+  const mastersByHook = s.masters_by_hook || {};
+  const canManageMasters = isAdminUser || isVideoEd;
+
+  const masterSlotHtml = (hookIdx, hookText) => {
+    const m = mastersByHook[String(hookIdx)] || {};
+    const status = m.status || null; // null | 'pending' | 'approved' | 'rejected'
+    const pendingFileId = m.pending_file_id || null;
+    const fileId = m.file_id || null;
+    const feedback = m.feedback || null;
+    const driveUrl = (fileId || pendingFileId) ? `https://drive.google.com/file/d/${fileId || pendingFileId}/view` : null;
+
+    let statusBadge = '';
+    let statusBg = 'var(--bg-input)';
+    let statusBorder = 'var(--border-soft)';
+    if (status === 'pending') {
+      statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(251,191,36,0.18);color:var(--orange);letter-spacing:0.5px">⏱ EN ATTENTE</span>`;
+      statusBg = 'rgba(251,191,36,0.06)';
+      statusBorder = 'rgba(251,191,36,0.3)';
+    } else if (status === 'approved') {
+      statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(52,211,153,0.18);color:var(--green);letter-spacing:0.5px">✓ VALIDÉ</span>`;
+      statusBg = 'rgba(52,211,153,0.06)';
+      statusBorder = 'rgba(52,211,153,0.3)';
+    } else if (status === 'rejected') {
+      statusBadge = `<span style="font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:rgba(248,113,113,0.18);color:var(--red);letter-spacing:0.5px">✗ REJETÉ</span>`;
+      statusBg = 'rgba(248,113,113,0.06)';
+      statusBorder = 'rgba(248,113,113,0.3)';
+    } else {
+      statusBadge = `<span style="font-size:9px;font-weight:600;padding:2px 6px;border-radius:4px;background:var(--bg-input);color:var(--text-mute);letter-spacing:0.5px">— VIDE —</span>`;
+    }
+
+    const buttons = [];
+    if (driveUrl) {
+      buttons.push(`<a href="${escapeHtml(driveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:11px">↗ Voir</a>`);
+    }
+    if (status === 'pending') {
+      if (isAdminUser) {
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-approve-hook-master="${escapeHtml(s.id)}|${hookIdx}" title="Valider ce hook" style="padding:3px 8px;font-size:11px;color:var(--green)">✓ Valider</button>`);
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-reject-hook-master="${escapeHtml(s.id)}|${hookIdx}" title="Rejeter avec feedback" style="padding:3px 8px;font-size:11px;color:var(--red)">✗ Rejeter</button>`);
+      }
+      if (canManageMasters) {
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Remplacer la vidéo" style="padding:3px 8px;font-size:11px;color:var(--gold)">↻ Remplacer</button>`);
+      }
+    } else if (status === 'approved') {
+      if (canManageMasters) {
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Remplacer la vidéo" style="padding:3px 8px;font-size:11px;color:var(--gold)">↻ Remplacer</button>`);
+      }
+    } else if (status === 'rejected') {
+      if (canManageMasters) {
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Re-uploader" style="padding:3px 10px;font-size:11px;color:var(--gold)">↻ Re-upload</button>`);
+      }
+    } else {
+      // empty
+      if (canManageMasters) {
+        buttons.push(`<button class="btn btn-ghost btn-sm" data-upload-hook-master="${escapeHtml(s.id)}|${hookIdx}" data-script-name="${escapeHtml(s.name)}" title="Uploader la vidéo de ce hook" style="padding:3px 10px;font-size:11px;color:var(--gold)">+ Upload</button>`);
+      }
+    }
+
+    return `<div class="master-slot" style="padding:10px 12px;background:${statusBg};border:1px solid ${statusBorder};border-radius:6px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:700;color:var(--text);min-width:60px">Hook ${hookIdx + 1}</span>
+        ${statusBadge}
+        <div style="margin-left:auto;display:flex;gap:4px;align-items:center;flex-wrap:wrap">${buttons.join('')}</div>
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.4">${escapeHtml(hookText)}</div>
+      ${status === 'rejected' && feedback ? `
+        <div style="margin-top:4px;padding:8px 10px;background:rgba(248,113,113,0.05);border-left:2px solid var(--red);border-radius:4px;font-size:11px;color:var(--text)">
+          <span style="font-weight:700;color:var(--red);font-size:10px;letter-spacing:0.4px">FEEDBACK ADMIN</span><br>
+          <span style="white-space:pre-wrap">${escapeHtml(feedback)}</span>
+        </div>
+      ` : ''}
+    </div>`;
+  };
+
+  // Compteur : validés / total hooks
+  const totalHooks = hasHooks ? s.hooks.length : 0;
+  const approvedHooks = hasHooks ? s.hooks.filter((_, i) => (mastersByHook[String(i)]?.status) === 'approved').length : 0;
+  const pendingHooks = hasHooks ? s.hooks.filter((_, i) => (mastersByHook[String(i)]?.status) === 'pending').length : 0;
+  let mastersSummary = '';
+  if (totalHooks > 0) {
+    if (approvedHooks === totalHooks) mastersSummary = `<span style="color:var(--green)">✓ ${totalHooks}/${totalHooks} validés</span>`;
+    else mastersSummary = `<span style="color:var(--text-dim)">${approvedHooks}/${totalHooks} validés</span>${pendingHooks > 0 ? `<span style="color:var(--orange)"> · ${pendingHooks} à valider</span>` : ''}`;
+  }
+
+  const mastersByHookSectionHtml = (hasHooks && canManageMasters) ? `
+    <div style="margin-top:18px;padding:14px 16px;background:rgba(96,165,250,0.04);border-left:3px solid var(--blue);border-radius:8px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <div style="font-weight:700;color:var(--blue);font-size:12px;letter-spacing:0.5px">🎬 MASTERS VIDÉO</div>
+        <span style="font-size:11px;font-weight:500">${mastersSummary}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${s.hooks.map((h, i) => masterSlotHtml(i, h)).join('')}
+      </div>
+    </div>
+  ` : '';
+
   const backHref = `#scripts/${escapeHtml(s.product_id)}`;
   const productHref = `#produit/${escapeHtml(s.product_id)}`;
 
@@ -10353,6 +10450,8 @@ async function renderSingleScript(el, scriptId) {
 
     ${voiceSectionHtml}
 
+    ${hasHooks ? mastersByHookSectionHtml : ''}
+
     <div style="margin-top:18px">
       <div style="font-weight:700;color:var(--text-dim);font-size:12px;margin-bottom:8px;letter-spacing:0.5px">📝 SCRIPT (BODY)</div>
       ${script
@@ -10382,6 +10481,26 @@ async function renderSingleScript(el, scriptId) {
     });
   });
   el.querySelectorAll('[data-approve-script]').forEach(btn => btn.addEventListener('click', () => approveScriptMasterFlow(btn.dataset.approveScript)));
+
+  // Per-hook master flow listeners
+  el.querySelectorAll('[data-upload-hook-master]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sid, idx] = btn.dataset.uploadHookMaster.split('|');
+      uploadScriptHookMasterFlow(sid, parseInt(idx, 10), btn.dataset.scriptName);
+    });
+  });
+  el.querySelectorAll('[data-approve-hook-master]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sid, idx] = btn.dataset.approveHookMaster.split('|');
+      approveScriptHookMasterFlow(sid, parseInt(idx, 10));
+    });
+  });
+  el.querySelectorAll('[data-reject-hook-master]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const [sid, idx] = btn.dataset.rejectHookMaster.split('|');
+      rejectScriptHookMasterFlow(sid, parseInt(idx, 10));
+    });
+  });
   el.querySelectorAll('[data-reject-script]').forEach(btn => btn.addEventListener('click', () => rejectScriptMasterFlow(btn.dataset.rejectScript)));
   el.querySelectorAll('[data-gen-voice-f]').forEach(btn => btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceF, 'F')));
   el.querySelectorAll('[data-gen-voice-m]').forEach(btn => btn.addEventListener('click', () => generateScriptVoiceFlow(btn.dataset.genVoiceM, 'M')));
@@ -10961,6 +11080,254 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
 }
 
 // Valide un master script uploadé : déplace de _a_valider/ vers 01_Scripts/, set master_file_id, crée ad_countries
+// ===========================================================================
+// FLOWS PAR HOOK : 1 master par hook variant (upload / approve / reject)
+// ===========================================================================
+
+// Upload d'un master pour un hook spécifique
+async function uploadScriptHookMasterFlow(scriptId, hookIdx, scriptName) {
+  if (!canProduceScripts()) { toast('Permission refusée', 'error'); return; }
+  if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'video/*';
+  fileInput.style.display = 'none';
+  document.body.appendChild(fileInput);
+  await new Promise(resolve => {
+    fileInput.addEventListener('change', () => resolve());
+    fileInput.click();
+  });
+  const file = fileInput.files?.[0];
+  fileInput.remove();
+  if (!file) return;
+
+  toast(`Upload Hook ${hookIdx + 1} de "${file.name}" sur Drive...`, 'info', 5000);
+
+  try {
+    await ensureDriveReady();
+    const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
+    if (!scriptAd) throw new Error('Script introuvable');
+    const { data: product } = await sb.from('products').select('*').eq('id', scriptAd.product_id).single();
+    if (!product?.drive_folder_id) throw new Error('Pas de dossier Drive sur ce produit');
+
+    // 1. Trash l'ancien pending de ce hook s'il existe
+    const existingMasters = scriptAd.masters_by_hook || {};
+    const existingHook = existingMasters[String(hookIdx)] || {};
+    if (existingHook.pending_file_id) {
+      try {
+        await gapi.client.drive.files.update({ fileId: existingHook.pending_file_id, resource: { trashed: true }, supportsAllDrives: true });
+      } catch (e) { console.warn('[old hook pending trash]', e); }
+    }
+
+    // 2. Upload dans _a_valider/
+    const scriptsFolder = await driveEnsureFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+    const pendingFolder = await driveEnsureFolder('_a_valider', scriptsFolder.id);
+    const ext = (file.name.match(/\.([a-z0-9]+)$/i) || ['', 'mp4'])[1].toLowerCase();
+    const newName = `${scriptName} - Hook ${hookIdx + 1}.${ext}`;
+    const uploaded = await driveUploadFile(file, pendingFolder.id, newName);
+    if (!uploaded?.id) throw new Error('Upload Drive a échoué');
+
+    // 3. Auto-share
+    try {
+      await gapi.client.drive.permissions.create({ fileId: uploaded.id, resource: { role: 'reader', type: 'anyone' } });
+    } catch (e) { console.warn('[hook auto-share]', e); }
+
+    // 4. Update masters_by_hook[hookIdx]
+    const updatedMasters = { ...existingMasters };
+    updatedMasters[String(hookIdx)] = {
+      pending_file_id: uploaded.id,
+      file_id: existingHook.file_id || null,
+      status: 'pending',
+      feedback: null,
+      uploaded_at: new Date().toISOString(),
+      validated_at: existingHook.validated_at || null
+    };
+
+    const { error } = await sb.from('ads').update({
+      masters_by_hook: updatedMasters,
+      master_pending_file_id: scriptAd.master_pending_file_id || uploaded.id,
+      master_status: scriptAd.master_status === 'approved' ? 'approved' : 'pending'
+    }).eq('id', scriptId);
+    if (error) {
+      toast(`Vidéo uploadée sur Drive mais erreur DB : ${error.message}`, 'error', 12000);
+      return;
+    }
+
+    // 5. Notifier les admins
+    try {
+      const adminIds = await getWorkspaceAdmins();
+      const uploaderName = currentProfile?.full_name || currentProfile?.email || 'video editor';
+      for (const adminId of adminIds) {
+        await sendNotification({
+          userId: adminId,
+          type: 'trad_pending',
+          title: `${scriptName} — Hook ${hookIdx + 1} à valider`,
+          message: `${uploaderName} a uploadé ${scriptName} - Hook ${hookIdx + 1}.`,
+          link: { product_id: product.id, ad_id: scriptId }
+        });
+      }
+    } catch (e) { console.warn('[notify admins]', e); }
+
+    toast(`Hook ${hookIdx + 1} uploadé. En attente de validation admin.`, 'success', 5000);
+    render();
+  } catch (e) {
+    console.error('[UPLOAD SCRIPT HOOK MASTER]', e);
+    toast('Erreur upload : ' + extractGapiError(e), 'error', 8000);
+  }
+}
+
+// Validation d'un master pour un hook spécifique
+async function approveScriptHookMasterFlow(scriptId, hookIdx) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
+  if (!scriptAd) { toast('Script introuvable', 'error'); return; }
+  const masters = scriptAd.masters_by_hook || {};
+  const hookMaster = masters[String(hookIdx)];
+  if (!hookMaster || hookMaster.status !== 'pending' || !hookMaster.pending_file_id) {
+    toast(`Pas de version Hook ${hookIdx + 1} en attente`, 'warn'); return;
+  }
+
+  const ok = await confirmDialog(`Valider Hook ${hookIdx + 1} de ${scriptAd.name} ?`,
+    'La vidéo devient le master actif (passe en pipeline de traduction par pays).');
+  if (!ok) return;
+
+  toast('Validation en cours...', 'info');
+
+  try {
+    await ensureDriveReady();
+    const { data: product } = await sb.from('products').select('*').eq('id', scriptAd.product_id).single();
+    if (!product?.drive_folder_id) throw new Error('Pas de dossier Drive sur ce produit');
+    const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
+    const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
+
+    // 1. Move file _a_valider/ → 01_Scripts/
+    const accessToken = driveState.accessToken;
+    const scriptsFolder = await driveFindFolder(SCRIPTS_FOLDER_NAME, product.drive_folder_id);
+    const pendingFolder = scriptsFolder ? await driveFindFolder('_a_valider', scriptsFolder.id) : null;
+    if (!scriptsFolder || !pendingFolder) throw new Error('Structure Drive 01_Scripts/_a_valider/ introuvable');
+
+    const moveRes = await fetch(`https://www.googleapis.com/drive/v3/files/${hookMaster.pending_file_id}?addParents=${scriptsFolder.id}&removeParents=${pendingFolder.id}&fields=id,parents&supportsAllDrives=true`, {
+      method: 'PATCH',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' }
+    });
+    if (!moveRes.ok) {
+      const errText = await moveRes.text();
+      throw new Error(`Drive move: HTTP ${moveRes.status} — ${errText.slice(0, 200)}`);
+    }
+
+    // 2. Update masters_by_hook[hookIdx]
+    const updatedMasters = { ...masters };
+    updatedMasters[String(hookIdx)] = {
+      ...hookMaster,
+      file_id: hookMaster.pending_file_id,
+      pending_file_id: null,
+      status: 'approved',
+      feedback: null,
+      validated_at: new Date().toISOString()
+    };
+
+    // 3. Update ad — master_file_id = ce hook (latest approval gagne pour la traduction)
+    await sb.from('ads').update({
+      masters_by_hook: updatedMasters,
+      master_file_id: hookMaster.pending_file_id,
+      master_pending_file_id: null,
+      master_status: 'approved',
+      master_feedback: null
+    }).eq('id', scriptId);
+
+    // 4. Create ad_countries si pas déjà fait
+    const { data: existingAc } = await sb.from('ad_countries').select('country_id').eq('ad_id', scriptId);
+    const existingSet = new Set((existingAc || []).map(x => x.country_id));
+    const acToInsert = enabled.filter(cId => !existingSet.has(cId)).map(cId => ({ ad_id: scriptId, country_id: cId, trad: false, meta: false, workspace_id: currentWorkspaceId }));
+    if (acToInsert.length > 0) await sb.from('ad_countries').insert(acToInsert);
+
+    // 5. Notify video editors
+    try {
+      const { data: videoEditors } = await sb.from('profiles').select('id').eq('role', 'video_editor');
+      for (const ve of (videoEditors || [])) {
+        await sendNotification({
+          userId: ve.id,
+          type: 'trad_approved',
+          title: 'Hook validé ✓',
+          message: `${scriptAd.name} - Hook ${hookIdx + 1} validé pour ${product.name || product.id}.`,
+          link: { product_id: product.id, ad_id: scriptId }
+        });
+      }
+    } catch (e) { console.warn('[notify ve]', e); }
+
+    await logSync(`${product.id} : ${scriptAd.name} Hook ${hookIdx + 1} validé`, 'success');
+    toast(`Hook ${hookIdx + 1} validé. ${enabled.length} pays à traduire.`, 'success');
+    render();
+  } catch (e) {
+    console.error('[APPROVE SCRIPT HOOK]', e);
+    toast('Erreur validation : ' + extractGapiError(e), 'error', 8000);
+  }
+}
+
+// Rejet d'un master pour un hook spécifique
+async function rejectScriptHookMasterFlow(scriptId, hookIdx) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
+  if (!scriptAd) { toast('Script introuvable', 'error'); return; }
+  const masters = scriptAd.masters_by_hook || {};
+  const hookMaster = masters[String(hookIdx)];
+  if (!hookMaster || hookMaster.status !== 'pending') {
+    toast(`Hook ${hookIdx + 1} n'est pas en attente`, 'warn'); return;
+  }
+
+  const r = await modal(`
+    <div class="modal-title" style="color:var(--red)">Rejeter Hook ${hookIdx + 1} — ${escapeHtml(scriptAd.name)}</div>
+    <div class="text-sm text-dim mb-md">Feedback pour le video editor (obligatoire) :</div>
+    <div class="input-group">
+      <textarea class="input" data-field="feedback" style="min-height:140px" autofocus placeholder="Ex: Le hook est trop long, refais avec une accroche dans les 3 premières secondes."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" data-modal-close>Annuler</button>
+      <button class="btn btn-danger" data-modal-ok>Rejeter</button>
+    </div>
+  `);
+  if (!r) return;
+  const feedback = (r.feedback || '').trim();
+  if (!feedback) { toast('Feedback obligatoire', 'error'); return; }
+
+  try {
+    const updatedMasters = { ...masters };
+    updatedMasters[String(hookIdx)] = {
+      ...hookMaster,
+      status: 'rejected',
+      feedback
+    };
+
+    await sb.from('ads').update({
+      masters_by_hook: updatedMasters,
+      master_status: 'rejected',
+      master_feedback: feedback
+    }).eq('id', scriptId);
+
+    try {
+      const { data: videoEditors } = await sb.from('profiles').select('id').eq('role', 'video_editor');
+      for (const ve of (videoEditors || [])) {
+        await sendNotification({
+          userId: ve.id,
+          type: 'trad_rejected',
+          title: 'Hook rejeté',
+          message: `${scriptAd.name} - Hook ${hookIdx + 1}. Feedback: ${feedback.slice(0, 80)}`,
+          link: { product_id: scriptAd.product_id, ad_id: scriptId }
+        });
+      }
+    } catch (e) { console.warn('[notify ve reject]', e); }
+
+    toast(`Hook ${hookIdx + 1} rejeté.`, 'success');
+    render();
+  } catch (e) {
+    console.error('[REJECT SCRIPT HOOK]', e);
+    toast('Erreur : ' + e.message, 'error', 8000);
+  }
+}
+
 async function approveScriptMasterFlow(scriptId) {
   if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
 
