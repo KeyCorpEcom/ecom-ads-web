@@ -10778,10 +10778,11 @@ function renderBRollItem(f, opts = {}) {
 
   if (isFolder) {
     const moveBtn = opts.canMove
-      ? `<button type="button" data-broll-move-folder="${f.id}" data-broll-move-folder-name="${escapeHtml(f.name)}" title="Déplacer ce dossier" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" onmouseover="this.style.color='var(--gold)';this.style.background='var(--bg)'" onmouseout="this.style.color='var(--text-dim)';this.style.background='none'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>Déplacer</button>`
+      ? `<button type="button" data-broll-move-folder="${f.id}" data-broll-move-folder-name="${escapeHtml(f.name)}" title="Déplacer ce dossier (ou glisse-le sur un autre dossier)" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" onmouseover="this.style.color='var(--gold)';this.style.background='var(--bg)'" onmouseout="this.style.color='var(--text-dim)';this.style.background='none'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>Déplacer</button>`
       : '';
+    const draggableAttr = opts.canMove ? 'draggable="true"' : '';
     return `
-      <div data-broll-folder-id="${f.id}" data-broll-folder-name="${escapeHtml(f.name)}" style="padding:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
+      <div ${draggableAttr} data-broll-folder-id="${f.id}" data-broll-folder-name="${escapeHtml(f.name)}" style="padding:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
         <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <div style="flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
         ${pathChip}
@@ -11031,7 +11032,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
         btn.addEventListener('click', () => downloadDriveFile(btn.dataset.downloadBroll, btn.dataset.brollName));
       });
 
-      // Déplacer un dossier
+      // Déplacer un dossier (via le bouton "Déplacer")
       wrap.querySelectorAll('[data-broll-move-folder]').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
@@ -11040,6 +11041,84 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
           await moveBRollFolderFlow(folderId, folderName, bRollsRoot, product, isAdminUser);
         });
       });
+
+      // Drag & drop : drag un dossier sur un autre pour le déplacer dedans (admin only)
+      if (isAdminUser) {
+        wrap.querySelectorAll('[data-broll-folder-id][draggable="true"]').forEach(card => {
+          card.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('application/json', JSON.stringify({
+              id: card.dataset.brollFolderId,
+              name: card.dataset.brollFolderName
+            }));
+            e.dataTransfer.effectAllowed = 'move';
+            card.style.opacity = '0.4';
+          });
+          card.addEventListener('dragend', () => {
+            card.style.opacity = '';
+          });
+          card.addEventListener('dragover', (e) => {
+            // Accepte le drop seulement si c'est un autre dossier
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            // Highlight visuel (sauf sur soi-même)
+            if (!card.classList.contains('dragging-self')) {
+              card.style.borderColor = 'var(--gold)';
+              card.style.background = 'rgba(212,175,55,0.10)';
+              card.style.transform = 'scale(1.02)';
+            }
+          });
+          card.addEventListener('dragleave', () => {
+            card.style.borderColor = '';
+            card.style.background = '';
+            card.style.transform = '';
+          });
+          card.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            card.style.borderColor = '';
+            card.style.background = '';
+            card.style.transform = '';
+            let data;
+            try { data = JSON.parse(e.dataTransfer.getData('application/json')); }
+            catch { return; }
+            if (!data?.id) return;
+            const targetId = card.dataset.brollFolderId;
+            const targetName = card.dataset.brollFolderName;
+            if (data.id === targetId) return; // drop sur soi-même → ignore
+            await performBRollFolderMove(data.id, data.name, targetId, bRollsRoot, product, isAdminUser);
+          });
+        });
+
+        // Drop zone : breadcrumb (pour remonter un dossier vers un parent)
+        wrap.querySelectorAll('[data-broll-jump]').forEach(link => {
+          link.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            link.style.background = 'rgba(212,175,55,0.15)';
+            link.style.padding = '2px 6px';
+            link.style.borderRadius = '4px';
+          });
+          link.addEventListener('dragleave', () => {
+            link.style.background = '';
+            link.style.padding = '';
+          });
+          link.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            link.style.background = '';
+            link.style.padding = '';
+            let data;
+            try { data = JSON.parse(e.dataTransfer.getData('application/json')); }
+            catch { return; }
+            if (!data?.id) return;
+            // Le breadcrumb a un data-broll-jump qui = depth. depth 0 = racine, depth N = nav[N-1]
+            const depth = parseInt(link.dataset.brollJump, 10);
+            const targetFolder = depth === 0 ? bRollsRoot : _brollsNavPath[depth - 1];
+            if (!targetFolder?.id) return;
+            if (data.id === targetFolder.id) return;
+            await performBRollFolderMove(data.id, data.name, targetFolder.id, bRollsRoot, product, isAdminUser);
+          });
+        });
+      }
 
       // Click sur un dossier → entrer dedans (et clear search)
       wrap.querySelectorAll('[data-broll-folder-id]').forEach(card => {
@@ -11080,9 +11159,38 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
   }
 }
 
+// Exécute le déplacement d'un dossier vers un parent donné (utilisé par le modal ET le drop).
+// Récupère l'ancien parent, vérifie qu'on ne déplace pas dans soi-même, puis driveMoveFile + reload.
+async function performBRollFolderMove(folderId, folderName, newParentId, bRollsRoot, product, isAdminUser) {
+  if (folderId === newParentId) {
+    toast('Impossible de déplacer un dossier dans lui-même', 'warn');
+    return;
+  }
+  try {
+    await ensureDriveReady();
+    const meta = await gapi.client.drive.files.get({
+      fileId: folderId,
+      fields: 'parents',
+      supportsAllDrives: true
+    });
+    const oldParents = meta.result.parents || [];
+    const oldParent = oldParents[0] || null;
+    if (newParentId === oldParent) {
+      toast('Le dossier est déjà à cet emplacement', 'info');
+      return;
+    }
+    await driveMoveFile(folderId, newParentId, oldParent);
+    invalidateBRollsCache(bRollsRoot.id);
+    toast(`"${folderName}" déplacé ✓`, 'success');
+    loadBRollsTab(product, isAdminUser, null);
+  } catch (e) {
+    console.error('[BROLLS perform move]', e);
+    toast('Erreur déplacement : ' + extractGapiError(e), 'error', 6000);
+  }
+}
+
 // Modal picker pour déplacer un dossier B-rolls vers un autre parent.
-// Liste tous les dossiers de l'arbre + option "Racine", exclut le dossier lui-même
-// et ses descendants (pour éviter les cycles). Sur confirm: driveMoveFile + reload.
+// Liste tous les dossiers de l'arbre + option "Racine", exclut le dossier lui-même.
 async function moveBRollFolderFlow(folderId, folderName, bRollsRoot, product, isAdminUser) {
   if (!isAdminUser) { toast('Admin seulement', 'error'); return; }
   if (!driveState.connected) { toast('Drive non connecté', 'error'); return; }
@@ -11143,25 +11251,7 @@ async function moveBRollFolderFlow(folderId, folderName, bRollsRoot, product, is
       </div>
     `);
     if (!r || !r.dest) return;
-    const newParentId = r.dest;
-
-    // Récupère l'ancien parent
-    const meta = await gapi.client.drive.files.get({
-      fileId: folderId,
-      fields: 'parents',
-      supportsAllDrives: true
-    });
-    const oldParents = meta.result.parents || [];
-    const oldParent = oldParents[0] || null;
-    if (newParentId === oldParent) {
-      toast('Le dossier est déjà à cet emplacement', 'info');
-      return;
-    }
-
-    await driveMoveFile(folderId, newParentId, oldParent);
-    invalidateBRollsCache(bRollsRoot.id);
-    toast(`"${folderName}" déplacé ✓`, 'success');
-    loadBRollsTab(product, isAdminUser, null);
+    await performBRollFolderMove(folderId, folderName, r.dest, bRollsRoot, product, isAdminUser);
   } catch (e) {
     console.error('[BROLLS move folder]', e);
     toast('Erreur déplacement : ' + extractGapiError(e), 'error', 6000);
