@@ -10777,8 +10777,14 @@ function renderBRollItem(f, opts = {}) {
     : '';
 
   if (isFolder) {
+    const iconBtnStyle = "background:none;border:none;color:var(--text-dim);cursor:pointer;padding:5px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;line-height:1";
+    const iconHover = "this.style.color='var(--gold)';this.style.background='var(--bg)'";
+    const iconOut = "this.style.color='var(--text-dim)';this.style.background='none'";
     const moveBtn = opts.canMove
-      ? `<button type="button" data-broll-move-folder="${f.id}" data-broll-move-folder-name="${escapeHtml(f.name)}" title="Déplacer ce dossier (ou glisse-le sur un autre dossier)" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px 6px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;gap:4px;flex-shrink:0" onmouseover="this.style.color='var(--gold)';this.style.background='var(--bg)'" onmouseout="this.style.color='var(--text-dim)';this.style.background='none'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>Déplacer</button>`
+      ? `<button type="button" data-broll-move-folder="${f.id}" data-broll-move-folder-name="${escapeHtml(f.name)}" title="Déplacer ce dossier (ou glisse-le sur un autre)" style="${iconBtnStyle}" onmouseover="${iconHover}" onmouseout="${iconOut}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;display:block"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg></button>`
+      : '';
+    const renameBtn = opts.canMove
+      ? `<button type="button" data-broll-rename-folder="${f.id}" data-broll-rename-folder-name="${escapeHtml(f.name)}" title="Renommer ce dossier" style="${iconBtnStyle}" onmouseover="${iconHover}" onmouseout="${iconOut}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;display:block"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>`
       : '';
     const draggableAttr = opts.canMove ? 'draggable="true"' : '';
     return `
@@ -10786,6 +10792,7 @@ function renderBRollItem(f, opts = {}) {
         <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <div style="flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
         ${pathChip}
+        ${renameBtn}
         ${moveBtn}
       </div>
     `;
@@ -11080,6 +11087,37 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
           const folderId = btn.dataset.brollMoveFolder;
           const folderName = btn.dataset.brollMoveFolderName;
           await moveBRollFolderFlow(folderId, folderName, bRollsRoot, product, isAdminUser);
+        });
+      });
+
+      // Renommer un dossier (admin)
+      wrap.querySelectorAll('[data-broll-rename-folder]').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const folderId = btn.dataset.brollRenameFolder;
+          const currentName = btn.dataset.brollRenameFolderName;
+          const r = await modal(`
+            <div class="modal-title">Renommer le dossier</div>
+            <div class="text-sm text-dim" style="margin-bottom:10px">Nom actuel : <span style="font-family:'JetBrains Mono',monospace;color:var(--text)">${escapeHtml(currentName)}</span></div>
+            <input class="input" data-field="name" value="${escapeHtml(currentName)}" autofocus/>
+            <div class="modal-actions">
+              <button class="btn btn-secondary" data-modal-close>Annuler</button>
+              <button class="btn" data-modal-ok>Renommer</button>
+            </div>
+          `);
+          if (!r || !r.name || !r.name.trim()) return;
+          const newName = r.name.trim();
+          if (newName === currentName) return;
+          try {
+            await ensureDriveReady();
+            await driveRenameFile(folderId, newName);
+            invalidateBRollsCache(bRollsRoot.id);
+            toast(`Dossier renommé en "${newName}"`, 'success');
+            loadBRollsTab(product, isAdminUser, null);
+          } catch (e) {
+            console.error('[BROLLS rename folder]', e);
+            toast('Erreur renommage : ' + extractGapiError(e), 'error', 6000);
+          }
         });
       });
 
