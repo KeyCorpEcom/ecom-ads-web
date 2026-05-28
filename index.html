@@ -3202,35 +3202,55 @@ async function downloadDriveFile(fileId, suggestedName) {
   if (!fileId) { toast('Pas de fichier disponible', 'warn'); return; }
   console.log('[DOWNLOAD] Start', { fileId, suggestedName, driveConnected: driveState.connected, hasToken: !!driveState.accessToken });
 
-  // === Méthode 1 : API Drive (download direct + nom correct) ===
+  // === Méthode 1 : API Drive (download direct + nom correct + progress) ===
   if (driveState.connected && driveState.accessToken) {
-    toast('Téléchargement en cours...', 'info', 3000);
-    try {
-      const accessToken = driveState.accessToken;
-      // Récupère le vrai nom du fichier
-      let realName = suggestedName || 'download.mp4';
-      try {
-        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,size`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-        if (metaRes.ok) {
-          const meta = await metaRes.json();
-          if (meta.name) realName = meta.name;
-          console.log('[DOWNLOAD] Meta:', meta);
-        } else {
-          console.warn('[DOWNLOAD] Meta failed:', metaRes.status);
-        }
-      } catch (e) { console.warn('[DOWNLOAD] Meta error:', e); }
+    const accessToken = driveState.accessToken;
 
-      // Récupère le contenu binaire
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+    // Récupère le vrai nom du fichier
+    let realName = suggestedName || 'download.mp4';
+    try {
+      const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=name,mimeType,size`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
-      if (!res.ok) throw new Error(`Drive API HTTP ${res.status}`);
-      const blob = await res.blob();
-      console.log('[DOWNLOAD] Blob size:', blob.size, 'bytes');
+      if (metaRes.ok) {
+        const meta = await metaRes.json();
+        if (meta.name) realName = meta.name;
+        console.log('[DOWNLOAD] Meta:', meta);
+      }
+    } catch (e) { console.warn('[DOWNLOAD] Meta error:', e); }
 
-      // Déclenche le download
+    // Overlay de progression
+    const overlay = createProgressOverlay(`Téléchargement : ${realName}`);
+    overlay.update('Démarrage...', 0, 100);
+
+    try {
+      const blob = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+        xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+        xhr.responseType = 'blob';
+        xhr.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const mb = (n) => (n / 1024 / 1024).toFixed(1);
+            overlay.update(`${mb(e.loaded)} / ${mb(e.total)} MB`, Math.round(e.loaded * 100 / e.total), 100);
+          } else {
+            const mb = (n) => (n / 1024 / 1024).toFixed(1);
+            overlay.update(`${mb(e.loaded)} MB téléchargés...`, 0, 100);
+          }
+        });
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response);
+          else reject(new Error(`Drive API HTTP ${xhr.status}`));
+        });
+        xhr.addEventListener('error', () => reject(new Error('Erreur réseau')));
+        xhr.addEventListener('abort', () => reject(new Error('Annulé')));
+        xhr.send();
+      });
+
+      console.log('[DOWNLOAD] Blob size:', blob.size, 'bytes');
+      overlay.update('Téléchargement terminé ✓', 100, 100);
+
+      // Déclenche le download navigateur
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -3239,9 +3259,11 @@ async function downloadDriveFile(fileId, suggestedName) {
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setTimeout(() => overlay.close(), 800);
       toast(`Téléchargé : ${realName}`, 'success', 4000);
       return;
     } catch (e) {
+      overlay.close();
       console.error('[DOWNLOAD] API method failed, falling back to direct URL:', e);
       // On continue sur le fallback ci-dessous
     }
@@ -3257,13 +3279,15 @@ async function downloadDriveFile(fileId, suggestedName) {
 }
 
 // Helper : upload un fichier sur Drive (multipart)
-async function driveUploadFile(file, parentId, displayName) {
+// Upload sur Drive avec progress events (via XMLHttpRequest car fetch ne les expose pas).
+// `onProgress(percent01, bytesLoaded, bytesTotal)` est appelé pendant l'upload.
+async function driveUploadFile(file, parentId, displayName, onProgress) {
   const accessToken = driveState.accessToken;
   if (!accessToken) throw new Error('Drive non connecté');
-  // Si parentId null/undefined → on omet 'parents' → upload à la racine My Drive
   const metadata = { name: displayName };
   if (parentId) metadata.parents = [parentId];
   console.log('[DRIVE upload]', { name: displayName, parentId, fileSize: file.size, fileType: file.type });
+
   const boundary = '-------keycorp-' + Math.random().toString(36).slice(2);
   const reader = new FileReader();
   const arrayBuffer = await new Promise((resolve, reject) => {
@@ -3276,19 +3300,35 @@ async function driveUploadFile(file, parentId, displayName) {
     arrayBuffer,
     `\r\n--${boundary}--`
   ]);
-  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name&supportsAllDrives=true', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
-    body
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name&supportsAllDrives=true');
+    xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    xhr.setRequestHeader('Content-Type', `multipart/related; boundary=${boundary}`);
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && typeof onProgress === 'function') {
+        try { onProgress(e.loaded / e.total, e.loaded, e.total); } catch (err) { console.warn('[upload onProgress]', err); }
+      }
+    });
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const result = JSON.parse(xhr.responseText);
+          console.log('[DRIVE upload OK]', result);
+          resolve(result);
+        } catch (e) {
+          reject(new Error('Drive upload : réponse JSON invalide'));
+        }
+      } else {
+        console.error('[DRIVE upload error]', xhr.status, xhr.responseText);
+        reject(new Error(`Drive upload HTTP ${xhr.status}: ${(xhr.responseText || '').slice(0, 300)}`));
+      }
+    });
+    xhr.addEventListener('error', () => reject(new Error('Drive upload : erreur réseau')));
+    xhr.addEventListener('abort', () => reject(new Error('Drive upload : annulé')));
+    xhr.send(body);
   });
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error('[DRIVE upload error]', res.status, errText);
-    throw new Error(`Drive upload HTTP ${res.status}: ${errText.slice(0, 300)}`);
-  }
-  const result = await res.json();
-  console.log('[DRIVE upload OK]', result);
-  return result;
 }
 
 async function openValidateTradModal(productId, adId, countryId, state) {
@@ -6647,7 +6687,7 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
 async function driveListFolderContent(folderId) {
   const r = await gapi.client.drive.files.list({
     q: `'${folderId}' in parents and trashed = false`,
-    fields: 'files(id, name, mimeType)',
+    fields: 'files(id, name, mimeType, thumbnailLink, hasThumbnail, iconLink)',
     pageSize: 1000,
     supportsAllDrives: true,
     includeItemsFromAllDrives: true
@@ -10065,19 +10105,14 @@ async function renderScriptDetail(el, productId) {
         <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun script pour ce produit</div><div class="empty-text">${isAdminUser ? 'Clique "+ Nouveau script" pour en créer un.' : 'L\'admin n\'a pas encore créé de script à produire.'}</div></div>
       ` : scripts.map(s => {
         const script = s.script || '';
-        const status = s.master_status; // null, 'pending', 'approved', 'rejected'
-        const isApproved = status === 'approved' || !!s.master_file_id;
-        const isPending = status === 'pending';
-        const isRejected = status === 'rejected';
+        const scriptStatus = computeScriptStatus(s);
+        const { isApproved, isPending, isRejected } = scriptStatus;
         const approvedUrl = s.master_file_id ? `https://drive.google.com/file/d/${s.master_file_id}/view` : null;
         const pendingUrl = s.master_pending_file_id ? `https://drive.google.com/file/d/${s.master_pending_file_id}/view` : null;
 
-        // Badge de statut
-        let statusBadge, rowClass;
-        if (isApproved) { statusBadge = '<span class="script-status done">✓ Validé</span>'; rowClass = 'done'; }
-        else if (isPending) { statusBadge = '<span class="script-status" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏱ À valider par admin</span>'; rowClass = 'todo'; }
-        else if (isRejected) { statusBadge = '<span class="script-status" style="background:rgba(248,113,113,0.15);color:var(--red)">✗ Rejeté — à refaire</span>'; rowClass = 'todo'; }
-        else { statusBadge = '<span class="script-status todo">À produire</span>'; rowClass = 'todo'; }
+        // Badge de statut (multi-master aware : "VALIDÉ" seulement quand tous les hooks le sont)
+        const statusBadge = scriptStatusBadgeHtml(scriptStatus);
+        const rowClass = isApproved ? 'done' : 'todo';
 
         // Boutons d'action selon statut + rôle
         const actionBtns = [];
@@ -10194,6 +10229,55 @@ async function renderScriptDetail(el, productId) {
 // Page dédiée à UN script (route #script/<scriptId>)
 // Remplace l'ancien accordion inline dans la liste des scripts.
 // =====================================================
+// Calcule le statut agrégé d'un script en tenant compte du multi-master par hook.
+// Un script en mode multi-master (hooks + masters_by_hook non vide) est "validé" SEULEMENT
+// quand TOUS les hooks sont approuvés. Pendant les validations intermédiaires, le legacy
+// master_status passe à 'approved' (latest approval wins pour le pipeline de traduction)
+// mais l'UI doit refléter l'état réel "k/N validés".
+function computeScriptStatus(s) {
+  const hasHooks = Array.isArray(s?.hooks) && s.hooks.length > 0;
+  const mastersByHook = (s?.masters_by_hook && typeof s.masters_by_hook === 'object') ? s.masters_by_hook : {};
+  const usesMultiMaster = hasHooks && Object.keys(mastersByHook).length > 0;
+  const totalHooks = hasHooks ? s.hooks.length : 0;
+  const approvedHooks = hasHooks ? s.hooks.filter((_, i) => (mastersByHook[String(i)]?.status) === 'approved').length : 0;
+  const pendingHooks = hasHooks ? s.hooks.filter((_, i) => (mastersByHook[String(i)]?.status) === 'pending').length : 0;
+  const rejectedHooks = hasHooks ? s.hooks.filter((_, i) => (mastersByHook[String(i)]?.status) === 'rejected').length : 0;
+
+  if (usesMultiMaster) {
+    const isApproved = totalHooks > 0 && approvedHooks === totalHooks;
+    const isPending = !isApproved && pendingHooks > 0;
+    const isRejected = !isApproved && !isPending && rejectedHooks > 0;
+    return { mode: 'multi', isApproved, isPending, isRejected, totalHooks, approvedHooks, pendingHooks, rejectedHooks };
+  }
+  const ms = s?.master_status;
+  return {
+    mode: 'legacy',
+    isApproved: ms === 'approved' || !!s?.master_file_id,
+    isPending: ms === 'pending',
+    isRejected: ms === 'rejected',
+    totalHooks: 0, approvedHooks: 0, pendingHooks: 0, rejectedHooks: 0
+  };
+}
+
+// Construit le badge HTML à partir du statut calculé par computeScriptStatus.
+function scriptStatusBadgeHtml(st) {
+  if (st.mode === 'multi') {
+    if (st.isApproved) return `<span class="script-status done">✓ Validé (${st.approvedHooks}/${st.totalHooks})</span>`;
+    if (st.approvedHooks > 0) {
+      const tail = st.pendingHooks > 0 ? ` · ${st.pendingHooks} à valider` : (st.rejectedHooks > 0 ? ` · ${st.rejectedHooks} rejeté${st.rejectedHooks > 1 ? 's' : ''}` : '');
+      return `<span class="script-status" style="background:rgba(96,165,250,0.15);color:var(--blue)">${st.approvedHooks}/${st.totalHooks} validés${tail}</span>`;
+    }
+    if (st.isPending) return `<span class="script-status" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏱ ${st.pendingHooks}/${st.totalHooks} à valider</span>`;
+    if (st.isRejected) return `<span class="script-status" style="background:rgba(248,113,113,0.15);color:var(--red)">✗ ${st.rejectedHooks} rejeté${st.rejectedHooks > 1 ? 's' : ''}</span>`;
+    return '<span class="script-status todo">À produire</span>';
+  }
+  // legacy
+  if (st.isApproved) return '<span class="script-status done">✓ Validé</span>';
+  if (st.isPending) return '<span class="script-status" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏱ À valider par admin</span>';
+  if (st.isRejected) return '<span class="script-status" style="background:rgba(248,113,113,0.15);color:var(--red)">✗ Rejeté — à refaire</span>';
+  return '<span class="script-status todo">À produire</span>';
+}
+
 async function renderSingleScript(el, scriptId) {
   const isAdminUser = isAdmin();
   const isVideoEd = isVideoEditor();
@@ -10206,18 +10290,12 @@ async function renderSingleScript(el, scriptId) {
   const { data: product } = await sb.from('products').select('*').eq('id', s.product_id).maybeSingle();
 
   const script = s.script || '';
-  const status = s.master_status;
-  const isApproved = status === 'approved' || !!s.master_file_id;
-  const isPending = status === 'pending';
-  const isRejected = status === 'rejected';
+  const scriptStatus = computeScriptStatus(s);
+  const { isApproved, isPending, isRejected } = scriptStatus;
   const approvedUrl = s.master_file_id ? `https://drive.google.com/file/d/${s.master_file_id}/view` : null;
   const pendingUrl = s.master_pending_file_id ? `https://drive.google.com/file/d/${s.master_pending_file_id}/view` : null;
 
-  let statusBadge;
-  if (isApproved) statusBadge = '<span class="script-status done">✓ Validé</span>';
-  else if (isPending) statusBadge = '<span class="script-status" style="background:rgba(251,191,36,0.15);color:var(--orange)">⏱ À valider par admin</span>';
-  else if (isRejected) statusBadge = '<span class="script-status" style="background:rgba(248,113,113,0.15);color:var(--red)">✗ Rejeté — à refaire</span>';
-  else statusBadge = '<span class="script-status todo">À produire</span>';
+  const statusBadge = scriptStatusBadgeHtml(scriptStatus);
 
   // Action buttons (mêmes que dans l'ancienne expanded view)
   const actionBtns = [];
@@ -10603,15 +10681,96 @@ async function driveCallWithRetry(fn) {
 
 // Stack de navigation pour les B-Rolls (chemin de dossiers en cours)
 let _brollsNavPath = [];
+// Recherche en cours (filtre full-tree)
+let _brollsSearchQuery = '';
+// Cache de l'arborescence complète par produit (root B-rolls id → { items, fetchedAt })
+const _brollsRecursiveCache = new Map();
+
+// Fetch récursif de toute l'arborescence sous le root B-rolls, mis en cache 90s
+async function fetchBRollsTree(rootFolderId) {
+  const cached = _brollsRecursiveCache.get(rootFolderId);
+  if (cached && Date.now() - cached.fetchedAt < 90000) return cached.items;
+  const items = []; // { file, path: ['Chaussettes', 'Sales'] }
+  const queue = [{ id: rootFolderId, path: [] }];
+  while (queue.length > 0) {
+    const { id, path } = queue.shift();
+    const list = await driveListFolderContent(id);
+    for (const it of list) {
+      items.push({ file: it, path });
+      if (it.mimeType === 'application/vnd.google-apps.folder') {
+        queue.push({ id: it.id, path: [...path, it.name] });
+      }
+    }
+  }
+  _brollsRecursiveCache.set(rootFolderId, { items, fetchedAt: Date.now() });
+  return items;
+}
+
+function invalidateBRollsCache(rootFolderId) {
+  if (rootFolderId) _brollsRecursiveCache.delete(rootFolderId);
+  else _brollsRecursiveCache.clear();
+}
+
+// Construit l'HTML d'une ligne fichier ou d'une carte dossier, avec thumbnail si dispo
+function renderBRollItem(f, opts = {}) {
+  const isFolder = f.mimeType === 'application/vnd.google-apps.folder';
+  const isVideo = (f.mimeType || '').startsWith('video/');
+  const isImage = (f.mimeType || '').startsWith('image/');
+  const viewUrl = `https://drive.google.com/file/d/${f.id}/view`;
+  const pathChip = opts.path && opts.path.length > 0
+    ? `<span style="font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;padding:2px 6px;background:var(--bg);border-radius:4px;margin-left:6px;flex-shrink:0">${opts.path.map(escapeHtml).join(' / ')}</span>`
+    : '';
+
+  if (isFolder) {
+    return `
+      <div data-broll-folder-id="${f.id}" data-broll-folder-name="${escapeHtml(f.name)}" style="padding:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <div style="flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
+        ${pathChip}
+      </div>
+    `;
+  }
+
+  // Fichier : thumbnail Drive si dispo, sinon icône SVG
+  const thumbHtml = f.hasThumbnail && f.thumbnailLink
+    ? `<img src="${escapeHtml(f.thumbnailLink.replace(/=s\d+$/, '=s120'))}" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" style="width:48px;height:48px;border-radius:6px;object-fit:cover;flex-shrink:0;background:var(--bg)"/><div class="broll-icon" style="display:none;width:48px;height:48px">${
+      isVideo
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`
+        : isImage
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`
+    }</div>`
+    : `<div class="broll-icon" style="width:48px;height:48px">${
+      isVideo
+        ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`
+        : isImage
+          ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+          : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`
+    }</div>`;
+
+  return `
+    <div class="broll-row">
+      ${thumbHtml}
+      <div style="flex:1;min-width:0;display:flex;align-items:center;gap:6px">
+        <div class="broll-name" title="${escapeHtml(f.name)}" style="flex:1;min-width:0">${escapeHtml(f.name)}</div>
+        ${pathChip}
+      </div>
+      <div class="broll-actions">
+        <a href="${escapeHtml(viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir</a>
+        <button class="btn btn-secondary btn-sm" data-download-broll="${f.id}" data-broll-name="${escapeHtml(f.name)}">Télécharger</button>
+      </div>
+    </div>
+  `;
+}
 
 async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
   const wrap = document.getElementById('tab-brolls');
   if (!wrap) return;
 
   // Gestion de la navigation : 'reset' = retour racine, 'up' = remonter d'un cran, {id,name} = entrer dans un dossier
-  if (navAction === 'reset') _brollsNavPath = [];
+  if (navAction === 'reset') { _brollsNavPath = []; _brollsSearchQuery = ''; }
   else if (navAction === 'up') _brollsNavPath.pop();
-  else if (navAction && typeof navAction === 'object' && navAction.id) _brollsNavPath.push(navAction);
+  else if (navAction && typeof navAction === 'object' && navAction.id) { _brollsNavPath.push(navAction); _brollsSearchQuery = ''; }
 
   if (!product.drive_folder_id) {
     wrap.innerHTML = `
@@ -10662,102 +10821,182 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
       : { id: bRollsRoot.id, name: B_ROLLS_FOLDER_NAME };
 
     const folderUrl = `https://drive.google.com/drive/folders/${currentFolder.id}`;
-    const all = await driveListFolderContent(currentFolder.id);
-    const folders = all.filter(f => f.mimeType === 'application/vnd.google-apps.folder').sort((a, b) => a.name.localeCompare(b.name));
-    const realFiles = all.filter(f => f.mimeType !== 'application/vnd.google-apps.folder').sort((a, b) => a.name.localeCompare(b.name));
 
     // Breadcrumb
     const breadcrumbItems = [{ id: bRollsRoot.id, name: B_ROLLS_FOLDER_NAME }, ..._brollsNavPath];
     const breadcrumb = breadcrumbItems.map((item, i) => {
       const isLast = i === breadcrumbItems.length - 1;
-      const depthFromRoot = i; // 0 = racine
+      const depthFromRoot = i;
       return isLast
         ? `<span style="font-weight:600;color:var(--text)">${escapeHtml(item.name)}</span>`
         : `<a href="#" data-broll-jump="${depthFromRoot}" style="color:var(--blue);text-decoration:underline">${escapeHtml(item.name)}</a>`;
     }).join(' <span style="color:var(--text-mute)">/</span> ');
 
-    wrap.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;gap:10px;flex-wrap:wrap">
-        <div class="text-sm" style="font-family:'JetBrains Mono',monospace">${breadcrumb}</div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          ${_brollsNavPath.length > 0 ? '<button class="btn btn-ghost btn-sm" data-broll-up>← Remonter</button>' : ''}
+    // Toolbar (search + breadcrumb + actions)
+    const searchVal = _brollsSearchQuery;
+    const toolbar = `
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="position:relative;flex:1;min-width:240px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--text-dim);pointer-events:none"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <input id="brolls-search-input" type="text" placeholder="Rechercher dans tous les B-Rolls (nom de fichier, dossier...)" value="${escapeHtml(searchVal)}" style="width:100%;padding:8px 32px 8px 34px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none"/>
+            ${searchVal ? '<button id="brolls-search-clear" type="button" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px;line-height:1" title="Effacer">×</button>' : ''}
+          </div>
+          ${isAdminUser ? '<button class="btn btn-sm" data-broll-new-folder><span style="margin-right:4px">+</span>Nouveau dossier</button>' : ''}
           <a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ouvrir dans Drive ↗</a>
         </div>
-      </div>
-
-      ${folders.length === 0 && realFiles.length === 0 ? `
-        <div class="empty" style="padding:40px 20px">
-          <div class="empty-title">Dossier vide</div>
-          <div class="empty-text">Uploade tes fichiers ou crée des sous-dossiers (catégories) directement sur Drive.</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div class="text-sm" style="font-family:'JetBrains Mono',monospace">${breadcrumb}</div>
+          ${_brollsNavPath.length > 0 ? '<button class="btn btn-ghost btn-sm" data-broll-up>← Remonter</button>' : ''}
         </div>
-      ` : `
-        ${folders.length > 0 ? `
-          <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Catégories (${folders.length})</div>
-          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:18px">
-            ${folders.map(f => `
-              <div data-broll-folder-id="${f.id}" data-broll-folder-name="${escapeHtml(f.name)}" style="padding:14px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:all 0.15s" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
-                <svg viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                <div style="font-size:13px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
-              </div>
-            `).join('')}
-          </div>
-        ` : ''}
-
-        ${realFiles.length > 0 ? `
-          <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Fichiers (${realFiles.length})</div>
-          <div>
-            ${realFiles.map(f => {
-              const isVideo = (f.mimeType || '').startsWith('video/');
-              const isImage = (f.mimeType || '').startsWith('image/');
-              const icon = isVideo
-                ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>`
-                : isImage
-                  ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
-                  : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-              const viewUrl = `https://drive.google.com/file/d/${f.id}/view`;
-              return `
-                <div class="broll-row">
-                  <div class="broll-icon">${icon}</div>
-                  <div class="broll-name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</div>
-                  <div class="broll-actions">
-                    <a href="${escapeHtml(viewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Voir</a>
-                    <button class="btn btn-secondary btn-sm" data-download-broll="${f.id}" data-broll-name="${escapeHtml(f.name)}">Télécharger</button>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        ` : ''}
-      `}
+      </div>
     `;
 
-    // Handlers
-    wrap.querySelectorAll('[data-download-broll]').forEach(btn => {
-      btn.addEventListener('click', () => downloadDriveFile(btn.dataset.downloadBroll, btn.dataset.brollName));
-    });
-
-    // Click sur un dossier (catégorie) → entrer dedans
-    wrap.querySelectorAll('[data-broll-folder-id]').forEach(card => {
-      card.addEventListener('click', () => {
-        loadBRollsTab(product, isAdminUser, { id: card.dataset.brollFolderId, name: card.dataset.brollFolderName });
+    // === MODE RECHERCHE : flat list de tout l'arbre filtré ===
+    if (searchVal && searchVal.trim().length > 0) {
+      wrap.innerHTML = toolbar + '<div class="loading"><div class="spinner"></div><div class="text-sm text-dim" style="margin-top:8px">Recherche dans toute l\'arborescence...</div></div>';
+      let tree;
+      try {
+        tree = await fetchBRollsTree(bRollsRoot.id);
+      } catch (e) {
+        console.error('[BROLLS search]', e);
+        wrap.innerHTML = toolbar + `<div class="empty" style="padding:40px 20px"><div class="empty-title">Erreur recherche</div><div class="empty-text">${escapeHtml(extractGapiError(e))}</div></div>`;
+        bindCommonHandlers();
+        return;
+      }
+      const q = searchVal.trim().toLowerCase();
+      const matches = tree.filter(({ file, path }) => {
+        const nameMatch = (file.name || '').toLowerCase().includes(q);
+        const pathMatch = path.some(p => p.toLowerCase().includes(q));
+        return nameMatch || pathMatch;
       });
-    });
+      const matchFolders = matches.filter(m => m.file.mimeType === 'application/vnd.google-apps.folder');
+      const matchFiles = matches.filter(m => m.file.mimeType !== 'application/vnd.google-apps.folder');
 
-    // Bouton "Remonter" → pop la nav stack
-    wrap.querySelector('[data-broll-up]')?.addEventListener('click', () => {
-      loadBRollsTab(product, isAdminUser, 'up');
-    });
+      wrap.innerHTML = toolbar + (matches.length === 0 ? `
+        <div class="empty" style="padding:40px 20px">
+          <div class="empty-title">Aucun résultat</div>
+          <div class="empty-text">Pas de fichier ou dossier contenant "<strong>${escapeHtml(searchVal)}</strong>".</div>
+        </div>
+      ` : `
+        ${matchFolders.length > 0 ? `
+          <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Dossiers (${matchFolders.length})</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:18px">
+            ${matchFolders.map(m => renderBRollItem(m.file, { path: m.path })).join('')}
+          </div>
+        ` : ''}
+        ${matchFiles.length > 0 ? `
+          <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Fichiers (${matchFiles.length})</div>
+          <div>${matchFiles.map(m => renderBRollItem(m.file, { path: m.path })).join('')}</div>
+        ` : ''}
+      `);
+      bindCommonHandlers();
+      return;
+    }
 
-    // Click sur un breadcrumb → tronque la stack au niveau cliqué
-    wrap.querySelectorAll('[data-broll-jump]').forEach(link => {
-      link.addEventListener('click', (e) => {
-        e.preventDefault();
-        const depth = parseInt(link.dataset.brollJump, 10);
-        // depth 0 = racine = path vide ; depth N = on garde N items dans la stack (sans la racine)
-        _brollsNavPath = _brollsNavPath.slice(0, depth);
-        loadBRollsTab(product, isAdminUser, null); // null = pas d'action de nav, juste re-render avec la stack mise à jour
+    // === MODE NAV : dossier courant uniquement ===
+    const all = await driveListFolderContent(currentFolder.id);
+    const folders = all.filter(f => f.mimeType === 'application/vnd.google-apps.folder').sort((a, b) => a.name.localeCompare(b.name));
+    const realFiles = all.filter(f => f.mimeType !== 'application/vnd.google-apps.folder').sort((a, b) => a.name.localeCompare(b.name));
+
+    wrap.innerHTML = toolbar + (folders.length === 0 && realFiles.length === 0 ? `
+      <div class="empty" style="padding:40px 20px">
+        <div class="empty-title">Dossier vide</div>
+        <div class="empty-text">${isAdminUser ? 'Utilise <strong>+ Nouveau dossier</strong> pour créer une catégorie, ou uploade des fichiers directement sur Drive.' : 'L\'admin doit ajouter des fichiers ou créer des catégories.'}</div>
+      </div>
+    ` : `
+      ${folders.length > 0 ? `
+        <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Catégories (${folders.length})</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:18px">
+          ${folders.map(f => renderBRollItem(f)).join('')}
+        </div>
+      ` : ''}
+
+      ${realFiles.length > 0 ? `
+        <div style="font-size:11px;color:var(--text-dim);margin:6px 0 8px;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Fichiers (${realFiles.length})</div>
+        <div>${realFiles.map(f => renderBRollItem(f)).join('')}</div>
+      ` : ''}
+    `);
+    bindCommonHandlers();
+
+    function bindCommonHandlers() {
+      // Search input : debounce 200ms
+      const searchInput = wrap.querySelector('#brolls-search-input');
+      if (searchInput) {
+        let debounce;
+        searchInput.addEventListener('input', (e) => {
+          clearTimeout(debounce);
+          const v = e.target.value;
+          debounce = setTimeout(() => {
+            _brollsSearchQuery = v;
+            loadBRollsTab(product, isAdminUser, null);
+          }, 200);
+        });
+        // Focus / curseur en fin si déjà rempli
+        if (searchInput.value) {
+          searchInput.focus();
+          searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        }
+      }
+      wrap.querySelector('#brolls-search-clear')?.addEventListener('click', () => {
+        _brollsSearchQuery = '';
+        loadBRollsTab(product, isAdminUser, null);
       });
-    });
+
+      // Nouveau dossier (admin)
+      wrap.querySelector('[data-broll-new-folder]')?.addEventListener('click', async () => {
+        const r = await modal(`
+          <div class="modal-title">Nouvelle catégorie de B-Rolls</div>
+          <div class="text-sm text-dim" style="margin-bottom:10px">Créé dans <strong>${escapeHtml(currentFolder.name)}</strong> sur Drive.</div>
+          <input class="input" data-field="name" placeholder="Ex: Chaussettes sales" autofocus/>
+          <div class="modal-actions">
+            <button class="btn btn-secondary" data-modal-close>Annuler</button>
+            <button class="btn" data-modal-ok>Créer</button>
+          </div>
+        `);
+        if (!r || !r.name || !r.name.trim()) return;
+        try {
+          await ensureDriveReady();
+          await driveCreateFolder(r.name.trim(), currentFolder.id);
+          invalidateBRollsCache(bRollsRoot.id);
+          toast(`Dossier "${r.name.trim()}" créé`, 'success');
+          loadBRollsTab(product, isAdminUser, null);
+        } catch (e) {
+          console.error('[BROLLS new folder]', e);
+          toast('Erreur création dossier : ' + extractGapiError(e), 'error', 6000);
+        }
+      });
+
+      // Download
+      wrap.querySelectorAll('[data-download-broll]').forEach(btn => {
+        btn.addEventListener('click', () => downloadDriveFile(btn.dataset.downloadBroll, btn.dataset.brollName));
+      });
+
+      // Click sur un dossier → entrer dedans (et clear search)
+      wrap.querySelectorAll('[data-broll-folder-id]').forEach(card => {
+        card.addEventListener('click', (e) => {
+          // Évite de déclencher si on a cliqué sur un bouton enfant éventuel
+          if (e.target.closest('button, a')) return;
+          loadBRollsTab(product, isAdminUser, { id: card.dataset.brollFolderId, name: card.dataset.brollFolderName });
+        });
+      });
+
+      // Remonter
+      wrap.querySelector('[data-broll-up]')?.addEventListener('click', () => {
+        loadBRollsTab(product, isAdminUser, 'up');
+      });
+
+      // Breadcrumb jump
+      wrap.querySelectorAll('[data-broll-jump]').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const depth = parseInt(link.dataset.brollJump, 10);
+          _brollsNavPath = _brollsNavPath.slice(0, depth);
+          _brollsSearchQuery = '';
+          loadBRollsTab(product, isAdminUser, null);
+        });
+      });
+    }
   } catch (e) {
     console.error('[BROLLS load]', e);
     const msg = extractGapiError(e);
@@ -11006,7 +11245,8 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
   fileInput.remove();
   if (!file) return; // user a annulé
 
-  toast(`Upload de "${file.name}" sur Drive...`, 'info', 5000);
+  const overlay = createProgressOverlay(`Upload : ${scriptName}`);
+  overlay.update('Préparation...', 0, 100);
 
   try {
     // 0. S'assure que gapi.client.drive est dispo
@@ -11034,8 +11274,13 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
     // 3. Upload dans le sous-dossier pending
     const ext = (file.name.match(/\.([a-z0-9]+)$/i) || ['', 'mp4'])[1].toLowerCase();
     const newName = `${scriptName}.${ext}`;
-    const uploaded = await driveUploadFile(file, pendingFolder.id, newName);
+    overlay.update('Démarrage upload...', 0, 100);
+    const uploaded = await driveUploadFile(file, pendingFolder.id, newName, (pct, loaded, total) => {
+      const mb = (n) => (n / 1024 / 1024).toFixed(1);
+      overlay.update(`${mb(loaded)} / ${mb(total)} MB`, Math.round(pct * 100), 100);
+    });
     if (!uploaded?.id) throw new Error('Upload Drive a échoué');
+    overlay.update('Finalisation...', 95, 100);
 
     // 4. Auto-share pour que l'admin puisse visionner via le lien direct
     try {
@@ -11071,10 +11316,13 @@ async function uploadScriptMasterFlow(scriptId, scriptName) {
     }
 
     await logSync(`${product.id} : ${scriptName} uploadé en attente de validation`, 'info');
+    overlay.update('Terminé ✓', 100, 100);
+    setTimeout(() => overlay.close(), 800);
     toast(`${scriptName} uploadé. En attente de validation admin.`, 'success', 5000);
     render();
   } catch (e) {
     console.error('[UPLOAD SCRIPT MASTER]', e);
+    overlay.close();
     toast('Erreur upload : ' + extractGapiError(e), 'error', 8000);
   }
 }
@@ -11102,7 +11350,8 @@ async function uploadScriptHookMasterFlow(scriptId, hookIdx, scriptName) {
   fileInput.remove();
   if (!file) return;
 
-  toast(`Upload Hook ${hookIdx + 1} de "${file.name}" sur Drive...`, 'info', 5000);
+  const overlay = createProgressOverlay(`Upload Hook ${hookIdx + 1} : ${scriptName}`);
+  overlay.update('Préparation...', 0, 100);
 
   try {
     await ensureDriveReady();
@@ -11125,8 +11374,13 @@ async function uploadScriptHookMasterFlow(scriptId, hookIdx, scriptName) {
     const pendingFolder = await driveEnsureFolder('_a_valider', scriptsFolder.id);
     const ext = (file.name.match(/\.([a-z0-9]+)$/i) || ['', 'mp4'])[1].toLowerCase();
     const newName = `${scriptName} - Hook ${hookIdx + 1}.${ext}`;
-    const uploaded = await driveUploadFile(file, pendingFolder.id, newName);
+    overlay.update('Démarrage upload...', 0, 100);
+    const uploaded = await driveUploadFile(file, pendingFolder.id, newName, (pct, loaded, total) => {
+      const mb = (n) => (n / 1024 / 1024).toFixed(1);
+      overlay.update(`${mb(loaded)} / ${mb(total)} MB`, Math.round(pct * 100), 100);
+    });
     if (!uploaded?.id) throw new Error('Upload Drive a échoué');
+    overlay.update('Finalisation...', 95, 100);
 
     // 3. Auto-share
     try {
@@ -11150,6 +11404,7 @@ async function uploadScriptHookMasterFlow(scriptId, hookIdx, scriptName) {
       master_status: scriptAd.master_status === 'approved' ? 'approved' : 'pending'
     }).eq('id', scriptId);
     if (error) {
+      overlay.close();
       toast(`Vidéo uploadée sur Drive mais erreur DB : ${error.message}`, 'error', 12000);
       return;
     }
@@ -11169,10 +11424,13 @@ async function uploadScriptHookMasterFlow(scriptId, hookIdx, scriptName) {
       }
     } catch (e) { console.warn('[notify admins]', e); }
 
+    overlay.update('Terminé ✓', 100, 100);
+    setTimeout(() => overlay.close(), 800);
     toast(`Hook ${hookIdx + 1} uploadé. En attente de validation admin.`, 'success', 5000);
     render();
   } catch (e) {
     console.error('[UPLOAD SCRIPT HOOK MASTER]', e);
+    overlay.close();
     toast('Erreur upload : ' + extractGapiError(e), 'error', 8000);
   }
 }
@@ -12391,8 +12649,13 @@ async function uploadScriptVoiceFlow(scriptId, slotKey) {
 
     // Wrap blob processed dans un File-like avec le bon nom
     const fileToUpload = new File([processedBlob], fileName, { type: 'audio/mpeg' });
-    uploaded = await driveUploadFile(fileToUpload, voicesFolder.id, fileName);
+    overlay.update('Démarrage upload...', 0, 100);
+    uploaded = await driveUploadFile(fileToUpload, voicesFolder.id, fileName, (pct, loaded, total) => {
+      const mb = (n) => (n / 1024 / 1024).toFixed(1);
+      overlay.update(`${mb(loaded)} / ${mb(total)} MB`, Math.round(pct * 100), 100);
+    });
     if (!uploaded?.id) throw new Error('Upload Drive sans id');
+    overlay.update('Finalisation...', 95, 100);
 
     // Auto-share pour preview inline
     try {
