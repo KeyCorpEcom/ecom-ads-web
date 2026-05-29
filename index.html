@@ -2700,11 +2700,11 @@ async function renderProduit(el, productId) {
           const status = pg?.status || 'pending';
           const statusColor = { approved: 'var(--green)', built: 'var(--orange)', rejected: 'var(--red)', pending: 'var(--text-mute)' }[status] || 'var(--text-mute)';
           if (url) {
-            return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" title="Ouvrir la page Shopify ${c.id} (status: ${status})" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;background:var(--bg-input);border:1px solid var(--border);color:var(--text);text-decoration:none;font-size:12px;transition:all 0.15s">
+            return `<button type="button" data-copy-page-url="${escapeHtml(url)}" data-country="${c.id}" title="Cliquer pour copier l'URL Shopify ${c.id} (status: ${status})" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;background:var(--bg-input);border:1px solid var(--border);color:var(--text);font-size:12px;font-family:inherit;cursor:pointer;transition:all 0.15s" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
               <span style="width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>
               ${flagImg(c.id)}<strong>${c.id}</strong>
-              <span style="color:var(--blue);font-size:10px;margin-left:2px">↗</span>
-            </a>`;
+              <span style="color:var(--text-dim);font-size:10px;margin-left:2px">📋</span>
+            </button>`;
           }
           return `<span title="Pas d'URL Shopify renseignée pour ${c.id}" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:18px;background:var(--bg);border:1px dashed var(--border-soft);color:var(--text-mute);font-size:12px;opacity:0.6">
             <span style="width:6px;height:6px;border-radius:50%;background:${statusColor}"></span>
@@ -2976,6 +2976,30 @@ async function renderProduit(el, productId) {
   document.getElementById('btn-edit-product')?.addEventListener('click', () => editProductFlow(productId));
   document.getElementById('btn-bulk-approve')?.addEventListener('click', () => bulkApproveTradFlow({ productId }));
   document.getElementById('btn-sync-drive-nomenclature')?.addEventListener('click', () => syncDriveNomenclatureFlow(productId));
+
+  // Pages Shopify : click = copie l'URL au clipboard
+  el.querySelectorAll('[data-copy-page-url]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const url = btn.dataset.copyPageUrl;
+      const country = btn.dataset.country;
+      try {
+        await navigator.clipboard.writeText(url);
+        toast(`URL ${country} copiée ✓`, 'success', 2500);
+        // Flash visuel (gold subtil)
+        const origBg = btn.style.background;
+        const origBorder = btn.style.borderColor;
+        btn.style.background = 'rgba(200,165,90,0.20)';
+        btn.style.borderColor = 'var(--gold)';
+        setTimeout(() => {
+          btn.style.background = origBg;
+          btn.style.borderColor = origBorder;
+        }, 700);
+      } catch (e) {
+        console.error('[copy page url]', e);
+        toast('Erreur copie URL', 'error');
+      }
+    });
+  });
 
   // Click cellule Trad → modal selon état (pending/rejected/approved)
   el.querySelectorAll('[data-validate-trad]').forEach(td => {
