@@ -2516,7 +2516,7 @@ async function renderProduit(el, productId) {
               <tr>
                 <td class="ad-col">
                   ${escapeHtml(ad.name)}
-                  ${ad.source === 'script' ? `<span title="Cette ad vient d'un script original" style="display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;background:rgba(192,132,252,0.15);color:var(--purple);font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle">S</span>` : ''}
+                  ${(ad.source === 'script' && !ad.parent_script_id) ? `<span title="Cette ad vient d'un script original" style="display:inline-block;margin-left:4px;padding:1px 5px;border-radius:4px;background:rgba(192,132,252,0.15);color:var(--purple);font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle">S</span>` : ''}
                   ${(() => {
                     const tt = ad.translation_type || 'voice';
                     const LABELS = { voice: 'VOIX', subs_only: 'SUBS', image: 'IMAGE' };
