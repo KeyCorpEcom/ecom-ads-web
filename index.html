@@ -12844,8 +12844,12 @@ async function generateScriptVoiceFlow(scriptId, gender) {
   );
   if (!ok) return;
 
-  const jwt = await getCallerJwt();
-  if (!jwt) { toast('Session expirée', 'error'); return; }
+  // ⚠ JWT NON figé : on appelle getCallerJwt() FRAIS à chaque fetch dans les helpers
+  // ci-dessous (createTtsTask, pollTtsResult, fetchMp3Blob) car le polling peut durer
+  // 25min × N hooks et le JWT Supabase expire après 1h. Si on figeait, le polling
+  // se mettait à recevoir 401 silencieusement et bouclait jusqu'au timeout.
+  const initialJwt = await getCallerJwt();
+  if (!initialJwt) { toast('Session expirée', 'error'); return; }
 
   // 5. Prépare Drive (1 fois) + récupère le state voice_uploads courant pour merge
   let voicesFolder;
@@ -12863,7 +12867,10 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     : { hooks: [], body: null };
 
   // Helpers locaux pour ne pas dupliquer le code TTS
+  // Tous récupèrent le JWT FRAIS à chaque appel pour éviter expiration mid-polling.
   async function createTtsTask(text) {
+    const jwt = await getCallerJwt();
+    if (!jwt) throw new Error('Session Supabase expirée — reconnecte-toi');
     const r = await fetch('/api/genaipro-tts-create', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${jwt}`, 'Content-Type': 'application/json' },
@@ -12888,20 +12895,40 @@ async function generateScriptVoiceFlow(scriptId, gender) {
   async function pollTtsResult(taskId, maxSeconds = 1500) {
     // Timeout fixe 25 min par défaut (GenAIPro est lent, mais on évite d'attendre l'infini)
     // Abort précoce si 20 × 5xx d'affilée (= 50s) → API down
+    // Abort précoce si 3 × 401 d'affilée (= JWT expiré et impossible de refresh)
     const intervalMs = 2500;
     const maxAttempts = Math.ceil((maxSeconds * 1000) / intervalMs);
     const MAX_CONSECUTIVE_5XX = 20;
+    const MAX_CONSECUTIVE_401 = 3;
     const LOG_EVERY = 12; // ~30s
     let consecutive5xx = 0;
+    let consecutive401 = 0;
     let last5xxStatus = null;
     let lastKnownStatus = 'starting';
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise(r => setTimeout(r, intervalMs));
       try {
+        // JWT FRAIS à chaque tick : Supabase auto-refresh en background, on récupère
+        // toujours le token actuel (évite l'expiration mid-polling de 25min)
+        const jwt = await getCallerJwt();
+        if (!jwt) {
+          throw new Error('Session Supabase expirée pendant le polling — reconnecte-toi et relance');
+        }
         const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}`, {
           headers: { 'Authorization': `Bearer ${jwt}` }
         });
         if (!r.ok) {
+          if (r.status === 401) {
+            consecutive401++;
+            if (attempt % LOG_EVERY === 0 || consecutive401 < 3) {
+              console.warn(`[tts ${taskId.slice(0,8)}] HTTP 401 — JWT rejeté (streak: ${consecutive401}/${MAX_CONSECUTIVE_401})`);
+            }
+            if (consecutive401 >= MAX_CONSECUTIVE_401) {
+              throw new Error('Session expirée (401 répétés) — reconnecte-toi à la plateforme et relance la génération');
+            }
+            continue;
+          }
+          consecutive401 = 0;
           if (r.status >= 500) {
             consecutive5xx++;
             last5xxStatus = r.status;
@@ -12916,6 +12943,7 @@ async function generateScriptVoiceFlow(scriptId, gender) {
           }
           continue;
         }
+        consecutive401 = 0;
         consecutive5xx = 0; // reset si une réponse OK passe
         const j = await r.json();
         lastKnownStatus = j.status || 'unknown';
@@ -12934,6 +12962,8 @@ async function generateScriptVoiceFlow(scriptId, gender) {
     throw new Error(`Timeout TTS (${mins} min, dernier status: "${lastKnownStatus}") — GenAIPro trop lent.`);
   }
   async function fetchMp3Blob(taskId) {
+    const jwt = await getCallerJwt();
+    if (!jwt) throw new Error('Session Supabase expirée — reconnecte-toi');
     const r = await fetch(`/api/genaipro-tts-status?task_id=${encodeURIComponent(taskId)}&fetch_mp3=1`, {
       headers: { 'Authorization': `Bearer ${jwt}` }
     });
