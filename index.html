@@ -1255,9 +1255,12 @@ async function fetchAll(opts = {}) {
   const adsAll = adsR.data || [];
   const ads = adsAll
     .filter(a => {
-      // V2 multi-master : un script avec hooks est un TEMPLATE — masqué de Ads.
-      // Ses hooks approuvés ont déjà spawn des "Ad N" indépendantes qui s'affichent.
+      // V2 multi-master :
+      // - Script template (source='script' + hooks + PAS de parent_script_id) → masqué de Ads
+      // - Ad spawnée d'un hook (source='script' + parent_script_id rempli) → AFFICHÉE sur Ads
+      // - Legacy single-master (source='script' sans hooks) → affiché si master_file_id
       if (a.source === 'script') {
+        if (a.parent_script_id) return true; // spawned ad (V2), c'est une vraie Ad
         const hasHooks = Array.isArray(a.hooks) && a.hooks.length > 0;
         if (hasHooks) return false; // template multi-master, jamais sur Ads
         return !!a.master_file_id; // legacy single-master : visible si produit
@@ -9878,11 +9881,12 @@ async function renderScriptsList(el) {
   }
 
   // On lit UNIQUEMENT les produits validés POST-testing (= rentables, prêts à scaler)
-  // + les ads source='script' SAUF celles en mode IMAGE (pas de vidéo à produire pour ces ads)
-  // On récupère hooks + masters_by_hook + master_status pour pouvoir agréger le statut multi-master
+  // + les ads source='script' SANS parent_script_id (= templates uniquement, pas les
+  //   Ad N spawned qui ont aussi source='script' mais parent_script_id rempli)
+  // SAUF celles en mode IMAGE (pas de vidéo à produire pour ces ads)
   const [{ data: products }, { data: scriptsRaw }] = await Promise.all([
     sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').eq('passed_testing', true).order('created_at', { ascending: false }),
-    sb.from('ads').select('id, product_id, name, master_file_id, master_status, master_pending_file_id, master_feedback, hooks, masters_by_hook, position, translation_type, created_at').eq('workspace_id', currentWorkspaceId).eq('source', 'script')
+    sb.from('ads').select('id, product_id, name, master_file_id, master_status, master_pending_file_id, master_feedback, hooks, masters_by_hook, position, translation_type, created_at, parent_script_id').eq('workspace_id', currentWorkspaceId).eq('source', 'script').is('parent_script_id', null)
   ]);
   // IMAGE et SUBS : pas de master vidéo à produire (image statique / VO concurrent conservée)
   const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image' && s.translation_type !== 'subs_only');
@@ -11841,12 +11845,14 @@ async function approveScriptHookMasterFlow(scriptId, hookIdx) {
     }
 
     // 4. INSERT une nouvelle ad "Ad N" indépendante du script template
+    // source='script' conservé pour traçabilité (la colonne est NOT NULL).
+    // parent_script_id rempli = discrimine cette ad spawn de son script template.
     const { data: newAd, error: insertErr } = await sb.from('ads').insert({
       product_id: scriptAd.product_id,
       workspace_id: scriptAd.workspace_id || currentWorkspaceId,
       name: newAdName,
       position: nextN,
-      source: null, // ad normale, plus un script template
+      source: 'script',
       script: scriptAd.script, // copie du body script pour traçabilité
       hooks: [scriptAd.hooks?.[hookIdx] || ''], // ne garde que le hook de cette ad
       source_country: scriptAd.source_country,
