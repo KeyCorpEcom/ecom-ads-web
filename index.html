@@ -11804,10 +11804,13 @@ async function approveScriptHookMasterFlow(scriptId, hookIdx) {
     const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
     const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
 
-    // 1. Calcule le prochain "Ad N" libre — max(position) + max nom "Ad N" + 1
-    const { data: allAds } = await sb.from('ads').select('position, name').eq('product_id', scriptAd.product_id);
-    const maxPos = (allAds || []).reduce((m, a) => Math.max(m, a.position || 0), 0);
-    const maxAdNum = (allAds || []).reduce((m, a) => {
+    // 1. Calcule le prochain "Ad N" libre — exclut les script templates
+    // (source='script' + parent_script_id NULL + hooks non vide = template, ne compte pas)
+    const { data: allAds } = await sb.from('ads').select('position, name, source, parent_script_id, hooks').eq('product_id', scriptAd.product_id);
+    const isTemplate = (a) => a.source === 'script' && !a.parent_script_id && Array.isArray(a.hooks) && a.hooks.length > 0;
+    const nonTemplates = (allAds || []).filter(a => !isTemplate(a));
+    const maxPos = nonTemplates.reduce((m, a) => Math.max(m, a.position || 0), 0);
+    const maxAdNum = nonTemplates.reduce((m, a) => {
       const m2 = a.name && a.name.match(/^Ad\s*(\d+)/i);
       return m2 ? Math.max(m, parseInt(m2[1], 10)) : m;
     }, 0);
@@ -11998,11 +12001,13 @@ async function approveScriptMasterFlow(scriptId) {
     const { data: countriesAll } = await sb.from('countries').select('*').order('sort_order');
     const enabled = (product.enabled_countries?.length ? product.enabled_countries : countriesAll.map(c => c.id));
 
-    // 1. Calcule le prochain "Ad N" libre — MAX(position) de toutes les ads du produit + 1
-    const { data: allAds } = await sb.from('ads').select('position, name').eq('product_id', scriptAd.product_id);
-    const maxPos = (allAds || []).reduce((m, a) => Math.max(m, a.position || 0), 0);
-    // On regarde aussi les noms "Ad N" pour éviter une collision si l'ordre des positions est cassé
-    const maxAdNum = (allAds || []).reduce((m, a) => {
+    // 1. Calcule le prochain "Ad N" libre — exclut les script templates
+    // (source='script' + parent_script_id NULL + hooks non vide = template, ne compte pas)
+    const { data: allAds } = await sb.from('ads').select('position, name, source, parent_script_id, hooks').eq('product_id', scriptAd.product_id);
+    const isTemplate = (a) => a.source === 'script' && !a.parent_script_id && Array.isArray(a.hooks) && a.hooks.length > 0;
+    const nonTemplates = (allAds || []).filter(a => !isTemplate(a));
+    const maxPos = nonTemplates.reduce((m, a) => Math.max(m, a.position || 0), 0);
+    const maxAdNum = nonTemplates.reduce((m, a) => {
       const m2 = a.name && a.name.match(/^Ad\s*(\d+)/i);
       return m2 ? Math.max(m, parseInt(m2[1], 10)) : m;
     }, 0);
