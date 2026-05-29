@@ -2422,6 +2422,7 @@ async function renderProduit(el, productId) {
           ${isAdmin() && (pendingVals || []).filter(pv => pv.status === 'pending').length > 0
             ? `<button class="btn btn-sm" id="btn-bulk-approve" style="background:var(--green);color:#000;font-weight:600" title="Valider en lot toutes les vidéos en attente">✓ Tout valider (${(pendingVals || []).filter(pv => pv.status === 'pending').length})</button>`
             : ''}
+          ${isAdmin() ? `<button class="btn btn-ghost btn-sm" id="btn-sync-drive-nomenclature" title="Renomme tous les fichiers master sur Drive pour matcher les noms 'Ad N' en DB">↺ Sync Drive</button>` : ''}
           <button class="btn btn-secondary btn-sm" id="btn-edit-product"> Éditer</button>
         </div>
       ` : ''}
@@ -2974,6 +2975,7 @@ async function renderProduit(el, productId) {
   document.getElementById('btn-add-ad')?.addEventListener('click', () => addAdFlow(productId));
   document.getElementById('btn-edit-product')?.addEventListener('click', () => editProductFlow(productId));
   document.getElementById('btn-bulk-approve')?.addEventListener('click', () => bulkApproveTradFlow({ productId }));
+  document.getElementById('btn-sync-drive-nomenclature')?.addEventListener('click', () => syncDriveNomenclatureFlow(productId));
 
   // Click cellule Trad → modal selon état (pending/rejected/approved)
   el.querySelectorAll('[data-validate-trad]').forEach(td => {
@@ -11914,6 +11916,97 @@ async function approveScriptHookMasterFlow(scriptId, hookIdx) {
   } catch (e) {
     console.error('[APPROVE SCRIPT HOOK]', e);
     toast('Erreur validation : ' + extractGapiError(e), 'error', 8000);
+  }
+}
+
+// Sync nomenclature Drive : boucle sur toutes les ads d'un produit qui ont
+// master_file_id et renomme le fichier Drive en {ad.name}.{ext} si nécessaire.
+// Utile après un rename SQL pour aligner Drive avec les nouveaux noms DB.
+async function syncDriveNomenclatureFlow(productId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+  if (!driveState.connected) { toast('Drive non connecté', 'error'); return; }
+
+  const { data: ads } = await sb.from('ads')
+    .select('id, name, master_file_id')
+    .eq('product_id', productId)
+    .not('master_file_id', 'is', null)
+    .order('position');
+
+  if (!ads || ads.length === 0) {
+    toast('Aucune ad avec master Drive à renommer', 'info');
+    return;
+  }
+
+  const ok = await confirmDialog(
+    `Sync nomenclature Drive — ${ads.length} ad(s)`,
+    `Renomme chaque fichier master sur Drive pour matcher le nom DB (ex: 'Ad 1.mp4'). Continuer ?`
+  );
+  if (!ok) return;
+
+  const overlay = createProgressOverlay('Sync nomenclature Drive');
+  overlay.update(`0/${ads.length}`, 0, ads.length);
+
+  let renamed = 0, skipped = 0, errors = 0;
+  const errorDetails = [];
+
+  for (let i = 0; i < ads.length; i++) {
+    const ad = ads[i];
+    overlay.update(`${ad.name}...`, i + 1, ads.length);
+
+    try {
+      await ensureDriveReady();
+      // Récupère le nom actuel du fichier Drive
+      const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${ad.master_file_id}?fields=name&supportsAllDrives=true`, {
+        headers: { 'Authorization': `Bearer ${driveState.accessToken}` }
+      });
+      if (!metaRes.ok) {
+        errors++;
+        errorDetails.push(`${ad.name}: fetch meta HTTP ${metaRes.status}`);
+        continue;
+      }
+      const meta = await metaRes.json();
+      const currentName = meta.name || '';
+
+      // Extrait l'extension
+      const m = currentName.match(/\.([a-z0-9]+)$/i);
+      const ext = m ? m[1].toLowerCase() : 'mp4';
+      const expectedName = `${ad.name}.${ext}`;
+
+      if (currentName === expectedName) {
+        skipped++;
+        continue;
+      }
+
+      // Rename via Drive API
+      const renameRes = await fetch(`https://www.googleapis.com/drive/v3/files/${ad.master_file_id}?supportsAllDrives=true`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${driveState.accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: expectedName })
+      });
+      if (!renameRes.ok) {
+        errors++;
+        errorDetails.push(`${ad.name}: rename HTTP ${renameRes.status}`);
+        continue;
+      }
+      console.log(`[sync drive] ${currentName} → ${expectedName}`);
+      renamed++;
+    } catch (e) {
+      errors++;
+      errorDetails.push(`${ad.name}: ${e.message}`);
+      console.warn('[sync nomenclature]', ad.name, e);
+    }
+  }
+
+  overlay.update('Terminé ✓', ads.length, ads.length);
+  setTimeout(() => overlay.close(), 1500);
+
+  const summary = `✓ ${renamed} renommés · ${skipped} déjà OK${errors > 0 ? ` · ${errors} erreurs` : ''}`;
+  toast(summary, errors > 0 ? 'warn' : 'success', 6000);
+  if (errorDetails.length > 0) {
+    console.warn('[sync drive errors]', errorDetails);
   }
 }
 
