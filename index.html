@@ -10113,6 +10113,11 @@ async function renderScriptDetail(el, productId) {
   const activeTabKey = 'scripts_tab_' + productId;
   const activeTab = localStorage.getItem(activeTabKey) || 'scripts';
 
+  // Toggle "Masquer les scripts validés" — par défaut activé (pour focus sur le todo)
+  const hideValidatedKey = 'scripts_detail_hide_validated';
+  const hideValidated = localStorage.getItem(hideValidatedKey) !== 'false'; // défaut true
+  const visibleScripts = hideValidated ? todoScripts : scripts;
+
   el.innerHTML = `
     <div class="page-head">
       <div>
@@ -10125,21 +10130,29 @@ async function renderScriptDetail(el, productId) {
         </div>
         <div class="page-subtitle">${todoScripts.length} script(s) à produire · ${doneScripts.length} fait(s)</div>
       </div>
-      ${isAdminUser ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-ghost btn-sm" id="btn-edit-product-from-scripts" title="Éditer marchés, priorité, pricing, etc.">⚙ Paramètres</button>
-        <button class="btn btn-sm" id="btn-new-script">+ Nouveau script</button>
-      </div>` : ''}
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
+          <input type="checkbox" id="toggle-scripts-detail-hide-validated" ${hideValidated ? 'checked' : ''} style="accent-color:var(--gold)">
+          <span>Masquer les scripts 100% validés</span>
+        </label>
+        ${isAdminUser ? `<div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" id="btn-edit-product-from-scripts" title="Éditer marchés, priorité, pricing, etc.">⚙ Paramètres</button>
+          <button class="btn btn-sm" id="btn-new-script">+ Nouveau script</button>
+        </div>` : ''}
+      </div>
     </div>
 
     <div class="copy-tabs">
-      <button type="button" class="copy-tab ${activeTab === 'scripts' ? 'active' : ''}" data-tab="scripts">Scripts (${scripts?.length || 0})</button>
+      <button type="button" class="copy-tab ${activeTab === 'scripts' ? 'active' : ''}" data-tab="scripts">Scripts (${hideValidated && doneScripts.length > 0 ? `${visibleScripts.length}/${scripts?.length || 0}` : (scripts?.length || 0)})</button>
       <button type="button" class="copy-tab ${activeTab === 'brolls' ? 'active' : ''}" data-tab="brolls">B-Rolls</button>
     </div>
 
     <div id="tab-scripts" class="${activeTab === 'scripts' ? '' : 'hidden'}">
       ${(scripts || []).length === 0 ? `
         <div class="empty"><div class="empty-icon"></div><div class="empty-title">Aucun script pour ce produit</div><div class="empty-text">${isAdminUser ? 'Clique "+ Nouveau script" pour en créer un.' : 'L\'admin n\'a pas encore créé de script à produire.'}</div></div>
-      ` : scripts.map(s => {
+      ` : visibleScripts.length === 0 ? `
+        <div class="empty" style="padding:40px 20px"><div class="empty-title">Tous les scripts sont 100% validés !</div><div class="empty-text">${doneScripts.length} script${doneScripts.length > 1 ? 's' : ''} validé${doneScripts.length > 1 ? 's' : ''}. Décoche "Masquer les scripts validés" pour les revoir.</div></div>
+      ` : visibleScripts.map(s => {
         const script = s.script || '';
         const scriptStatus = computeScriptStatus(s);
         const { isApproved, isPending, isRejected } = scriptStatus;
@@ -10252,6 +10265,10 @@ async function renderScriptDetail(el, productId) {
   // Boutons d'en-tête : nouveau script + paramètres produit
   document.getElementById('btn-new-script')?.addEventListener('click', () => createScriptFlow(productId));
   document.getElementById('btn-edit-product-from-scripts')?.addEventListener('click', () => editProductFlow(productId));
+  document.getElementById('toggle-scripts-detail-hide-validated')?.addEventListener('change', (e) => {
+    localStorage.setItem('scripts_detail_hide_validated', e.target.checked ? 'true' : 'false');
+    render();
+  });
   document.getElementById('prio-badge-clickable')?.addEventListener('click', () => editProductFlow(productId));
 
   // Les rows sont des <a href="#script/...">, le navigateur gère la navigation
