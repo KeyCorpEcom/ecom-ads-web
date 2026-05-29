@@ -10086,11 +10086,12 @@ async function renderScriptDetail(el, productId) {
   const isAdminUser = isAdmin();
   const isVideoEd = isVideoEditor();
 
-  // On ne lit QUE les ads source='script' pour cette page, en excluant les IMAGE
-  // (les ads IMAGE n'ont pas besoin de vidéo à produire)
+  // On ne lit QUE les ads source='script' SANS parent_script_id (= script templates uniquement,
+  // pas les Ad N spawned qui ont aussi source='script' mais parent_script_id rempli)
+  // SAUF celles en mode IMAGE (pas de vidéo à produire pour ces ads)
   const [{ data: product }, { data: scriptsRaw }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).maybeSingle(),
-    sb.from('ads').select('*').eq('product_id', productId).eq('source', 'script').order('position')
+    sb.from('ads').select('*').eq('product_id', productId).eq('source', 'script').is('parent_script_id', null).order('position')
   ]);
   // IMAGE et SUBS : pas de master vidéo à produire (image statique / VO concurrent conservée)
   const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image' && s.translation_type !== 'subs_only');
