@@ -2419,6 +2419,7 @@ async function renderProduit(el, productId) {
       </div>
       ${canEdit() ? `
         <div class="flex gap-sm" style="flex-wrap:wrap">
+          ${product.concurrent_page_url ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(normalizeUrl(product.concurrent_page_url))}" target="_blank" rel="noopener noreferrer" title="Voir le produit chez le concurrent (${escapeHtml(product.concurrent_page_url)})">↗ Site concurrent</a>` : ''}
           ${isAdmin() && (pendingVals || []).filter(pv => pv.status === 'pending').length > 0
             ? `<button class="btn btn-sm" id="btn-bulk-approve" style="background:var(--green);color:#000;font-weight:600" title="Valider en lot toutes les vidéos en attente">✓ Tout valider (${(pendingVals || []).filter(pv => pv.status === 'pending').length})</button>`
             : ''}
