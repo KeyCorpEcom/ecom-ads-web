@@ -11228,6 +11228,9 @@ async function ensureInspirationsFolder(product) {
 
 // Modal "+ Nouvelle inspiration" — upload vidéo Drive + form metadata
 async function openNewInspirationModal(product) {
+  // Garde anti-double-clic : si une modale Inspiration est déjà ouverte, on ne l'empile pas
+  if (document.querySelector('[data-inspi-modal]')) return;
+
   // Charger la liste des video_editors + admins pour le dropdown assignee
   const { data: profs } = await sb.from('profiles')
     .select('id, full_name, email, role')
@@ -11236,15 +11239,14 @@ async function openNewInspirationModal(product) {
     `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name || p.email)} (${escapeHtml(p.role)})</option>`
   ).join('');
 
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `
-    <div class="modal" style="max-width:540px">
-      <div class="modal-head">
-        <div class="modal-title">💡 Nouvelle inspiration — ${escapeHtml(product.id)}</div>
-        <button class="modal-close" type="button">×</button>
-      </div>
-      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+  const container = document.getElementById('modal-container') || document.body;
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.setAttribute('data-inspi-modal', '1');
+  bd.innerHTML = `
+    <div class="modal" style="max-width:560px;width:100%">
+      <div class="modal-title">💡 Nouvelle inspiration — ${escapeHtml(product.id)}</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
         <div>
           <label class="input-label">Titre <span style="color:var(--red)">*</span></label>
           <input class="input" id="inspi-title" placeholder="Ex: Hook UGC avant/après - concurrent matelas" maxlength="120">
@@ -11276,35 +11278,34 @@ async function openNewInspirationModal(product) {
           </div>
         </div>
       </div>
-      <div class="modal-foot">
-        <button class="btn btn-ghost" id="inspi-cancel" type="button">Annuler</button>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="inspi-cancel" type="button">Annuler</button>
         <button class="btn" id="inspi-save" type="button">Créer</button>
       </div>
     </div>
   `;
-  document.body.appendChild(modal);
+  container.appendChild(bd);
 
-  const close = () => modal.remove();
-  modal.querySelector('.modal-close').addEventListener('click', close);
-  modal.querySelector('#inspi-cancel').addEventListener('click', close);
-  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  const close = () => bd.remove();
+  bd.addEventListener('click', (e) => { if (e.target === bd) close(); });
+  bd.querySelector('#inspi-cancel').addEventListener('click', close);
 
-  modal.querySelector('#inspi-save').addEventListener('click', async () => {
-    const title = modal.querySelector('#inspi-title').value.trim();
-    const fileInput = modal.querySelector('#inspi-file');
-    const sourceUrl = modal.querySelector('#inspi-source-url').value.trim();
-    const notes = modal.querySelector('#inspi-notes').value.trim();
-    const assigneeId = modal.querySelector('#inspi-assignee').value || null;
+  bd.querySelector('#inspi-save').addEventListener('click', async () => {
+    const title = bd.querySelector('#inspi-title').value.trim();
+    const fileInput = bd.querySelector('#inspi-file');
+    const sourceUrl = bd.querySelector('#inspi-source-url').value.trim();
+    const notes = bd.querySelector('#inspi-notes').value.trim();
+    const assigneeId = bd.querySelector('#inspi-assignee').value || null;
     const file = fileInput.files[0];
 
     if (!title) { toast('Titre obligatoire', 'error'); return; }
     if (!file) { toast('Sélectionne un fichier vidéo', 'error'); return; }
 
-    const saveBtn = modal.querySelector('#inspi-save');
+    const saveBtn = bd.querySelector('#inspi-save');
     saveBtn.disabled = true;
-    const progressBox = modal.querySelector('#inspi-progress');
-    const progressBar = modal.querySelector('#inspi-progress-bar');
-    const progressLabel = modal.querySelector('#inspi-progress-label');
+    const progressBox = bd.querySelector('#inspi-progress');
+    const progressBar = bd.querySelector('#inspi-progress-bar');
+    const progressLabel = bd.querySelector('#inspi-progress-label');
     progressBox.style.display = 'block';
 
     try {
@@ -11344,6 +11345,8 @@ async function openNewInspirationModal(product) {
 
 // Modal de réassignement
 async function openInspirationAssignModal(inspirationId, product, isAdminUser) {
+  if (document.querySelector('[data-inspi-reassign-modal]')) return;
+
   const { data: profs } = await sb.from('profiles')
     .select('id, full_name, email, role')
     .in('role', ['admin', 'video_editor', 'editor']);
@@ -11351,35 +11354,31 @@ async function openInspirationAssignModal(inspirationId, product, isAdminUser) {
     `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name || p.email)} (${escapeHtml(p.role)})</option>`
   ).join('');
 
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `
-    <div class="modal" style="max-width:420px">
-      <div class="modal-head">
-        <div class="modal-title">Réassigner l'inspiration</div>
-        <button class="modal-close" type="button">×</button>
-      </div>
-      <div class="modal-body">
-        <label class="input-label">Assigner à</label>
-        <select class="input" id="inspi-reassign-select">
-          <option value="">— Désassigner —</option>
-          ${opts}
-        </select>
-      </div>
-      <div class="modal-foot">
-        <button class="btn btn-ghost" id="inspi-reassign-cancel" type="button">Annuler</button>
+  const container = document.getElementById('modal-container') || document.body;
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.setAttribute('data-inspi-reassign-modal', '1');
+  bd.innerHTML = `
+    <div class="modal" style="max-width:440px;width:100%">
+      <div class="modal-title">Réassigner l'inspiration</div>
+      <label class="input-label">Assigner à</label>
+      <select class="input" id="inspi-reassign-select">
+        <option value="">— Désassigner —</option>
+        ${opts}
+      </select>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="inspi-reassign-cancel" type="button">Annuler</button>
         <button class="btn" id="inspi-reassign-save" type="button">Enregistrer</button>
       </div>
     </div>
   `;
-  document.body.appendChild(modal);
-  const close = () => modal.remove();
-  modal.querySelector('.modal-close').addEventListener('click', close);
-  modal.querySelector('#inspi-reassign-cancel').addEventListener('click', close);
-  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  container.appendChild(bd);
+  const close = () => bd.remove();
+  bd.addEventListener('click', (e) => { if (e.target === bd) close(); });
+  bd.querySelector('#inspi-reassign-cancel').addEventListener('click', close);
 
-  modal.querySelector('#inspi-reassign-save').addEventListener('click', async () => {
-    const newAssignee = modal.querySelector('#inspi-reassign-select').value || null;
+  bd.querySelector('#inspi-reassign-save').addEventListener('click', async () => {
+    const newAssignee = bd.querySelector('#inspi-reassign-select').value || null;
     const { error } = await sb.from('ad_inspirations')
       .update({ assigned_to_user_id: newAssignee }).eq('id', inspirationId);
     if (error) { toast('Erreur : ' + error.message, 'error'); return; }
