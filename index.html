@@ -2829,24 +2829,6 @@ async function renderProduit(el, productId) {
   `;
   el.appendChild(extraSections);
 
-  // ============ REMONTER LES ZONES D'UPLOAD JUSTE APRÈS LES KPI ============
-  // Fadel & ads_translator bossent surtout avec les dropzones — éviter de scroller jusqu'en bas.
-  // On déplace les sections "Upload rapide" et "Vidéos finies à valider" juste après .kpi-grid.
-  // Les listeners (drag&drop, click, file input) sont attachés aux nodes eux-mêmes
-  // → ils restent intacts après le déplacement.
-  if (canEdit()) {
-    const kpiGrid = el.querySelector('.kpi-grid');
-    const uploadCard = extraSections.querySelector('[data-section-key="upload"]');
-    const finishedCard = extraSections.querySelector('[data-section-key="finished"]');
-    if (kpiGrid && uploadCard) {
-      // insertAdjacentElement('afterend') pose le node juste après kpiGrid.
-      // On insère finishedCard d'abord pour qu'après le second insertAdjacentElement
-      // l'ordre final soit : kpiGrid → uploadCard → finishedCard → (reste de la page)
-      if (finishedCard) kpiGrid.insertAdjacentElement('afterend', finishedCard);
-      kpiGrid.insertAdjacentElement('afterend', uploadCard);
-    }
-  }
-
   // Bouton Sync couleurs Drive — colorise tous les dossiers pays selon cut/active
   extraSections.querySelector('#btn-sync-colors')?.addEventListener('click', async () => {
     if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
@@ -2902,6 +2884,24 @@ async function renderProduit(el, productId) {
       handleFiles(Array.from(e.dataTransfer.files));
     });
   });
+
+  // ============ REMONTER LES ZONES D'UPLOAD JUSTE APRÈS LES KPI ============
+  // Fadel & ads_translator bossent surtout avec les dropzones — éviter de scroller jusqu'en bas.
+  // IMPORTANT : ce bouge doit se faire APRÈS l'attachement des handlers .dropzone ci-dessus
+  // (qui utilisent extraSections.querySelectorAll). Les listeners restent attachés aux nodes
+  // eux-mêmes — bouger le node ne casse pas le drag&drop ni le click ni les drops.
+  if (canEdit()) {
+    const kpiGrid = el.querySelector('.kpi-grid');
+    const uploadCard = extraSections.querySelector('[data-section-key="upload"]');
+    const finishedCard = extraSections.querySelector('[data-section-key="finished"]');
+    if (kpiGrid && uploadCard) {
+      // insertAdjacentElement('afterend') pose le node juste après kpiGrid.
+      // On insère finishedCard d'abord pour qu'après le second insertAdjacentElement
+      // l'ordre final soit : kpiGrid → uploadCard → finishedCard → (reste de la page)
+      if (finishedCard) kpiGrid.insertAdjacentElement('afterend', finishedCard);
+      kpiGrid.insertAdjacentElement('afterend', uploadCard);
+    }
+  }
 
   // Event listeners pour cut/activate markets
   extraSections.querySelectorAll('[data-toggle-cut]').forEach(btn => {
