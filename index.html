@@ -10288,6 +10288,7 @@ async function renderScriptDetail(el, productId) {
 
     <div class="copy-tabs">
       <button type="button" class="copy-tab ${activeTab === 'scripts' ? 'active' : ''}" data-tab="scripts">Scripts (${hideValidated && doneScripts.length > 0 ? `${visibleScripts.length}/${scripts?.length || 0}` : (scripts?.length || 0)})</button>
+      <button type="button" class="copy-tab ${activeTab === 'inspirations' ? 'active' : ''}" data-tab="inspirations">💡 Inspirations</button>
       <button type="button" class="copy-tab ${activeTab === 'brolls' ? 'active' : ''}" data-tab="brolls">B-Rolls</button>
     </div>
 
@@ -10389,6 +10390,10 @@ async function renderScriptDetail(el, productId) {
       }).join('')}
     </div>
 
+    <div id="tab-inspirations" class="${activeTab === 'inspirations' ? '' : 'hidden'}">
+      <div id="inspirations-loading" class="loading"><div class="spinner"></div></div>
+    </div>
+
     <div id="tab-brolls" class="${activeTab === 'brolls' ? '' : 'hidden'}">
       <div id="brolls-loading" class="loading"><div class="spinner"></div></div>
     </div>
@@ -10401,10 +10406,15 @@ async function renderScriptDetail(el, productId) {
       localStorage.setItem(activeTabKey, t);
       el.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('active', x === tab));
       document.getElementById('tab-scripts').classList.toggle('hidden', t !== 'scripts');
+      document.getElementById('tab-inspirations').classList.toggle('hidden', t !== 'inspirations');
       document.getElementById('tab-brolls').classList.toggle('hidden', t !== 'brolls');
       if (t === 'brolls') loadBRollsTab(product, isAdminUser);
+      if (t === 'inspirations') loadInspirationsTab(product, isAdminUser);
     });
   });
+
+  // Charger Inspirations si onglet actif au mount
+  if (activeTab === 'inspirations') loadInspirationsTab(product, isAdminUser);
 
   // Boutons d'en-tête : nouveau script + paramètres produit
   document.getElementById('btn-new-script')?.addEventListener('click', () => createScriptFlow(productId));
@@ -11014,6 +11024,414 @@ function renderBRollItem(f, opts = {}) {
       </div>
     </div>
   `;
+}
+
+// ============================================================
+// INSPIRATIONS : vidéos concurrents (autre niche) à recréer
+// avec nos B-Rolls produit. Stockage Drive dans 02_Inspirations/
+// ============================================================
+const INSPIRATIONS_FOLDER_NAME = '02_Inspirations';
+
+function inspirationStatusBadge(status) {
+  const meta = ({
+    pending:     { label: 'À FAIRE',   bg: 'rgba(138,138,154,0.15)', fg: 'var(--text-dim)' },
+    in_progress: { label: 'EN COURS',  bg: 'rgba(251,146,60,0.15)',  fg: 'var(--orange)' },
+    done:        { label: 'À VALIDER', bg: 'rgba(96,165,250,0.15)',  fg: 'var(--blue)' },
+    approved:    { label: 'VALIDÉE',   bg: 'rgba(52,211,153,0.15)',  fg: 'var(--green)' },
+    rejected:    { label: 'REJETÉE',   bg: 'rgba(248,113,113,0.15)', fg: 'var(--red)' },
+  })[status] || { label: status, bg: 'rgba(138,138,154,0.15)', fg: 'var(--text-dim)' };
+  return `<span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;letter-spacing:0.5px;background:${meta.bg};color:${meta.fg}">${meta.label}</span>`;
+}
+
+function renderInspirationCard(r, assignedUser, isAdminUser) {
+  const isAssignedToMe = currentUser?.id === r.assigned_to_user_id;
+  const sourceUrl = r.drive_file_id ? `https://drive.google.com/file/d/${r.drive_file_id}/view` : null;
+  const resultUrl = r.result_drive_file_id ? `https://drive.google.com/file/d/${r.result_drive_file_id}/view` : null;
+
+  const actions = [];
+  if (sourceUrl) actions.push(`<a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm" onclick="event.stopPropagation()">▶ Voir la vidéo source ↗</a>`);
+
+  // Workflow buttons
+  if (r.status === 'pending' && (isAssignedToMe || isAdminUser)) {
+    actions.push(`<button class="btn btn-ghost btn-sm" data-inspi-set-status="${r.id}" data-new-status="in_progress">Marquer en cours</button>`);
+  }
+  if ((r.status === 'in_progress' || r.status === 'rejected') && (isAssignedToMe || isAdminUser)) {
+    actions.push(`<button class="btn btn-sm" data-inspi-upload-result="${r.id}">${r.status === 'rejected' ? 'Re-uploader corrigé' : '⬆ Uploader le rendu'}</button>`);
+  }
+  if (resultUrl) actions.push(`<a href="${resultUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" onclick="event.stopPropagation()">Voir le rendu ↗</a>`);
+  if (r.status === 'done' && isAdminUser) {
+    actions.push(`<button class="btn btn-sm" style="background:var(--green);color:#000" data-inspi-approve="${r.id}">✓ Valider</button>`);
+    actions.push(`<button class="btn btn-sm btn-danger" data-inspi-reject="${r.id}">Rejeter</button>`);
+  }
+  if (isAdminUser) {
+    actions.push(`<button class="btn btn-ghost btn-sm" data-inspi-assign="${r.id}" title="Réassigner à un autre utilisateur">Réassigner</button>`);
+    actions.push(`<button class="btn btn-ghost btn-sm" data-inspi-delete="${r.id}" style="color:var(--red)" title="Supprimer cette inspiration">Supprimer</button>`);
+  }
+
+  const sourceLink = r.source_url
+    ? `<a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="font-size:11px;color:var(--blue);text-decoration:underline;margin-left:6px" title="Lien original (FB Ad Library / TikTok / etc.)">source ↗</a>`
+    : '';
+
+  return `
+    <div class="script-ad-row" style="padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-weight:600;flex:1;min-width:0">${escapeHtml(r.title)}</span>
+        ${inspirationStatusBadge(r.status)}
+        ${assignedUser ? assigneeBadge(assignedUser, 'sm') : '<span style="font-size:10px;color:var(--text-mute)">non assigné</span>'}
+        ${sourceLink}
+      </div>
+      ${r.notes ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;white-space:pre-wrap">${escapeHtml(r.notes)}</div>` : ''}
+      ${r.status === 'rejected' && r.rejection_reason ? `<div style="font-size:12px;color:var(--red);margin-bottom:10px;padding:6px 10px;background:rgba(248,113,113,0.08);border-left:2px solid var(--red);border-radius:4px"><strong>Rejet :</strong> ${escapeHtml(r.rejection_reason)}</div>` : ''}
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${actions.join('')}</div>
+    </div>
+  `;
+}
+
+async function loadInspirationsTab(product, isAdminUser) {
+  const wrap = document.getElementById('tab-inspirations');
+  if (!wrap) return;
+  wrap.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+
+  try {
+    // Fetch inspirations pour ce produit
+    const { data: rows, error } = await sb.from('ad_inspirations')
+      .select('*')
+      .eq('workspace_id', currentWorkspaceId)
+      .eq('product_id', product.id)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    // Fetch profiles des assignés pour les badges
+    const assignedIds = [...new Set((rows || []).map(r => r.assigned_to_user_id).filter(Boolean))];
+    const profilesById = new Map();
+    if (assignedIds.length > 0) {
+      const { data: profs } = await sb.from('profiles')
+        .select('id, full_name, email')
+        .in('id', assignedIds);
+      (profs || []).forEach(p => profilesById.set(p.id, p));
+    }
+
+    const rowsList = rows || [];
+
+    wrap.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:13px;color:var(--text)">${rowsList.length} inspiration${rowsList.length > 1 ? 's' : ''} pour ${escapeHtml(product.id)}</div>
+          <div style="font-size:11px;color:var(--text-mute);margin-top:2px;max-width:520px">Vidéos concurrent indirects (autre niche) à recréer en remplaçant les plans produit par nos B-Rolls. Click sur l'onglet B-Rolls juste à droite pour piocher les médias.</div>
+        </div>
+        ${isAdminUser ? `<button class="btn btn-sm" id="btn-new-inspiration">+ Nouvelle inspiration</button>` : ''}
+      </div>
+
+      ${rowsList.length === 0 ? `
+        <div class="empty" style="padding:50px 20px">
+          <div class="empty-icon" style="font-size:36px">💡</div>
+          <div class="empty-title">Aucune inspiration pour ce produit</div>
+          <div class="empty-text">${isAdminUser ? 'Clique "+ Nouvelle inspiration" pour uploader une vidéo concurrent à recréer.' : "L'admin n'a pas encore ajouté d'inspiration à recréer."}</div>
+        </div>
+      ` : `
+        <div style="display:flex;flex-direction:column;gap:10px">
+          ${rowsList.map(r => renderInspirationCard(r, profilesById.get(r.assigned_to_user_id), isAdminUser)).join('')}
+        </div>
+      `}
+    `;
+
+    // Handler "+ Nouvelle inspiration"
+    document.getElementById('btn-new-inspiration')?.addEventListener('click', () => openNewInspirationModal(product));
+
+    // Wire card actions
+    wireInspirationCardActions(wrap, product, isAdminUser);
+  } catch (e) {
+    console.error('[loadInspirationsTab]', e);
+    wrap.innerHTML = `<div class="empty" style="padding:40px 20px"><div class="empty-title">Erreur</div><div class="empty-text">${escapeHtml(e.message || String(e))}</div></div>`;
+  }
+}
+
+function wireInspirationCardActions(wrap, product, isAdminUser) {
+  // Marquer en cours
+  wrap.querySelectorAll('[data-inspi-set-status]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = btn.dataset.inspiSetStatus;
+      const newStatus = btn.dataset.newStatus;
+      const { error } = await sb.from('ad_inspirations').update({ status: newStatus }).eq('id', id);
+      if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      toast('Statut mis à jour', 'success');
+      loadInspirationsTab(product, isAdminUser);
+    });
+  });
+
+  // Upload du rendu vidéo
+  wrap.querySelectorAll('[data-inspi-upload-result]').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      uploadInspirationResultFlow(btn.dataset.inspiUploadResult, product, isAdminUser);
+    });
+  });
+
+  // Valider (admin)
+  wrap.querySelectorAll('[data-inspi-approve]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = btn.dataset.inspiApprove;
+      const { error } = await sb.from('ad_inspirations').update({ status: 'approved' }).eq('id', id);
+      if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      toast('Inspiration validée ✓', 'success');
+      loadInspirationsTab(product, isAdminUser);
+    });
+  });
+
+  // Rejeter (admin) avec raison
+  wrap.querySelectorAll('[data-inspi-reject]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = btn.dataset.inspiReject;
+      const reason = prompt('Raison du rejet (le video editor va la lire) :');
+      if (reason === null) return;
+      if (!reason.trim()) { toast('Raison obligatoire', 'error'); return; }
+      const { error } = await sb.from('ad_inspirations')
+        .update({ status: 'rejected', rejection_reason: reason.trim() }).eq('id', id);
+      if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      toast('Inspiration rejetée', 'info');
+      loadInspirationsTab(product, isAdminUser);
+    });
+  });
+
+  // Réassigner (admin)
+  wrap.querySelectorAll('[data-inspi-assign]').forEach(btn => {
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openInspirationAssignModal(btn.dataset.inspiAssign, product, isAdminUser);
+    });
+  });
+
+  // Supprimer (admin)
+  wrap.querySelectorAll('[data-inspi-delete]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      const id = btn.dataset.inspiDelete;
+      if (!confirm('Supprimer cette inspiration ? (Le fichier Drive reste, juste la metadata est supprimée)')) return;
+      const { error } = await sb.from('ad_inspirations').delete().eq('id', id);
+      if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      toast('Inspiration supprimée', 'info');
+      loadInspirationsTab(product, isAdminUser);
+    });
+  });
+}
+
+// Helper : ensure le dossier 02_Inspirations/ existe sous product.drive_folder_id
+async function ensureInspirationsFolder(product) {
+  if (!product.drive_folder_id) {
+    throw new Error('Le produit n\'a pas de dossier Drive racine. Ouvre l\'onglet B-Rolls une fois pour l\'initialiser.');
+  }
+  return await driveEnsureFolder(INSPIRATIONS_FOLDER_NAME, product.drive_folder_id);
+}
+
+// Modal "+ Nouvelle inspiration" — upload vidéo Drive + form metadata
+async function openNewInspirationModal(product) {
+  // Charger la liste des video_editors + admins pour le dropdown assignee
+  const { data: profs } = await sb.from('profiles')
+    .select('id, full_name, email, role')
+    .in('role', ['admin', 'video_editor', 'editor']);
+  const editorOptions = (profs || []).map(p =>
+    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name || p.email)} (${escapeHtml(p.role)})</option>`
+  ).join('');
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:540px">
+      <div class="modal-head">
+        <div class="modal-title">💡 Nouvelle inspiration — ${escapeHtml(product.id)}</div>
+        <button class="modal-close" type="button">×</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label class="input-label">Titre <span style="color:var(--red)">*</span></label>
+          <input class="input" id="inspi-title" placeholder="Ex: Hook UGC avant/après - concurrent matelas" maxlength="120">
+        </div>
+        <div>
+          <label class="input-label">Vidéo source (.mp4) <span style="color:var(--red)">*</span></label>
+          <input type="file" id="inspi-file" accept="video/*" class="input">
+          <div class="input-hint">Téléchargée depuis FB Ad Library / TikTok / IG / YouTube. Upload sur Drive.</div>
+        </div>
+        <div>
+          <label class="input-label">URL source <span style="color:var(--text-mute);font-weight:normal">(optionnel — pour traçabilité)</span></label>
+          <input class="input" id="inspi-source-url" placeholder="https://www.facebook.com/ads/library/...">
+        </div>
+        <div>
+          <label class="input-label">Notes pour le video editor <span style="color:var(--text-mute);font-weight:normal">(optionnel)</span></label>
+          <textarea class="input" id="inspi-notes" rows="3" placeholder="Ex: Garde le pacing et la voix off, remplace tous les plans matelas par les B-Rolls F0004 (packshot face + lifestyle dos)."></textarea>
+        </div>
+        <div>
+          <label class="input-label">Assigner à</label>
+          <select class="input" id="inspi-assignee">
+            <option value="">— Non assigné —</option>
+            ${editorOptions}
+          </select>
+        </div>
+        <div id="inspi-progress" style="display:none">
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px" id="inspi-progress-label">Upload…</div>
+          <div style="height:6px;background:var(--bg-input);border-radius:3px;overflow:hidden">
+            <div id="inspi-progress-bar" style="width:0%;height:100%;background:var(--gold);transition:width 0.2s"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="inspi-cancel" type="button">Annuler</button>
+        <button class="btn" id="inspi-save" type="button">Créer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  const close = () => modal.remove();
+  modal.querySelector('.modal-close').addEventListener('click', close);
+  modal.querySelector('#inspi-cancel').addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+  modal.querySelector('#inspi-save').addEventListener('click', async () => {
+    const title = modal.querySelector('#inspi-title').value.trim();
+    const fileInput = modal.querySelector('#inspi-file');
+    const sourceUrl = modal.querySelector('#inspi-source-url').value.trim();
+    const notes = modal.querySelector('#inspi-notes').value.trim();
+    const assigneeId = modal.querySelector('#inspi-assignee').value || null;
+    const file = fileInput.files[0];
+
+    if (!title) { toast('Titre obligatoire', 'error'); return; }
+    if (!file) { toast('Sélectionne un fichier vidéo', 'error'); return; }
+
+    const saveBtn = modal.querySelector('#inspi-save');
+    saveBtn.disabled = true;
+    const progressBox = modal.querySelector('#inspi-progress');
+    const progressBar = modal.querySelector('#inspi-progress-bar');
+    const progressLabel = modal.querySelector('#inspi-progress-label');
+    progressBox.style.display = 'block';
+
+    try {
+      progressLabel.textContent = 'Création du dossier Drive…';
+      const inspiFolder = await ensureInspirationsFolder(product);
+
+      progressLabel.textContent = 'Upload de la vidéo…';
+      const fileName = `${title.slice(0, 60).replace(/[/\\?%*:|"<>]/g, '_')} - ${file.name}`;
+      const uploaded = await driveUploadFile(file, inspiFolder.id, fileName, (pct) => {
+        progressBar.style.width = `${pct}%`;
+      });
+
+      progressLabel.textContent = 'Enregistrement…';
+      const { error } = await sb.from('ad_inspirations').insert({
+        workspace_id: currentWorkspaceId,
+        product_id: product.id,
+        title,
+        notes: notes || null,
+        source_url: sourceUrl || null,
+        drive_file_id: uploaded.id,
+        assigned_to_user_id: assigneeId,
+        status: 'pending',
+        created_by: currentUser.id,
+      });
+      if (error) throw error;
+
+      toast('Inspiration créée ✓', 'success');
+      close();
+      loadInspirationsTab(product, true);
+    } catch (e) {
+      console.error('[openNewInspirationModal]', e);
+      toast('Erreur : ' + (e.message || String(e)), 'error');
+      saveBtn.disabled = false;
+    }
+  });
+}
+
+// Modal de réassignement
+async function openInspirationAssignModal(inspirationId, product, isAdminUser) {
+  const { data: profs } = await sb.from('profiles')
+    .select('id, full_name, email, role')
+    .in('role', ['admin', 'video_editor', 'editor']);
+  const opts = (profs || []).map(p =>
+    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name || p.email)} (${escapeHtml(p.role)})</option>`
+  ).join('');
+
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.innerHTML = `
+    <div class="modal" style="max-width:420px">
+      <div class="modal-head">
+        <div class="modal-title">Réassigner l'inspiration</div>
+        <button class="modal-close" type="button">×</button>
+      </div>
+      <div class="modal-body">
+        <label class="input-label">Assigner à</label>
+        <select class="input" id="inspi-reassign-select">
+          <option value="">— Désassigner —</option>
+          ${opts}
+        </select>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="inspi-reassign-cancel" type="button">Annuler</button>
+        <button class="btn" id="inspi-reassign-save" type="button">Enregistrer</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.querySelector('.modal-close').addEventListener('click', close);
+  modal.querySelector('#inspi-reassign-cancel').addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+  modal.querySelector('#inspi-reassign-save').addEventListener('click', async () => {
+    const newAssignee = modal.querySelector('#inspi-reassign-select').value || null;
+    const { error } = await sb.from('ad_inspirations')
+      .update({ assigned_to_user_id: newAssignee }).eq('id', inspirationId);
+    if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+    toast(newAssignee ? 'Inspiration réassignée' : 'Inspiration désassignée', 'success');
+    close();
+    loadInspirationsTab(product, isAdminUser);
+  });
+}
+
+// Upload du rendu final (video_editor ou admin)
+async function uploadInspirationResultFlow(inspirationId, product, isAdminUser) {
+  // Trouve l'inspiration pour le nom du fichier
+  const { data: row } = await sb.from('ad_inspirations').select('*').eq('id', inspirationId).single();
+  if (!row) { toast('Inspiration introuvable', 'error'); return; }
+
+  // File picker programmatique
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'video/*';
+  input.addEventListener('change', async () => {
+    const file = input.files[0];
+    if (!file) return;
+    const overlay = createProgressOverlay('Upload du rendu inspiration');
+    try {
+      overlay.update('Dossier Drive…', 0, 3);
+      const inspiFolder = await ensureInspirationsFolder(product);
+      const rendersFolder = await driveEnsureFolder('Rendus', inspiFolder.id);
+
+      overlay.update('Upload de la vidéo…', 1, 3);
+      const fileName = `[RENDU] ${row.title.slice(0, 60).replace(/[/\\?%*:|"<>]/g, '_')} - ${file.name}`;
+      const uploaded = await driveUploadFile(file, rendersFolder.id, fileName, (pct) => {
+        overlay.update(`Upload ${pct}%…`, 1, 3);
+      });
+
+      overlay.update('Enregistrement…', 2, 3);
+      const { error } = await sb.from('ad_inspirations').update({
+        result_drive_file_id: uploaded.id,
+        status: 'done',
+        rejection_reason: null,
+      }).eq('id', inspirationId);
+      if (error) throw error;
+
+      overlay.close();
+      toast('Rendu uploadé ✓ — en attente de validation admin', 'success');
+      loadInspirationsTab(product, isAdminUser);
+    } catch (e) {
+      console.error('[uploadInspirationResultFlow]', e);
+      overlay.close();
+      toast('Erreur : ' + (e.message || String(e)), 'error');
+    }
+  });
+  input.click();
 }
 
 async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
