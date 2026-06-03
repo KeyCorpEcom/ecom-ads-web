@@ -11248,13 +11248,9 @@ async function openNewInspirationModal(product) {
       <div class="modal-title">💡 Nouvelle inspiration — ${escapeHtml(product.id)}</div>
       <div style="display:flex;flex-direction:column;gap:14px">
         <div>
-          <label class="input-label">Titre <span style="color:var(--red)">*</span></label>
-          <input class="input" id="inspi-title" placeholder="Ex: Hook UGC avant/après - concurrent matelas" maxlength="120">
-        </div>
-        <div>
           <label class="input-label">Vidéo source (.mp4) <span style="color:var(--red)">*</span></label>
           <input type="file" id="inspi-file" accept="video/*" class="input">
-          <div class="input-hint">Téléchargée depuis FB Ad Library / TikTok / IG / YouTube. Upload sur Drive.</div>
+          <div class="input-hint">Téléchargée depuis FB Ad Library / TikTok / IG / YouTube. Upload sur Drive. Nom auto-généré (Inspiration 1, 2, 3…)</div>
         </div>
         <div>
           <label class="input-label">URL source <span style="color:var(--text-mute);font-weight:normal">(optionnel — pour traçabilité)</span></label>
@@ -11291,14 +11287,12 @@ async function openNewInspirationModal(product) {
   bd.querySelector('#inspi-cancel').addEventListener('click', close);
 
   bd.querySelector('#inspi-save').addEventListener('click', async () => {
-    const title = bd.querySelector('#inspi-title').value.trim();
     const fileInput = bd.querySelector('#inspi-file');
     const sourceUrl = bd.querySelector('#inspi-source-url').value.trim();
     const notes = bd.querySelector('#inspi-notes').value.trim();
     const assigneeId = bd.querySelector('#inspi-assignee').value || null;
     const file = fileInput.files[0];
 
-    if (!title) { toast('Titre obligatoire', 'error'); return; }
     if (!file) { toast('Sélectionne un fichier vidéo', 'error'); return; }
 
     const saveBtn = bd.querySelector('#inspi-save');
@@ -11309,11 +11303,20 @@ async function openNewInspirationModal(product) {
     progressBox.style.display = 'block';
 
     try {
+      // Auto-numérotation : "Inspiration N" où N = count(existantes pour ce produit) + 1
+      progressLabel.textContent = 'Numérotation…';
+      const { count: existingCount, error: countErr } = await sb.from('ad_inspirations')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', currentWorkspaceId)
+        .eq('product_id', product.id);
+      if (countErr) throw countErr;
+      const title = `Inspiration ${(existingCount || 0) + 1}`;
+
       progressLabel.textContent = 'Création du dossier Drive…';
       const inspiFolder = await ensureInspirationsFolder(product);
 
       progressLabel.textContent = 'Upload de la vidéo…';
-      const fileName = `${title.slice(0, 60).replace(/[/\\?%*:|"<>]/g, '_')} - ${file.name}`;
+      const fileName = `${title} - ${file.name}`;
       const uploaded = await driveUploadFile(file, inspiFolder.id, fileName, (pct) => {
         progressBar.style.width = `${pct}%`;
       });
