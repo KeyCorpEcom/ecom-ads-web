@@ -11454,6 +11454,41 @@ async function uploadInspirationResultFlow(inspirationId, product, isAdminUser) 
   input.click();
 }
 
+// Upload de plusieurs fichiers B-Rolls vers le dossier Drive courant.
+// Loop séquentiel pour pouvoir afficher la progression file-by-file dans l'overlay.
+// En cas d'échec sur un fichier, on continue avec les suivants et on rapporte le bilan à la fin.
+async function uploadBRollsFiles(files, currentFolder, product, isAdminUser, bRollsRoot) {
+  const total = files.length;
+  if (total === 0) return;
+  const overlay = createProgressOverlay(`Upload ${total} B-Roll${total > 1 ? 's' : ''}`);
+  let success = 0;
+  const failures = [];
+  for (let i = 0; i < total; i++) {
+    const file = files[i];
+    overlay.update(`(${i + 1}/${total}) "${file.name}"…`, i, total);
+    try {
+      await driveUploadFile(file, currentFolder.id, file.name, (pct) => {
+        overlay.update(`(${i + 1}/${total}) "${file.name}" — ${pct}%`, i, total);
+      });
+      success++;
+    } catch (e) {
+      console.error('[uploadBRollsFiles]', file.name, e);
+      failures.push({ name: file.name, error: e?.message || String(e) });
+    }
+  }
+  overlay.update('Terminé', total, total);
+  overlay.close();
+  invalidateBRollsCache(bRollsRoot.id);
+  if (failures.length === 0) {
+    toast(`${success} fichier${success > 1 ? 's' : ''} uploadé${success > 1 ? 's' : ''} ✓`, 'success');
+  } else if (success === 0) {
+    toast(`Aucun fichier uploadé · ${failures.length} échec${failures.length > 1 ? 's' : ''}`, 'error', 6000);
+  } else {
+    toast(`${success} uploadé${success > 1 ? 's' : ''}, ${failures.length} échec${failures.length > 1 ? 's' : ''}`, 'warn', 6000);
+  }
+  loadBRollsTab(product, isAdminUser, null);
+}
+
 async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
   const wrap = document.getElementById('tab-brolls');
   if (!wrap) return;
@@ -11534,6 +11569,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
             ${searchVal ? '<button id="brolls-search-clear" type="button" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px;line-height:1" title="Effacer">×</button>' : ''}
           </div>
           ${isAdminUser ? '<button class="btn btn-sm" data-broll-new-folder><span style="margin-right:4px">+</span>Nouveau dossier</button>' : ''}
+          ${(isAdminUser || hasRole('video_editor')) ? '<button class="btn btn-sm" data-broll-upload title="Uploader des fichiers depuis ton PC vers ce dossier B-Rolls">⬆ Upload fichiers</button><input type="file" multiple style="display:none" data-broll-file-input accept="video/*,image/*,audio/*">' : ''}
           <a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ouvrir dans Drive ↗</a>
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
@@ -11633,6 +11669,58 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
         _brollsSearchQuery = '';
         loadBRollsTab(product, isAdminUser, null);
       });
+
+      // Upload fichiers B-rolls (admin + video_editor)
+      const brollFileInput = wrap.querySelector('[data-broll-file-input]');
+      wrap.querySelector('[data-broll-upload]')?.addEventListener('click', () => {
+        if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+        brollFileInput?.click();
+      });
+      brollFileInput?.addEventListener('change', async (e) => {
+        const files = Array.from(e.target.files);
+        e.target.value = '';
+        if (files.length === 0) return;
+        await uploadBRollsFiles(files, currentFolder, product, isAdminUser, bRollsRoot);
+      });
+
+      // Drag & drop depuis l'OS sur la zone de contenu B-Rolls
+      // On vérifie e.dataTransfer.types.includes('Files') pour distinguer
+      // du drag&drop interne entre dossiers (qui passe par dataTransfer.setData).
+      if (isAdminUser || hasRole('video_editor')) {
+        let dragCounter = 0;
+        wrap.addEventListener('dragenter', (e) => {
+          if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          dragCounter++;
+          wrap.style.outline = '2px dashed var(--gold)';
+          wrap.style.outlineOffset = '-6px';
+          wrap.style.background = 'rgba(200,165,90,0.04)';
+        });
+        wrap.addEventListener('dragover', (e) => {
+          if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+        });
+        wrap.addEventListener('dragleave', () => {
+          dragCounter = Math.max(0, dragCounter - 1);
+          if (dragCounter === 0) {
+            wrap.style.outline = '';
+            wrap.style.outlineOffset = '';
+            wrap.style.background = '';
+          }
+        });
+        wrap.addEventListener('drop', async (e) => {
+          if (!e.dataTransfer || !Array.from(e.dataTransfer.types).includes('Files')) return;
+          e.preventDefault();
+          dragCounter = 0;
+          wrap.style.outline = '';
+          wrap.style.outlineOffset = '';
+          wrap.style.background = '';
+          if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
+          const files = Array.from(e.dataTransfer.files);
+          if (files.length === 0) return;
+          await uploadBRollsFiles(files, currentFolder, product, isAdminUser, bRollsRoot);
+        });
+      }
 
       // Nouveau dossier (admin)
       wrap.querySelector('[data-broll-new-folder]')?.addEventListener('click', async () => {
