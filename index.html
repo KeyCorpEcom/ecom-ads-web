@@ -10076,12 +10076,12 @@ async function renderScriptsList(el) {
     return new Date(b.p.created_at || 0).getTime() - new Date(a.p.created_at || 0).getTime();
   });
 
-  // Filtre : par défaut on masque les produits 100% finis ET ceux sans aucun script
+  // Filtre : par défaut on masque seulement les produits 100% finis.
+  // Les produits sans script restent visibles pour TOUT LE MONDE (admin + video_editor) :
+  // la page produit contient les onglets B-Rolls + Inspirations utilisables même sans script.
   const hideDone = localStorage.getItem('scripts_hide_done') !== 'false';
-  // Pour video_editor : masque aussi les produits sans script (rien à faire pour lui)
   const isVideoEd = isVideoEditor();
   const visibleStats = productStats.filter(s => {
-    if (isVideoEd && !s.hasScripts) return false;
     if (hideDone && s.allDone) return false;
     return true;
   });
