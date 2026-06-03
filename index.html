@@ -2462,29 +2462,6 @@ async function renderProduit(el, productId) {
       ` : ''}
     </div>
 
-    ${canEdit() ? `
-      <div class="produit-sticky-bar" style="position:sticky;top:0;z-index:50;margin:0 -20px 14px;padding:10px 20px;background:var(--bg);border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:8px;flex-wrap:wrap;backdrop-filter:blur(8px)">
-        <span style="font-size:10px;color:var(--text-mute);font-weight:700;letter-spacing:0.6px;text-transform:uppercase;margin-right:4px">⚡ Actions rapides</span>
-        <button class="btn btn-sm" id="sticky-upload-master" title="Uploader des masters vidéo dans 00_Master_Ads/">⬆ Upload master</button>
-        <div style="position:relative" id="sticky-upload-trad-wrap">
-          <button class="btn btn-sm" id="sticky-upload-trad-toggle" title="Uploader une traduction par pays — choisis le pays cible">⬆ Upload trad par pays ▾</button>
-          <div id="sticky-upload-trad-menu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:6px;min-width:220px;max-height:340px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.5);z-index:60">
-            ${countries.filter(c => !(product.cut_countries || []).includes(c.id)).map(c => `
-              <button class="btn btn-ghost btn-sm" style="display:flex;align-items:center;gap:8px;width:100%;justify-content:flex-start;text-align:left;padding:6px 10px" data-sticky-trad-country="${escapeHtml(c.id)}">
-                ${flagImg(c.id)} <span class="mono" style="font-weight:600">${escapeHtml(c.id)}</span> <span style="color:var(--text-dim);font-size:11px">${escapeHtml(c.name)}</span>
-              </button>
-            `).join('')}
-          </div>
-        </div>
-        ${(pendingVals || []).filter(pv => pv.status === 'pending').length > 0 ? `
-          <a href="#scroll-to-pending" class="btn btn-ghost btn-sm" id="sticky-pending-link" style="color:var(--orange);font-weight:600;margin-left:auto" title="${(pendingVals || []).filter(pv => pv.status === 'pending').length} ad${(pendingVals || []).filter(pv => pv.status === 'pending').length > 1 ? 's' : ''} en attente de validation admin">
-            ⏳ ${(pendingVals || []).filter(pv => pv.status === 'pending').length} en attente
-          </a>
-        ` : ''}
-        ${!driveState.connected ? `<span style="font-size:11px;color:var(--red);margin-left:auto">⚠ Drive non connecté</span>` : ''}
-      </div>
-    ` : ''}
-
     <div class="kpi-grid">
       <div class="kpi-card">
         <div class="kpi-label">Total ads</div>
@@ -2775,7 +2752,7 @@ async function renderProduit(el, productId) {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-section-key="upload">
       <div class="card-head">
         <div class="card-title"> Upload rapide</div>
         <span class="text-sm text-dim">${driveState.connected ? 'Glisse des fichiers depuis ton PC' : `<button class="btn btn-sm" id="btn-inline-drive-connect-1" style="background:var(--blue);color:#000;font-weight:600">Connecter Drive</button>`}</span>
@@ -2802,7 +2779,7 @@ async function renderProduit(el, productId) {
       </div>` : ''}
     </div>
 
-    <div class="card">
+    <div class="card" data-section-key="finished">
       <div class="card-head">
         <div class="card-title">Vidéos finies (à valider)</div>
         <span class="text-sm text-dim">Drag les fichiers (Ad 1.mp4, Ad 2.mp4...) sur le pays cible</span>
@@ -2852,56 +2829,23 @@ async function renderProduit(el, productId) {
   `;
   el.appendChild(extraSections);
 
-  // ============ STICKY ACTION BAR (en haut de la page) ============
-  // Boutons d'upload accessibles sans scroller — délègue aux dropzones existantes en bas.
-  const stickyMasterBtn = document.getElementById('sticky-upload-master');
-  if (stickyMasterBtn) {
-    stickyMasterBtn.addEventListener('click', () => {
-      if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
-      const target = extraSections.querySelector('[data-file-input="master"]');
-      if (target) target.click();
-      else toast('Zone d\'upload Master introuvable', 'error');
-    });
+  // ============ REMONTER LES ZONES D'UPLOAD JUSTE APRÈS LES KPI ============
+  // Fadel & ads_translator bossent surtout avec les dropzones — éviter de scroller jusqu'en bas.
+  // On déplace les sections "Upload rapide" et "Vidéos finies à valider" juste après .kpi-grid.
+  // Les listeners (drag&drop, click, file input) sont attachés aux nodes eux-mêmes
+  // → ils restent intacts après le déplacement.
+  if (canEdit()) {
+    const kpiGrid = el.querySelector('.kpi-grid');
+    const uploadCard = extraSections.querySelector('[data-section-key="upload"]');
+    const finishedCard = extraSections.querySelector('[data-section-key="finished"]');
+    if (kpiGrid && uploadCard) {
+      // insertAdjacentElement('afterend') pose le node juste après kpiGrid.
+      // On insère finishedCard d'abord pour qu'après le second insertAdjacentElement
+      // l'ordre final soit : kpiGrid → uploadCard → finishedCard → (reste de la page)
+      if (finishedCard) kpiGrid.insertAdjacentElement('afterend', finishedCard);
+      kpiGrid.insertAdjacentElement('afterend', uploadCard);
+    }
   }
-  const stickyTradToggle = document.getElementById('sticky-upload-trad-toggle');
-  const stickyTradMenu = document.getElementById('sticky-upload-trad-menu');
-  const stickyTradWrap = document.getElementById('sticky-upload-trad-wrap');
-  if (stickyTradToggle && stickyTradMenu) {
-    stickyTradToggle.addEventListener('click', (e) => {
-      e.stopPropagation();
-      stickyTradMenu.style.display = stickyTradMenu.style.display === 'none' ? 'block' : 'none';
-    });
-    // Fermer le menu au click extérieur
-    const closeMenuOnOutsideClick = (e) => {
-      if (stickyTradWrap && !stickyTradWrap.contains(e.target)) {
-        stickyTradMenu.style.display = 'none';
-      }
-    };
-    document.addEventListener('click', closeMenuOnOutsideClick);
-    // Cleanup au prochain render — on retire le listener pour pas accumuler
-    setTimeout(() => {
-      if (!document.body.contains(stickyTradMenu)) {
-        document.removeEventListener('click', closeMenuOnOutsideClick);
-      }
-    }, 0);
-  }
-  // Click sur un pays dans le menu → trigger l'input file du pays
-  document.querySelectorAll('[data-sticky-trad-country]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (!driveState.connected) { toast('Connecte-toi à Drive d\'abord', 'warn'); return; }
-      const cId = btn.dataset.stickyTradCountry;
-      const target = extraSections.querySelector(`[data-finished-input="${cId}"]`);
-      if (target) target.click();
-      else toast(`Zone d'upload ${cId} introuvable`, 'error');
-      if (stickyTradMenu) stickyTradMenu.style.display = 'none';
-    });
-  });
-  // "X en attente" link → scroll smooth jusqu'à la zone "Vidéos finies (à valider)"
-  document.getElementById('sticky-pending-link')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    const pendingZone = extraSections.querySelector('.dropzone-finished');
-    if (pendingZone) pendingZone.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  });
 
   // Bouton Sync couleurs Drive — colorise tous les dossiers pays selon cut/active
   extraSections.querySelector('#btn-sync-colors')?.addEventListener('click', async () => {
