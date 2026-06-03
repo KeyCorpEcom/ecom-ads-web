@@ -11568,7 +11568,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
             <input id="brolls-search-input" type="text" placeholder="Rechercher dans tous les B-Rolls (nom de fichier, dossier...)" value="${escapeHtml(searchVal)}" style="width:100%;padding:8px 32px 8px 34px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none"/>
             ${searchVal ? '<button id="brolls-search-clear" type="button" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px;line-height:1" title="Effacer">×</button>' : ''}
           </div>
-          ${isAdminUser ? '<button class="btn btn-sm" data-broll-new-folder><span style="margin-right:4px">+</span>Nouveau dossier</button>' : ''}
+          ${(isAdminUser || hasRole('video_editor')) ? '<button class="btn btn-sm" data-broll-new-folder><span style="margin-right:4px">+</span>Nouveau dossier</button>' : ''}
           ${(isAdminUser || hasRole('video_editor')) ? '<button class="btn btn-sm" data-broll-upload title="Uploader des fichiers depuis ton PC vers ce dossier B-Rolls">⬆ Upload fichiers</button><input type="file" multiple style="display:none" data-broll-file-input accept="video/*,image/*,audio/*">' : ''}
           <a href="${escapeHtml(folderUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Ouvrir dans Drive ↗</a>
         </div>
@@ -11629,7 +11629,7 @@ async function loadBRollsTab(product, isAdminUser, navAction = 'reset') {
     wrap.innerHTML = toolbar + (folders.length === 0 && realFiles.length === 0 ? `
       <div class="empty" style="padding:40px 20px">
         <div class="empty-title">Dossier vide</div>
-        <div class="empty-text">${isAdminUser ? 'Utilise <strong>+ Nouveau dossier</strong> pour créer une catégorie, ou uploade des fichiers directement sur Drive.' : 'L\'admin doit ajouter des fichiers ou créer des catégories.'}</div>
+        <div class="empty-text">${(isAdminUser || hasRole('video_editor')) ? 'Utilise <strong>+ Nouveau dossier</strong> pour créer une catégorie, ou <strong>⬆ Upload fichiers</strong> pour déposer des médias depuis ton PC.' : 'L\'admin ou un video editor doit ajouter des fichiers ou créer des catégories.'}</div>
       </div>
     ` : `
       ${folders.length > 0 ? `
