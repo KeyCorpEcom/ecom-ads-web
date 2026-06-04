@@ -1149,9 +1149,9 @@ async function render(e) {
   if (!isAdmin()) {
     const allowedPages = new Set();
     if (hasRole('ads_translator')) ['ads', 'drive', 'formations', 'formation', 'produit', 'tools'].forEach(p => allowedPages.add(p));
-    if (hasRole('video_editor'))   ['scripts', 'script', 'drive', 'formations', 'formation', 'tools'].forEach(p => allowedPages.add(p));
+    if (hasRole('video_editor'))   ['scripts', 'script', 'inspiration', 'drive', 'formations', 'formation', 'tools'].forEach(p => allowedPages.add(p));
     if (hasRole('page_builder'))   ['pages', 'page', 'sections', 'drive', 'formations', 'formation', 'tools', 'produit'].forEach(p => allowedPages.add(p));
-    if (hasRole('viewer'))         ['ads', 'pages', 'drive', 'formations', 'formation', 'tools', 'produit'].forEach(p => allowedPages.add(p));
+    if (hasRole('viewer'))         ['ads', 'pages', 'inspiration', 'drive', 'formations', 'formation', 'tools', 'produit'].forEach(p => allowedPages.add(p));
 
     // Si le user a au moins un rôle restreint et que la page demandée n'est pas dans l'union → redirige vers la 1ère page autorisée
     if (allowedPages.size > 0 && !allowedPages.has(page)) {
