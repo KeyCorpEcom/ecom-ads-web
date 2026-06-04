@@ -11353,18 +11353,10 @@ async function ensureInspirationsFolder(product) {
   return await driveEnsureFolder(INSPIRATIONS_FOLDER_NAME, product.drive_folder_id);
 }
 
-// Modal "+ Nouvelle inspiration" — upload vidéo Drive + form metadata
+// Modal "+ Nouvelle inspiration" — upload vidéo Drive + paires find/replace
 async function openNewInspirationModal(product) {
   // Garde anti-double-clic : si une modale Inspiration est déjà ouverte, on ne l'empile pas
   if (document.querySelector('[data-inspi-modal]')) return;
-
-  // Charger la liste des video_editors + admins pour le dropdown assignee
-  const { data: profs } = await sb.from('profiles')
-    .select('id, full_name, email, role')
-    .in('role', ['admin', 'video_editor', 'editor']);
-  const editorOptions = (profs || []).map(p =>
-    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name || p.email)} (${escapeHtml(p.role)})</option>`
-  ).join('');
 
   const container = document.getElementById('modal-container') || document.body;
   const bd = document.createElement('div');
@@ -11377,28 +11369,13 @@ async function openNewInspirationModal(product) {
         <div>
           <label class="input-label">Vidéo source (.mp4) <span style="color:var(--red)">*</span></label>
           <input type="file" id="inspi-file" accept="video/*" class="input">
-          <div class="input-hint">Téléchargée depuis FB Ad Library / TikTok / IG / YouTube. Upload sur Drive. Nom auto-généré (Inspiration 1, 2, 3…)</div>
+          <div class="input-hint">Téléchargée depuis FB Ad Library / TikTok / IG / YouTube. Nom auto-généré (Inspiration 1, 2, 3…)</div>
         </div>
         <div>
-          <label class="input-label">URL source <span style="color:var(--text-mute);font-weight:normal">(optionnel — pour traçabilité)</span></label>
-          <input class="input" id="inspi-source-url" placeholder="https://www.facebook.com/ads/library/...">
-        </div>
-        <div>
-          <label class="input-label">Notes pour le video editor <span style="color:var(--text-mute);font-weight:normal">(optionnel)</span></label>
-          <textarea class="input" id="inspi-notes" rows="2" placeholder="Ex: Garde le pacing et la voix off, ajoute notre logo."></textarea>
-        </div>
-        <div>
-          <label class="input-label">🔁 Mots-clés à remplacer sur Kapwing <span style="color:var(--text-mute);font-weight:normal">(optionnel — Fadel les verra en chips)</span></label>
+          <label class="input-label">🔁 Mots-clés à remplacer sur Kapwing <span style="color:var(--text-mute);font-weight:normal">(Fadel les verra en chips)</span></label>
           <div class="input-hint" style="margin-bottom:6px">Watche la vidéo concurrent, note les noms de marque/produit/matériaux à remplacer. Ex: <span class="mono" style="color:var(--orange)">Boxhero</span> → <span class="mono" style="color:var(--green)">Olvera</span>, <span class="mono" style="color:var(--orange)">bambou</span> → <span class="mono" style="color:var(--green)">coton</span>.</div>
           <div id="inspi-replacements-list" style="display:flex;flex-direction:column;gap:6px"></div>
           <button class="btn btn-ghost btn-sm" type="button" id="inspi-add-replacement" style="margin-top:6px">+ Ajouter une paire</button>
-        </div>
-        <div>
-          <label class="input-label">Assigner à</label>
-          <select class="input" id="inspi-assignee">
-            <option value="">— Non assigné —</option>
-            ${editorOptions}
-          </select>
         </div>
         <div id="inspi-progress" style="display:none">
           <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px" id="inspi-progress-label">Upload…</div>
@@ -11439,9 +11416,6 @@ async function openNewInspirationModal(product) {
 
   bd.querySelector('#inspi-save').addEventListener('click', async () => {
     const fileInput = bd.querySelector('#inspi-file');
-    const sourceUrl = bd.querySelector('#inspi-source-url').value.trim();
-    const notes = bd.querySelector('#inspi-notes').value.trim();
-    const assigneeId = bd.querySelector('#inspi-assignee').value || null;
     const file = fileInput.files[0];
 
     // Collecte les paires find/replace non vides (filtre les lignes vides)
@@ -11483,10 +11457,10 @@ async function openNewInspirationModal(product) {
         workspace_id: currentWorkspaceId,
         product_id: product.id,
         title,
-        notes: notes || null,
-        source_url: sourceUrl || null,
+        notes: null,
+        source_url: null,
         drive_file_id: uploaded.id,
-        assigned_to_user_id: assigneeId,
+        assigned_to_user_id: null,  // pas d'assignment à la création — utilise "Réassigner" sur la card
         replacements,
         status: 'pending',
         created_by: currentUser.id,
