@@ -11150,6 +11150,21 @@ async function renderInspirationDetail(el, inspirationId) {
         </div>
       ` : ''}
 
+      ${canUploadResult ? `
+        <div class="card" style="margin-bottom:18px;border:2px solid rgba(200,165,90,0.25)">
+          <div class="card-head">
+            <div class="card-title">⬆ ${r.status === 'rejected' ? 'Re-uploader le rendu corrigé' : (resultPreviewUrl ? 'Remplacer le rendu' : 'Uploader le rendu Kapwing')}</div>
+            <span class="text-sm text-dim">Drag&drop ou click pour choisir un fichier</span>
+          </div>
+          <div class="inspi-detail-dropzone dropzone" data-inspi-detail-dropzone="${r.id}" style="padding:40px 24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s">
+            <div style="font-size:36px;margin-bottom:10px">⬆</div>
+            <div style="font-weight:600;font-size:15px;margin-bottom:6px">Drag & drop ton rendu vidéo ici</div>
+            <div class="text-sm text-dim">ou click pour choisir un fichier · .mp4 .mov .avi…</div>
+            <input type="file" data-inspi-detail-dropzone-input accept="video/*" style="display:none">
+          </div>
+        </div>
+      ` : ''}
+
       ${validReplacements.length > 0 ? `
         <div class="card" style="margin-bottom:18px">
           <div class="card-head">
@@ -11174,44 +11189,38 @@ async function renderInspirationDetail(el, inspirationId) {
       ` : ''}
 
       <div class="grid-2" style="margin-bottom:18px;gap:18px">
-        ${sourcePreviewUrl ? `
+        ${r.drive_file_id ? `
           <div class="card">
             <div class="card-head">
               <div class="card-title">📺 Vidéo source (concurrent)</div>
-              <a class="btn btn-ghost btn-sm" href="${escapeHtml(sourceViewUrl)}" target="_blank" rel="noopener noreferrer">Ouvrir dans Drive ↗</a>
             </div>
-            <div style="position:relative;width:100%;padding-bottom:56.25%;background:#000;border-radius:8px;overflow:hidden">
-              <iframe src="${escapeHtml(sourcePreviewUrl)}" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay" allowfullscreen></iframe>
+            <div style="padding:24px 16px;text-align:center;background:var(--bg-input);border-radius:8px">
+              <div style="font-size:36px;margin-bottom:10px">⬇</div>
+              <div style="font-size:13px;color:var(--text-dim);margin-bottom:14px">Télécharge la vidéo et ouvre-la dans Kapwing.<br/>Utilise les <strong>mots-clés à remplacer</strong> ci-dessus comme aide-mémoire.</div>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                <button class="btn" data-inspi-download-source="${escapeHtml(r.drive_file_id)}" data-inspi-source-name="${escapeHtml(r.title)}.mp4" style="font-weight:600">⬇ Télécharger la vidéo</button>
+                <a class="btn btn-ghost btn-sm" href="${escapeHtml(sourceViewUrl)}" target="_blank" rel="noopener noreferrer">Ouvrir dans Drive ↗</a>
+              </div>
             </div>
           </div>
         ` : ''}
 
-        ${resultPreviewUrl ? `
+        ${r.result_drive_file_id ? `
           <div class="card">
             <div class="card-head">
               <div class="card-title">🎬 Rendu uploadé ${r.status === 'done' ? '<span style="color:var(--blue);font-size:11px;margin-left:6px">(à valider)</span>' : r.status === 'approved' ? '<span style="color:var(--green);font-size:11px;margin-left:6px">(validé ✓)</span>' : ''}</div>
-              <a class="btn btn-ghost btn-sm" href="${escapeHtml(resultViewUrl)}" target="_blank" rel="noopener noreferrer">Ouvrir dans Drive ↗</a>
             </div>
-            <div style="position:relative;width:100%;padding-bottom:56.25%;background:#000;border-radius:8px;overflow:hidden">
-              <iframe src="${escapeHtml(resultPreviewUrl)}" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay" allowfullscreen></iframe>
+            <div style="padding:24px 16px;text-align:center;background:var(--bg-input);border-radius:8px">
+              <div style="font-size:36px;margin-bottom:10px">🎬</div>
+              <div style="font-size:13px;color:var(--text-dim);margin-bottom:14px">Le rendu de Fadel — télécharge ou ouvre dans Drive pour le valider.</div>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                <button class="btn" data-inspi-download-result="${escapeHtml(r.result_drive_file_id)}" data-inspi-result-name="[RENDU] ${escapeHtml(r.title)}.mp4" style="font-weight:600">⬇ Télécharger le rendu</button>
+                <a class="btn btn-ghost btn-sm" href="${escapeHtml(resultViewUrl)}" target="_blank" rel="noopener noreferrer">Ouvrir dans Drive ↗</a>
+              </div>
             </div>
           </div>
         ` : ''}
       </div>
-
-      ${canUploadResult ? `
-        <div class="card" style="margin-bottom:18px">
-          <div class="card-head">
-            <div class="card-title">⬆ ${r.status === 'rejected' ? 'Re-uploader le rendu corrigé' : (resultPreviewUrl ? 'Remplacer le rendu' : 'Uploader le rendu Kapwing')}</div>
-          </div>
-          <div class="inspi-detail-dropzone dropzone" data-inspi-detail-dropzone="${r.id}" style="padding:40px 24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s">
-            <div style="font-size:36px;margin-bottom:10px">⬆</div>
-            <div style="font-weight:600;font-size:15px;margin-bottom:6px">Drag & drop ton rendu vidéo ici</div>
-            <div class="text-sm text-dim">ou click pour choisir un fichier · .mp4 .mov .avi…</div>
-            <input type="file" data-inspi-detail-dropzone-input accept="video/*" style="display:none">
-          </div>
-        </div>
-      ` : ''}
 
       ${(canUploadResult || isAdminUser) ? `
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px">
@@ -11232,6 +11241,19 @@ async function renderInspirationDetail(el, inspirationId) {
     `;
 
     // ============ HANDLERS ============
+    // Bouton télécharger la vidéo source
+    el.querySelectorAll('[data-inspi-download-source]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await downloadDriveFile(btn.dataset.inspiDownloadSource, btn.dataset.inspiSourceName);
+      });
+    });
+    // Bouton télécharger le rendu
+    el.querySelectorAll('[data-inspi-download-result]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        await downloadDriveFile(btn.dataset.inspiDownloadResult, btn.dataset.inspiResultName);
+      });
+    });
+
     // Dropzone drag&drop + click
     el.querySelectorAll('[data-inspi-detail-dropzone]').forEach(dz => {
       const id = dz.dataset.inspiDetailDropzone;
