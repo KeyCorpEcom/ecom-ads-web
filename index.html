@@ -11374,8 +11374,13 @@ async function openNewInspirationModal(product) {
         <div>
           <label class="input-label">🔁 Mots-clés à remplacer sur Kapwing <span style="color:var(--text-mute);font-weight:normal">(Fadel les verra en chips)</span></label>
           <div class="input-hint" style="margin-bottom:6px">Watche la vidéo concurrent, note les noms de marque/produit/matériaux à remplacer. Ex: <span class="mono" style="color:var(--orange)">Boxhero</span> → <span class="mono" style="color:var(--green)">Olvera</span>, <span class="mono" style="color:var(--orange)">bambou</span> → <span class="mono" style="color:var(--green)">coton</span>.</div>
+          <div id="inspi-template-banner" style="display:none;margin-bottom:8px;padding:6px 10px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);border-radius:6px;font-size:11px;color:var(--blue)"></div>
           <div id="inspi-replacements-list" style="display:flex;flex-direction:column;gap:6px"></div>
-          <button class="btn btn-ghost btn-sm" type="button" id="inspi-add-replacement" style="margin-top:6px">+ Ajouter une paire</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+            <button class="btn btn-ghost btn-sm" type="button" id="inspi-add-replacement">+ Ajouter une paire</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="inspi-save-template" title="Sauvegarde ces paires comme template par défaut — elles seront pré-remplies à la prochaine inspiration">💾 Sauver comme template</button>
+            <button class="btn btn-ghost btn-sm" type="button" id="inspi-clear-pairs" title="Efface toutes les paires (le template sauvegardé reste intact)" style="color:var(--text-dim)">🗑 Vider</button>
+          </div>
         </div>
         <div id="inspi-progress" style="display:none">
           <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px" id="inspi-progress-label">Upload…</div>
@@ -11398,6 +11403,7 @@ async function openNewInspirationModal(product) {
 
   // Helpers pour les paires find/replace (ajout/suppression dynamique)
   const replList = bd.querySelector('#inspi-replacements-list');
+  const templateBanner = bd.querySelector('#inspi-template-banner');
   const addReplacementRow = (find = '', repl = '') => {
     const row = document.createElement('div');
     row.style.cssText = 'display:flex;align-items:center;gap:6px';
@@ -11410,19 +11416,63 @@ async function openNewInspirationModal(product) {
     row.querySelector('[data-repl-delete]').addEventListener('click', () => row.remove());
     replList.appendChild(row);
   };
-  // Démarrer avec 1 ligne vide pour guider l'admin
-  addReplacementRow();
+  const getCurrentPairs = () => Array.from(replList.querySelectorAll('div')).map(row => ({
+    find: row.querySelector('[data-repl-find]')?.value.trim() || '',
+    replace: row.querySelector('[data-repl-replace]')?.value.trim() || '',
+  })).filter(p => p.find || p.replace);
+  const clearAllPairs = () => { replList.innerHTML = ''; };
+
+  // Template par workspace stocké en localStorage (pas de migration DB nécessaire)
+  // Clé scopée au workspace pour que chaque boutique ait son propre template.
+  const TEMPLATE_KEY = `inspirations_replacements_template_${currentWorkspaceId}`;
+  const loadTemplate = () => {
+    try {
+      const raw = localStorage.getItem(TEMPLATE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed.filter(p => p && (p.find || p.replace)) : [];
+    } catch { return []; }
+  };
+  const saveTemplate = (pairs) => {
+    try { localStorage.setItem(TEMPLATE_KEY, JSON.stringify(pairs)); return true; }
+    catch (e) { console.error('[saveTemplate]', e); return false; }
+  };
+
+  // Au chargement : pré-remplis depuis le template, sinon 1 ligne vide
+  const tpl = loadTemplate();
+  if (tpl.length > 0) {
+    tpl.forEach(p => addReplacementRow(p.find || '', p.replace || ''));
+    templateBanner.style.display = 'block';
+    templateBanner.innerHTML = `📋 Template chargé (${tpl.length} paire${tpl.length > 1 ? 's' : ''}) — tu peux modifier/ajouter/supprimer puis sauvegarder à nouveau`;
+  } else {
+    addReplacementRow();
+  }
+
   bd.querySelector('#inspi-add-replacement').addEventListener('click', () => addReplacementRow());
+
+  bd.querySelector('#inspi-save-template').addEventListener('click', () => {
+    const pairs = getCurrentPairs();
+    if (pairs.length === 0) {
+      if (!confirm('Sauvegarder un template VIDE ? (= aucun pré-remplissage à la prochaine inspiration)')) return;
+    }
+    if (saveTemplate(pairs)) {
+      toast(`Template sauvegardé (${pairs.length} paire${pairs.length > 1 ? 's' : ''}) ✓`, 'success');
+      templateBanner.style.display = 'block';
+      templateBanner.innerHTML = `📋 Template sauvegardé (${pairs.length} paire${pairs.length > 1 ? 's' : ''}) — sera pré-rempli à la prochaine inspiration`;
+    } else {
+      toast('Erreur sauvegarde template', 'error');
+    }
+  });
+
+  bd.querySelector('#inspi-clear-pairs').addEventListener('click', () => {
+    clearAllPairs();
+    addReplacementRow();
+    toast('Paires effacées (template sauvegardé non touché)', 'info');
+  });
 
   bd.querySelector('#inspi-save').addEventListener('click', async () => {
     const fileInput = bd.querySelector('#inspi-file');
     const file = fileInput.files[0];
-
-    // Collecte les paires find/replace non vides (filtre les lignes vides)
-    const replacements = Array.from(replList.querySelectorAll('div')).map(row => ({
-      find: row.querySelector('[data-repl-find]')?.value.trim() || '',
-      replace: row.querySelector('[data-repl-replace]')?.value.trim() || '',
-    })).filter(p => p.find || p.replace);
+    const replacements = getCurrentPairs();
 
     if (!file) { toast('Sélectionne un fichier vidéo', 'error'); return; }
 
