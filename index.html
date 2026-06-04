@@ -11090,6 +11090,40 @@ function renderInspirationCard(r, assignedUser, isAdminUser) {
     ? `<a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="font-size:11px;color:var(--blue);text-decoration:underline;margin-left:6px" title="Lien original (FB Ad Library / TikTok / etc.)">source ↗</a>`
     : '';
 
+  // Section "Mots-clés à remplacer" — chips colorés trouver → remplacer
+  // Fadel les voit en évidence et les copie dans Kapwing pour faire Find & Replace.
+  const replacements = Array.isArray(r.replacements) ? r.replacements : [];
+  const replacementsBlock = replacements.length > 0 ? `
+    <div style="margin-bottom:12px;padding:10px 12px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.20);border-radius:8px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--blue);margin-bottom:8px">🔁 Mots-clés à remplacer sur Kapwing</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${replacements.map(p => {
+          const find = (p && p.find) ? String(p.find) : '';
+          const repl = (p && p.replace) ? String(p.replace) : '';
+          if (!find && !repl) return '';
+          return `
+            <div style="display:inline-flex;align-items:center;gap:6px;font-size:12px">
+              <span style="padding:3px 9px;border-radius:6px;background:rgba(251,146,60,0.18);color:var(--orange);font-weight:600;font-family:'JetBrains Mono',monospace" title="À chercher dans Kapwing">${escapeHtml(find) || '?'}</span>
+              <span style="color:var(--text-dim);font-size:13px">→</span>
+              <span style="padding:3px 9px;border-radius:6px;background:rgba(52,211,153,0.18);color:var(--green);font-weight:600;font-family:'JetBrains Mono',monospace" title="À remplacer par">${escapeHtml(repl) || '?'}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  ` : '';
+
+  // Dropzone drag&drop pour upload du rendu (visible si pending/in_progress/rejected et user assigné/admin)
+  const canUploadResult = (isAssignedToMe || isAdminUser) && ['pending', 'in_progress', 'rejected'].includes(r.status);
+  const dropzoneBlock = canUploadResult ? `
+    <div class="inspi-dropzone" data-inspi-dropzone="${r.id}" style="margin-bottom:10px;padding:18px 12px;border:2px dashed var(--border);border-radius:10px;background:var(--bg-input);text-align:center;cursor:pointer;transition:all 0.15s" title="Drag & drop ton rendu ici (ou click pour choisir un fichier)">
+      <div style="font-size:20px;margin-bottom:4px">⬆</div>
+      <div style="font-size:12px;font-weight:600;color:var(--text)">${r.status === 'rejected' ? 'Re-uploader le rendu corrigé' : 'Drag & drop ton rendu vidéo'}</div>
+      <div style="font-size:11px;color:var(--text-mute);margin-top:2px">ou click pour choisir un fichier · vidéo (.mp4, .mov...)</div>
+      <input type="file" data-inspi-dropzone-input="${r.id}" accept="video/*" style="display:none">
+    </div>
+  ` : '';
+
   return `
     <div class="script-ad-row" style="padding:14px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px">
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
@@ -11100,6 +11134,8 @@ function renderInspirationCard(r, assignedUser, isAdminUser) {
       </div>
       ${r.notes ? `<div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;white-space:pre-wrap">${escapeHtml(r.notes)}</div>` : ''}
       ${r.status === 'rejected' && r.rejection_reason ? `<div style="font-size:12px;color:var(--red);margin-bottom:10px;padding:6px 10px;background:rgba(248,113,113,0.08);border-left:2px solid var(--red);border-radius:4px"><strong>Rejet :</strong> ${escapeHtml(r.rejection_reason)}</div>` : ''}
+      ${replacementsBlock}
+      ${dropzoneBlock}
       <div style="display:flex;gap:6px;flex-wrap:wrap">${actions.join('')}</div>
     </div>
   `;
@@ -11178,7 +11214,7 @@ function wireInspirationCardActions(wrap, product, isAdminUser) {
     });
   });
 
-  // Upload du rendu vidéo
+  // Upload du rendu vidéo via bouton (file picker classique)
   wrap.querySelectorAll('[data-inspi-upload-result]').forEach(btn => {
     btn.addEventListener('click', (ev) => {
       ev.stopPropagation();
@@ -11186,15 +11222,88 @@ function wireInspirationCardActions(wrap, product, isAdminUser) {
     });
   });
 
-  // Valider (admin)
+  // Dropzone drag&drop pour upload du rendu (alternative au bouton)
+  wrap.querySelectorAll('[data-inspi-dropzone]').forEach(dz => {
+    const inspirationId = dz.dataset.inspiDropzone;
+    const fileInput = wrap.querySelector(`[data-inspi-dropzone-input="${inspirationId}"]`);
+    // Click sur la dropzone → ouvre le file picker
+    dz.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      fileInput?.click();
+    });
+    fileInput?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (file) await uploadInspirationResultFile(file, inspirationId, product, isAdminUser);
+    });
+    // Drag & drop : highlight visuel + upload sur drop
+    dz.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dz.style.borderColor = 'var(--gold)';
+      dz.style.background = 'rgba(200,165,90,0.08)';
+    });
+    dz.addEventListener('dragleave', () => {
+      dz.style.borderColor = '';
+      dz.style.background = '';
+    });
+    dz.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dz.style.borderColor = '';
+      dz.style.background = '';
+      // Snapshot synchronously avant les awaits (DataTransfer peut être éphémère)
+      const file = Array.from(e.dataTransfer.files)[0];
+      if (file) await uploadInspirationResultFile(file, inspirationId, product, isAdminUser);
+    });
+  });
+
+  // Valider (admin) — crée AUSSI une ad source='inspiration' dans la page Produit
+  // pour que le rendu soit dispo dans la zone "Vidéos finies à valider" par pays.
   wrap.querySelectorAll('[data-inspi-approve]').forEach(btn => {
     btn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       const id = btn.dataset.inspiApprove;
-      const { error } = await sb.from('ad_inspirations').update({ status: 'approved' }).eq('id', id);
-      if (error) { toast('Erreur : ' + error.message, 'error'); return; }
-      toast('Inspiration validée ✓', 'success');
-      loadInspirationsTab(product, isAdminUser);
+      try {
+        // 1. Récupère l'inspiration (besoin du result_drive_file_id et du title)
+        const { data: insp, error: fetchErr } = await sb.from('ad_inspirations')
+          .select('*').eq('id', id).single();
+        if (fetchErr) throw fetchErr;
+        if (!insp.result_drive_file_id) {
+          toast('Pas de rendu uploadé sur cette inspiration — impossible de valider', 'error');
+          return;
+        }
+
+        // 2. Calcule la prochaine position d'ad pour ce produit (= max + 1, en excluant les script templates)
+        const { data: existingAds } = await sb.from('ads')
+          .select('position').eq('workspace_id', currentWorkspaceId).eq('product_id', product.id)
+          .is('parent_script_id', null);  // les script templates avec parent_script_id ne comptent pas
+        const maxPos = (existingAds || []).reduce((m, a) => Math.max(m, a.position || 0), 0);
+        const nextPos = maxPos + 1;
+
+        // 3. Crée l'ad — la card Inspiration "devient" un master ad dans la page Produit
+        const adName = `Ad ${nextPos}`;
+        const { data: newAd, error: insertErr } = await sb.from('ads').insert({
+          workspace_id: currentWorkspaceId,
+          product_id: product.id,
+          name: adName,
+          source: 'inspiration',
+          master_file_id: insp.result_drive_file_id,
+          master_status: 'approved',
+          position: nextPos,
+        }).select().single();
+        if (insertErr) throw insertErr;
+
+        // 4. Marque l'inspiration comme approved + référence l'ad créée
+        const { error: updateErr } = await sb.from('ad_inspirations').update({
+          status: 'approved',
+        }).eq('id', id);
+        if (updateErr) throw updateErr;
+
+        toast(`Inspiration validée ✓ — créée comme ${adName} dans la page Produit`, 'success', 5000);
+        loadInspirationsTab(product, isAdminUser);
+      } catch (e) {
+        console.error('[inspi-approve]', e);
+        toast('Erreur validation : ' + (e.message || String(e)), 'error', 6000);
+      }
     });
   });
 
@@ -11276,7 +11385,13 @@ async function openNewInspirationModal(product) {
         </div>
         <div>
           <label class="input-label">Notes pour le video editor <span style="color:var(--text-mute);font-weight:normal">(optionnel)</span></label>
-          <textarea class="input" id="inspi-notes" rows="3" placeholder="Ex: Garde le pacing et la voix off, remplace tous les plans matelas par les B-Rolls F0004 (packshot face + lifestyle dos)."></textarea>
+          <textarea class="input" id="inspi-notes" rows="2" placeholder="Ex: Garde le pacing et la voix off, ajoute notre logo."></textarea>
+        </div>
+        <div>
+          <label class="input-label">🔁 Mots-clés à remplacer sur Kapwing <span style="color:var(--text-mute);font-weight:normal">(optionnel — Fadel les verra en chips)</span></label>
+          <div class="input-hint" style="margin-bottom:6px">Watche la vidéo concurrent, note les noms de marque/produit/matériaux à remplacer. Ex: <span class="mono" style="color:var(--orange)">Boxhero</span> → <span class="mono" style="color:var(--green)">Olvera</span>, <span class="mono" style="color:var(--orange)">bambou</span> → <span class="mono" style="color:var(--green)">coton</span>.</div>
+          <div id="inspi-replacements-list" style="display:flex;flex-direction:column;gap:6px"></div>
+          <button class="btn btn-ghost btn-sm" type="button" id="inspi-add-replacement" style="margin-top:6px">+ Ajouter une paire</button>
         </div>
         <div>
           <label class="input-label">Assigner à</label>
@@ -11304,12 +11419,36 @@ async function openNewInspirationModal(product) {
   bd.addEventListener('click', (e) => { if (e.target === bd) close(); });
   bd.querySelector('#inspi-cancel').addEventListener('click', close);
 
+  // Helpers pour les paires find/replace (ajout/suppression dynamique)
+  const replList = bd.querySelector('#inspi-replacements-list');
+  const addReplacementRow = (find = '', repl = '') => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px';
+    row.innerHTML = `
+      <input class="input" data-repl-find placeholder="Trouver (concurrent)" value="${escapeHtml(find)}" style="flex:1;padding:6px 10px;font-size:12px">
+      <span style="color:var(--text-dim);font-size:14px">→</span>
+      <input class="input" data-repl-replace placeholder="Remplacer par (notre marque)" value="${escapeHtml(repl)}" style="flex:1;padding:6px 10px;font-size:12px">
+      <button type="button" data-repl-delete style="background:transparent;border:none;color:var(--red);cursor:pointer;font-size:18px;padding:2px 8px" title="Supprimer cette paire">×</button>
+    `;
+    row.querySelector('[data-repl-delete]').addEventListener('click', () => row.remove());
+    replList.appendChild(row);
+  };
+  // Démarrer avec 1 ligne vide pour guider l'admin
+  addReplacementRow();
+  bd.querySelector('#inspi-add-replacement').addEventListener('click', () => addReplacementRow());
+
   bd.querySelector('#inspi-save').addEventListener('click', async () => {
     const fileInput = bd.querySelector('#inspi-file');
     const sourceUrl = bd.querySelector('#inspi-source-url').value.trim();
     const notes = bd.querySelector('#inspi-notes').value.trim();
     const assigneeId = bd.querySelector('#inspi-assignee').value || null;
     const file = fileInput.files[0];
+
+    // Collecte les paires find/replace non vides (filtre les lignes vides)
+    const replacements = Array.from(replList.querySelectorAll('div')).map(row => ({
+      find: row.querySelector('[data-repl-find]')?.value.trim() || '',
+      replace: row.querySelector('[data-repl-replace]')?.value.trim() || '',
+    })).filter(p => p.find || p.replace);
 
     if (!file) { toast('Sélectionne un fichier vidéo', 'error'); return; }
 
@@ -11348,6 +11487,7 @@ async function openNewInspirationModal(product) {
         source_url: sourceUrl || null,
         drive_file_id: uploaded.id,
         assigned_to_user_id: assigneeId,
+        replacements,
         status: 'pending',
         created_by: currentUser.id,
       });
@@ -11409,47 +11549,49 @@ async function openInspirationAssignModal(inspirationId, product, isAdminUser) {
   });
 }
 
-// Upload du rendu final (video_editor ou admin)
-async function uploadInspirationResultFlow(inspirationId, product, isAdminUser) {
-  // Trouve l'inspiration pour le nom du fichier
+// Upload une vidéo rendu pour une inspiration donnée.
+// Utilisé à la fois par le bouton "Uploader le rendu" (file picker) et par la dropzone drag&drop.
+async function uploadInspirationResultFile(file, inspirationId, product, isAdminUser) {
+  if (!file) return;
   const { data: row } = await sb.from('ad_inspirations').select('*').eq('id', inspirationId).single();
   if (!row) { toast('Inspiration introuvable', 'error'); return; }
+  const overlay = createProgressOverlay('Upload du rendu inspiration');
+  try {
+    overlay.update('Dossier Drive…', 0, 3);
+    const inspiFolder = await ensureInspirationsFolder(product);
+    const rendersFolder = await driveEnsureFolder('Rendus', inspiFolder.id);
 
-  // File picker programmatique
+    overlay.update('Upload de la vidéo…', 1, 3);
+    const fileName = `[RENDU] ${row.title.slice(0, 60).replace(/[/\\?%*:|"<>]/g, '_')} - ${file.name}`;
+    const uploaded = await driveUploadFile(file, rendersFolder.id, fileName, (pct) => {
+      overlay.update(`Upload ${pct}%…`, 1, 3);
+    });
+
+    overlay.update('Enregistrement…', 2, 3);
+    const { error } = await sb.from('ad_inspirations').update({
+      result_drive_file_id: uploaded.id,
+      status: 'done',
+      rejection_reason: null,
+    }).eq('id', inspirationId);
+    if (error) throw error;
+
+    overlay.close();
+    toast('Rendu uploadé ✓ — en attente de validation admin', 'success');
+    loadInspirationsTab(product, isAdminUser);
+  } catch (e) {
+    console.error('[uploadInspirationResultFile]', e);
+    overlay.close();
+    toast('Erreur : ' + (e.message || String(e)), 'error');
+  }
+}
+
+// Upload du rendu final via file picker programmatique (utilisé par le bouton existant)
+async function uploadInspirationResultFlow(inspirationId, product, isAdminUser) {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'video/*';
   input.addEventListener('change', async () => {
-    const file = input.files[0];
-    if (!file) return;
-    const overlay = createProgressOverlay('Upload du rendu inspiration');
-    try {
-      overlay.update('Dossier Drive…', 0, 3);
-      const inspiFolder = await ensureInspirationsFolder(product);
-      const rendersFolder = await driveEnsureFolder('Rendus', inspiFolder.id);
-
-      overlay.update('Upload de la vidéo…', 1, 3);
-      const fileName = `[RENDU] ${row.title.slice(0, 60).replace(/[/\\?%*:|"<>]/g, '_')} - ${file.name}`;
-      const uploaded = await driveUploadFile(file, rendersFolder.id, fileName, (pct) => {
-        overlay.update(`Upload ${pct}%…`, 1, 3);
-      });
-
-      overlay.update('Enregistrement…', 2, 3);
-      const { error } = await sb.from('ad_inspirations').update({
-        result_drive_file_id: uploaded.id,
-        status: 'done',
-        rejection_reason: null,
-      }).eq('id', inspirationId);
-      if (error) throw error;
-
-      overlay.close();
-      toast('Rendu uploadé ✓ — en attente de validation admin', 'success');
-      loadInspirationsTab(product, isAdminUser);
-    } catch (e) {
-      console.error('[uploadInspirationResultFlow]', e);
-      overlay.close();
-      toast('Erreur : ' + (e.message || String(e)), 'error');
-    }
+    await uploadInspirationResultFile(input.files[0], inspirationId, product, isAdminUser);
   });
   input.click();
 }
