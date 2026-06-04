@@ -11475,6 +11475,10 @@ async function openNewInspirationModal(product) {
     const replacements = getCurrentPairs();
 
     if (!file) { toast('Sélectionne un fichier vidéo', 'error'); return; }
+    if (!driveState.connected) {
+      toast('Drive non connecté — clique sur "Google Drive" dans la sidebar pour te connecter d\'abord', 'error', 8000);
+      return;
+    }
 
     const saveBtn = bd.querySelector('#inspi-save');
     saveBtn.disabled = true;
