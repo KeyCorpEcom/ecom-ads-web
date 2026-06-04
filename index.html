@@ -11124,87 +11124,117 @@ async function renderInspirationDetail(el, inspirationId) {
     const resultViewUrl = r.result_drive_file_id ? `https://drive.google.com/file/d/${r.result_drive_file_id}/view` : null;
     const resultPreviewUrl = r.result_drive_file_id ? `https://drive.google.com/file/d/${r.result_drive_file_id}/preview` : null;
 
-    // ============ HTML — design minimaliste ============
+    // ============ HTML — style aligné sur la page Produit (cards, titres blancs, couleurs vives) ============
     el.innerHTML = `
-      <div style="max-width:760px;margin:0 auto">
-        <div style="margin-bottom:24px">
-          <a href="#scripts/${escapeHtml(r.product_id)}" style="color:var(--text-dim);font-size:12px;text-decoration:none">← ${escapeHtml(r.product_id)}</a>
-          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;margin-top:6px;flex-wrap:wrap">
-            <h1 style="font-size:22px;font-weight:600;margin:0;letter-spacing:-0.01em">${escapeHtml(r.title)}</h1>
-            <div style="display:flex;align-items:center;gap:10px">
-              ${inspirationStatusBadge(r.status)}
-              ${assignedUser ? assigneeBadge(assignedUser, 'sm') : ''}
-            </div>
+      <div class="page-head">
+        <div>
+          <a class="btn btn-ghost" href="#scripts/${escapeHtml(r.product_id)}" style="margin-bottom:8px">← ${escapeHtml(r.product_id)}</a>
+          <div class="page-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span>${escapeHtml(r.title)}</span>
+            ${inspirationStatusBadge(r.status)}
+            ${assignedUser ? assigneeBadge(assignedUser, 'sm') : ''}
           </div>
-          ${product?.name ? `<div style="font-size:12px;color:var(--text-mute);margin-top:4px">${escapeHtml(product.name)}</div>` : ''}
+          ${product?.name ? `<div class="page-subtitle">${escapeHtml(product.name)}</div>` : ''}
         </div>
+      </div>
 
-        ${r.status === 'rejected' && r.rejection_reason ? `
-          <div style="margin-bottom:24px;padding:10px 14px;border-left:2px solid var(--red);font-size:13px;color:var(--red)">
-            ${escapeHtml(r.rejection_reason)}
+      ${r.status === 'rejected' && r.rejection_reason ? `
+        <div class="card" style="margin-bottom:14px;background:rgba(248,113,113,0.06);border-color:rgba(248,113,113,0.3)">
+          <div style="color:var(--red);font-weight:600;font-size:13px;margin-bottom:4px">Rejeté</div>
+          <div style="font-size:13px;color:var(--text-dim)">${escapeHtml(r.rejection_reason)}</div>
+        </div>
+      ` : ''}
+
+      ${canUploadResult ? `
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head">
+            <div class="card-title">⬆ ${r.status === 'rejected' ? 'Re-uploader le rendu corrigé' : (resultPreviewUrl ? 'Remplacer le rendu' : 'Uploader le rendu Kapwing')}</div>
+            <span class="text-sm text-dim">Glisse depuis ton PC</span>
           </div>
-        ` : ''}
-
-        ${canUploadResult ? `
-          <div class="inspi-detail-dropzone" data-inspi-detail-dropzone="${r.id}" style="margin-bottom:32px;padding:48px 24px;border:1px dashed var(--border);border-radius:8px;text-align:center;cursor:pointer;transition:all 0.15s">
-            <div style="font-size:11px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:var(--text-mute);margin-bottom:8px">${r.status === 'rejected' ? 'Re-uploader le rendu' : (resultPreviewUrl ? 'Remplacer le rendu' : 'Uploader le rendu')}</div>
-            <div style="font-size:14px;color:var(--text)">Drag & drop ou click pour choisir un fichier</div>
+          <div class="inspi-detail-dropzone dropzone" data-inspi-detail-dropzone="${r.id}" style="padding:32px 20px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s">
+            <div style="font-size:28px;margin-bottom:8px">⬆</div>
+            <div style="font-weight:600;margin-bottom:4px">Drag & drop ton rendu vidéo</div>
+            <div class="text-sm text-dim">ou click pour choisir un fichier · .mp4 .mov</div>
             <input type="file" data-inspi-detail-dropzone-input accept="video/*" style="display:none">
           </div>
-        ` : ''}
+        </div>
+      ` : ''}
 
-        ${validReplacements.length > 0 ? `
-          <div style="margin-bottom:32px">
-            <div style="font-size:11px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:var(--text-mute);margin-bottom:12px">Mots-clés à remplacer</div>
-            <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:6px 12px;align-items:center">
-              ${validReplacements.map(p => {
-                const find = (p && p.find) ? String(p.find) : '';
-                const repl = (p && p.replace) ? String(p.replace) : '';
-                return `
-                  <div style="padding:8px 12px;background:rgba(251,146,60,0.10);border-radius:6px;color:var(--orange);font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace">${escapeHtml(find) || '—'}</div>
-                  <div style="color:var(--text-mute);font-size:13px">→</div>
-                  <div style="padding:8px 12px;background:rgba(52,211,153,0.10);border-radius:6px;color:var(--green);font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace">${escapeHtml(repl) || '—'}</div>
-                `;
-              }).join('')}
-            </div>
+      ${validReplacements.length > 0 ? `
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head">
+            <div class="card-title">🔁 Mots-clés à remplacer sur Kapwing</div>
+            <span class="text-sm text-dim">${validReplacements.length} paire${validReplacements.length > 1 ? 's' : ''}</span>
           </div>
-        ` : ''}
+          <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px 14px;align-items:center">
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--orange)">Trouver</div>
+            <div></div>
+            <div style="font-size:10px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--green)">Remplacer par</div>
+            ${validReplacements.map(p => {
+              const find = (p && p.find) ? String(p.find) : '';
+              const repl = (p && p.replace) ? String(p.replace) : '';
+              return `
+                <div style="padding:10px 14px;background:rgba(251,146,60,0.15);border:1px solid rgba(251,146,60,0.35);border-radius:8px;color:var(--orange);font-weight:700;font-size:14px;font-family:'JetBrains Mono',monospace;text-align:center;word-break:break-word">${escapeHtml(find) || '—'}</div>
+                <div style="color:var(--text-dim);font-size:18px;font-weight:700;text-align:center">→</div>
+                <div style="padding:10px 14px;background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.35);border-radius:8px;color:var(--green);font-weight:700;font-size:14px;font-family:'JetBrains Mono',monospace;text-align:center;word-break:break-word">${escapeHtml(repl) || '—'}</div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      ` : ''}
 
-        <div style="margin-bottom:32px">
-          <div style="font-size:11px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:var(--text-mute);margin-bottom:10px">Vidéo source</div>
+      <div class="grid-2" style="margin-bottom:14px;gap:14px">
+        <div class="card">
+          <div class="card-head">
+            <div class="card-title">📺 Vidéo source (concurrent)</div>
+          </div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <button class="btn btn-sm" data-inspi-download-source="${escapeHtml(r.drive_file_id || '')}" data-inspi-source-name="${escapeHtml(r.title)}.mp4">⬇ Télécharger</button>
-            <a href="${escapeHtml(sourceViewUrl || '#')}" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--text-dim);text-decoration:none">ouvrir dans Drive ↗</a>
+            <button class="btn" data-inspi-download-source="${escapeHtml(r.drive_file_id || '')}" data-inspi-source-name="${escapeHtml(r.title)}.mp4" style="font-weight:600">⬇ Télécharger la vidéo</button>
+            <a href="${escapeHtml(sourceViewUrl || '#')}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Ouvrir dans Drive ↗</a>
           </div>
         </div>
 
         ${r.result_drive_file_id ? `
-          <div style="margin-bottom:32px">
-            <div style="font-size:11px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:var(--text-mute);margin-bottom:10px">Rendu uploadé ${r.status === 'done' ? '<span style="color:var(--blue);font-weight:500;text-transform:none;letter-spacing:0">(à valider)</span>' : r.status === 'approved' ? '<span style="color:var(--green);font-weight:500;text-transform:none;letter-spacing:0">(validé)</span>' : ''}</div>
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">🎬 Rendu uploadé ${r.status === 'done' ? '<span style="color:var(--blue);font-size:11px;margin-left:6px;font-weight:500">(à valider)</span>' : r.status === 'approved' ? '<span style="color:var(--green);font-size:11px;margin-left:6px;font-weight:500">(validé ✓)</span>' : ''}</div>
+            </div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-              <button class="btn btn-sm" data-inspi-download-result="${escapeHtml(r.result_drive_file_id)}" data-inspi-result-name="[RENDU] ${escapeHtml(r.title)}.mp4">⬇ Télécharger</button>
-              <a href="${escapeHtml(resultViewUrl)}" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--text-dim);text-decoration:none">ouvrir dans Drive ↗</a>
+              <button class="btn" data-inspi-download-result="${escapeHtml(r.result_drive_file_id)}" data-inspi-result-name="[RENDU] ${escapeHtml(r.title)}.mp4" style="font-weight:600">⬇ Télécharger le rendu</button>
+              <a href="${escapeHtml(resultViewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Ouvrir dans Drive ↗</a>
             </div>
           </div>
-        ` : ''}
+        ` : `
+          <div class="card" style="opacity:0.5">
+            <div class="card-head">
+              <div class="card-title">🎬 Rendu uploadé</div>
+            </div>
+            <div class="text-sm text-dim">Pas encore de rendu — upload via la zone ci-dessus.</div>
+          </div>
+        `}
+      </div>
 
-        ${(canUploadResult || isAdminUser) ? `
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;padding-top:16px;border-top:1px solid var(--border-soft)">
+      ${(canUploadResult || isAdminUser) ? `
+        <div class="card" style="margin-bottom:14px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             ${r.status === 'done' && isAdminUser ? `
-              <button class="btn btn-sm" style="background:var(--green);color:#000" id="btn-inspi-detail-approve">Valider</button>
-              <button class="btn btn-sm btn-danger" id="btn-inspi-detail-reject">Rejeter</button>
+              <button class="btn" style="background:var(--green);color:#000;font-weight:600" id="btn-inspi-detail-approve">✓ Valider — crée une ad dans la page Produit</button>
+              <button class="btn btn-danger" id="btn-inspi-detail-reject">Rejeter</button>
             ` : ''}
             ${isAdminUser ? `
               <button class="btn btn-ghost btn-sm" id="btn-inspi-detail-reassign" style="margin-left:auto">Réassigner</button>
               <button class="btn btn-ghost btn-sm" id="btn-inspi-detail-delete" style="color:var(--red)">Supprimer</button>
             ` : ''}
           </div>
-        ` : ''}
+        </div>
+      ` : ''}
 
-        ${r.notes ? `
-          <div style="font-size:13px;line-height:1.6;color:var(--text-dim);white-space:pre-wrap;padding-top:16px;border-top:1px solid var(--border-soft)">${escapeHtml(r.notes)}</div>
-        ` : ''}
-      </div>
+      ${r.notes ? `
+        <div class="card">
+          <div class="card-head"><div class="card-title">📝 Notes</div></div>
+          <div style="font-size:13px;line-height:1.6;white-space:pre-wrap;color:var(--text-dim)">${escapeHtml(r.notes)}</div>
+        </div>
+      ` : ''}
     `;
 
     // ============ HANDLERS ============
