@@ -11190,7 +11190,6 @@ async function renderInspirationDetail(el, inspirationId) {
 
         ${(canUploadResult || isAdminUser) ? `
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;padding-top:16px;border-top:1px solid var(--border-soft)">
-            ${r.status === 'pending' && (isAssignedToMe || isAdminUser) ? `<button class="btn btn-ghost btn-sm" id="btn-inspi-detail-start">Marquer en cours</button>` : ''}
             ${r.status === 'done' && isAdminUser ? `
               <button class="btn btn-sm" style="background:var(--green);color:#000" id="btn-inspi-detail-approve">Valider</button>
               <button class="btn btn-sm btn-danger" id="btn-inspi-detail-reject">Rejeter</button>
@@ -11258,14 +11257,6 @@ async function renderInspirationDetail(el, inspirationId) {
           renderInspirationDetail(el, id);
         }
       });
-    });
-
-    // Marquer en cours
-    document.getElementById('btn-inspi-detail-start')?.addEventListener('click', async () => {
-      const { error } = await sb.from('ad_inspirations').update({ status: 'in_progress' }).eq('id', r.id);
-      if (error) { toast('Erreur : ' + (error.message || 'unknown'), 'error'); return; }
-      toast('Statut "En cours"', 'success');
-      renderInspirationDetail(el, r.id);
     });
 
     // Valider — crée une ad source='inspiration' (réutilise la logique de wireInspirationCardActions)
