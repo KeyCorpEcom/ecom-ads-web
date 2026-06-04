@@ -11522,7 +11522,15 @@ async function openNewInspirationModal(product) {
       loadInspirationsTab(product, true);
     } catch (e) {
       console.error('[openNewInspirationModal]', e);
-      toast('Erreur : ' + (e.message || String(e)), 'error');
+      // Supabase errors are objects {message, code, details, hint} — pas juste une string.
+      // Fallback en cascade pour toujours afficher un message lisible (jamais "[object Object]").
+      const errMsg = e?.message
+        || e?.error_description
+        || e?.hint
+        || e?.details
+        || (e?.code ? `code ${e.code}` : null)
+        || (typeof e === 'string' ? e : JSON.stringify(e));
+      toast('Erreur : ' + errMsg, 'error', 8000);
       saveBtn.disabled = false;
     }
   });
