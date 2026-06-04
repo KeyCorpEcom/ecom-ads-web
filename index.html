@@ -11090,36 +11090,40 @@ function renderInspirationCard(r, assignedUser, isAdminUser) {
     ? `<a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="font-size:11px;color:var(--blue);text-decoration:underline;margin-left:6px" title="Lien original (FB Ad Library / TikTok / etc.)">source ↗</a>`
     : '';
 
-  // Section "Mots-clés à remplacer" — chips colorés trouver → remplacer
+  // Section "Mots-clés à remplacer" — design block clair avec 2 colonnes Trouver/Remplacer.
   // Fadel les voit en évidence et les copie dans Kapwing pour faire Find & Replace.
   const replacements = Array.isArray(r.replacements) ? r.replacements : [];
-  const replacementsBlock = replacements.length > 0 ? `
-    <div style="margin-bottom:12px;padding:10px 12px;background:rgba(96,165,250,0.04);border:1px solid rgba(96,165,250,0.20);border-radius:8px">
-      <div style="font-size:10px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--blue);margin-bottom:8px">🔁 Mots-clés à remplacer sur Kapwing</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${replacements.map(p => {
+  const validReplacements = replacements.filter(p => p && (p.find || p.replace));
+  const replacementsBlock = validReplacements.length > 0 ? `
+    <div style="margin-bottom:14px;padding:14px;background:rgba(96,165,250,0.05);border:1px solid rgba(96,165,250,0.25);border-radius:10px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:0.6px;text-transform:uppercase;color:var(--blue);margin-bottom:12px;display:flex;align-items:center;gap:6px">
+        <span style="font-size:14px">🔁</span> Mots-clés à remplacer sur Kapwing
+        <span style="margin-left:auto;font-size:10px;color:var(--text-mute);font-weight:600">${validReplacements.length} paire${validReplacements.length > 1 ? 's' : ''}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px 14px;align-items:center">
+        <div style="font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--orange);text-align:left;padding-left:2px">🔍 Trouver dans la vidéo</div>
+        <div></div>
+        <div style="font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:var(--green);text-align:left;padding-left:2px">✨ Remplacer par</div>
+        ${validReplacements.map(p => {
           const find = (p && p.find) ? String(p.find) : '';
           const repl = (p && p.replace) ? String(p.replace) : '';
-          if (!find && !repl) return '';
           return `
-            <div style="display:inline-flex;align-items:center;gap:6px;font-size:12px">
-              <span style="padding:3px 9px;border-radius:6px;background:rgba(251,146,60,0.18);color:var(--orange);font-weight:600;font-family:'JetBrains Mono',monospace" title="À chercher dans Kapwing">${escapeHtml(find) || '?'}</span>
-              <span style="color:var(--text-dim);font-size:13px">→</span>
-              <span style="padding:3px 9px;border-radius:6px;background:rgba(52,211,153,0.18);color:var(--green);font-weight:600;font-family:'JetBrains Mono',monospace" title="À remplacer par">${escapeHtml(repl) || '?'}</span>
-            </div>
+            <div style="padding:10px 14px;background:rgba(251,146,60,0.15);border:1px solid rgba(251,146,60,0.4);border-radius:8px;color:var(--orange);font-weight:700;font-size:14px;font-family:'JetBrains Mono',monospace;text-align:center;word-break:break-word">${escapeHtml(find) || '—'}</div>
+            <div style="color:var(--text-dim);font-size:18px;font-weight:700;text-align:center">→</div>
+            <div style="padding:10px 14px;background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.4);border-radius:8px;color:var(--green);font-weight:700;font-size:14px;font-family:'JetBrains Mono',monospace;text-align:center;word-break:break-word">${escapeHtml(repl) || '—'}</div>
           `;
         }).join('')}
       </div>
     </div>
   ` : '';
 
-  // Dropzone drag&drop pour upload du rendu (visible si pending/in_progress/rejected et user assigné/admin)
+  // Dropzone drag&drop pour upload du rendu — style aligné sur les dropzones de la page Produit (Masters/Concurrent).
   const canUploadResult = (isAssignedToMe || isAdminUser) && ['pending', 'in_progress', 'rejected'].includes(r.status);
   const dropzoneBlock = canUploadResult ? `
-    <div class="inspi-dropzone" data-inspi-dropzone="${r.id}" style="margin-bottom:10px;padding:18px 12px;border:2px dashed var(--border);border-radius:10px;background:var(--bg-input);text-align:center;cursor:pointer;transition:all 0.15s" title="Drag & drop ton rendu ici (ou click pour choisir un fichier)">
-      <div style="font-size:20px;margin-bottom:4px">⬆</div>
-      <div style="font-size:12px;font-weight:600;color:var(--text)">${r.status === 'rejected' ? 'Re-uploader le rendu corrigé' : 'Drag & drop ton rendu vidéo'}</div>
-      <div style="font-size:11px;color:var(--text-mute);margin-top:2px">ou click pour choisir un fichier · vidéo (.mp4, .mov...)</div>
+    <div class="inspi-dropzone dropzone" data-inspi-dropzone="${r.id}" style="margin-bottom:12px;padding:24px;background:var(--bg-input);border:2px dashed var(--border);border-radius:10px;text-align:center;cursor:pointer;transition:all 0.15s" title="Drag & drop ton rendu ici (ou click pour choisir un fichier)">
+      <div style="font-size:28px;margin-bottom:8px">⬆</div>
+      <div style="font-weight:600;margin-bottom:4px">${r.status === 'rejected' ? 'Re-uploader le rendu corrigé' : 'Rendu vidéo'}</div>
+      <div class="text-sm text-dim">Drag & drop ton rendu Kapwing ici · vidéo (.mp4, .mov...)</div>
       <input type="file" data-inspi-dropzone-input="${r.id}" accept="video/*" style="display:none">
     </div>
   ` : '';
