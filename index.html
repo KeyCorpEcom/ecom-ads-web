@@ -11114,7 +11114,10 @@ async function renderInspirationDetail(el, inspirationId) {
 
     const isAdminUser = isAdmin();
     const isAssignedToMe = currentUser?.id === r.assigned_to_user_id;
-    const canUploadResult = (isAssignedToMe || isAdminUser) && ['pending', 'in_progress', 'rejected'].includes(r.status);
+    // Tout video_editor peut uploader le rendu, même s'il n'est pas assigné explicitement
+    // — sinon les inspis créées sans assignment (cas par défaut) bloquent Fadel.
+    const isVideoEditor = hasRole('video_editor');
+    const canUploadResult = (isAssignedToMe || isAdminUser || isVideoEditor) && ['pending', 'in_progress', 'rejected'].includes(r.status);
 
     const replacements = Array.isArray(r.replacements) ? r.replacements : [];
     const validReplacements = replacements.filter(p => p && (p.find || p.replace));
