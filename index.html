@@ -11183,18 +11183,18 @@ async function renderInspirationDetail(el, inspirationId) {
         </div>
       ` : ''}
 
-      <div class="grid-2" style="margin-bottom:14px;gap:14px">
-        <div class="card">
-          <div class="card-head">
-            <div class="card-title">📺 Vidéo source (concurrent)</div>
+      ${r.result_drive_file_id ? `
+        <div class="grid-2" style="margin-bottom:14px;gap:14px">
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">📺 Vidéo source (concurrent)</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <button class="btn" data-inspi-download-source="${escapeHtml(r.drive_file_id || '')}" data-inspi-source-name="${escapeHtml(r.title)}.mp4" style="font-weight:600">⬇ Télécharger la vidéo</button>
+              <a href="${escapeHtml(sourceViewUrl || '#')}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Ouvrir dans Drive ↗</a>
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <button class="btn" data-inspi-download-source="${escapeHtml(r.drive_file_id || '')}" data-inspi-source-name="${escapeHtml(r.title)}.mp4" style="font-weight:600">⬇ Télécharger la vidéo</button>
-            <a href="${escapeHtml(sourceViewUrl || '#')}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Ouvrir dans Drive ↗</a>
-          </div>
-        </div>
 
-        ${r.result_drive_file_id ? `
           <div class="card">
             <div class="card-head">
               <div class="card-title">🎬 Rendu uploadé ${r.status === 'done' ? '<span style="color:var(--blue);font-size:11px;margin-left:6px;font-weight:500">(à valider)</span>' : r.status === 'approved' ? '<span style="color:var(--green);font-size:11px;margin-left:6px;font-weight:500">(validé ✓)</span>' : ''}</div>
@@ -11204,15 +11204,18 @@ async function renderInspirationDetail(el, inspirationId) {
               <a href="${escapeHtml(resultViewUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Ouvrir dans Drive ↗</a>
             </div>
           </div>
-        ` : `
-          <div class="card" style="opacity:0.5">
-            <div class="card-head">
-              <div class="card-title">🎬 Rendu uploadé</div>
-            </div>
-            <div class="text-sm text-dim">Pas encore de rendu — upload via la zone ci-dessus.</div>
+        </div>
+      ` : `
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-head">
+            <div class="card-title">📺 Vidéo source (concurrent)</div>
           </div>
-        `}
-      </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="btn" data-inspi-download-source="${escapeHtml(r.drive_file_id || '')}" data-inspi-source-name="${escapeHtml(r.title)}.mp4" style="font-weight:600">⬇ Télécharger la vidéo</button>
+            <a href="${escapeHtml(sourceViewUrl || '#')}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">Ouvrir dans Drive ↗</a>
+          </div>
+        </div>
+      `}
 
       ${(canUploadResult || isAdminUser) ? `
         <div class="card" style="margin-bottom:14px">
