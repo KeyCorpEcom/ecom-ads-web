@@ -11345,11 +11345,15 @@ function wireInspirationCardActions(wrap, product, isAdminUser) {
   });
 }
 
-// Helper : ensure le dossier 02_Inspirations/ existe sous product.drive_folder_id
+// Helper : ensure le dossier 02_Inspirations/ existe sous product.drive_folder_id.
+// IMPORTANT : appelle ensureDriveReady() pour rafraîchir le token OAuth Drive avant
+// les opérations create/upload — sans ça on a un 401 "CREDENTIALS_MISSING" après
+// que le token initial a expiré silencieusement (typiquement ~1h).
 async function ensureInspirationsFolder(product) {
   if (!product.drive_folder_id) {
     throw new Error('Le produit n\'a pas de dossier Drive racine. Ouvre l\'onglet B-Rolls une fois pour l\'initialiser.');
   }
+  await ensureDriveReady();
   return await driveEnsureFolder(INSPIRATIONS_FOLDER_NAME, product.drive_folder_id);
 }
 
