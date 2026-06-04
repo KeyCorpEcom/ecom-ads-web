@@ -11361,11 +11361,13 @@ async function loadInspirationsTab(product, isAdminUser) {
 
   try {
     // Fetch inspirations pour ce produit
+    // Tri ASC par created_at : Inspiration 1 (la 1ère créée) en haut, puis 2, 3, … jusqu'à la dernière.
+    // Cohérent avec la numérotation auto (qui est basée sur le count existant au moment de la création).
     const { data: rows, error } = await sb.from('ad_inspirations')
       .select('*')
       .eq('workspace_id', currentWorkspaceId)
       .eq('product_id', product.id)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true });
     if (error) throw error;
 
     // Fetch profiles des assignés pour les badges
