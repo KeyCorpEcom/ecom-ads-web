@@ -11584,9 +11584,9 @@ async function openNewInspirationModal(product) {
       <div class="modal-title">💡 Nouvelle inspiration — ${escapeHtml(product.id)}</div>
       <div style="display:flex;flex-direction:column;gap:14px">
         <div>
-          <label class="input-label">Vidéo source (.mp4) <span style="color:var(--red)">*</span></label>
-          <input type="file" id="inspi-file" accept="video/*" class="input">
-          <div class="input-hint">Téléchargée depuis FB Ad Library / TikTok / IG / YouTube. Nom auto-généré (Inspiration 1, 2, 3…)</div>
+          <label class="input-label">Vidéos source (.mp4) <span style="color:var(--red)">*</span> <span style="color:var(--text-mute);font-weight:normal">— sélection multiple OK</span></label>
+          <input type="file" id="inspi-file" accept="video/*" multiple class="input">
+          <div class="input-hint">Téléchargées depuis FB Ad Library / TikTok / IG / YouTube. <strong>Glisse plusieurs fichiers d'un coup</strong> — chaque vidéo deviendra une inspiration séparée (Inspiration 1, 2, 3, 4…). Les mots-clés ci-dessous seront <strong>appliqués à toutes</strong>.</div>
         </div>
         <div>
           <label class="input-label">🔁 Mots-clés à remplacer sur Kapwing <span style="color:var(--text-mute);font-weight:normal">(Fadel les verra en chips)</span></label>
@@ -11688,10 +11688,10 @@ async function openNewInspirationModal(product) {
 
   bd.querySelector('#inspi-save').addEventListener('click', async () => {
     const fileInput = bd.querySelector('#inspi-file');
-    const file = fileInput.files[0];
+    const files = Array.from(fileInput.files || []);
     const replacements = getCurrentPairs();
 
-    if (!file) { toast('Sélectionne un fichier vidéo', 'error'); return; }
+    if (files.length === 0) { toast('Sélectionne au moins un fichier vidéo', 'error'); return; }
     if (!driveState.connected) {
       toast('Drive non connecté — clique sur "Google Drive" dans la sidebar pour te connecter d\'abord', 'error', 8000);
       return;
@@ -11705,46 +11705,72 @@ async function openNewInspirationModal(product) {
     progressBox.style.display = 'block';
 
     try {
-      // Auto-numérotation : "Inspiration N" où N = count(existantes pour ce produit) + 1
+      // 1. Récupère le count existant UNE FOIS pour numéroter le batch correctement
       progressLabel.textContent = 'Numérotation…';
       const { count: existingCount, error: countErr } = await sb.from('ad_inspirations')
         .select('id', { count: 'exact', head: true })
         .eq('workspace_id', currentWorkspaceId)
         .eq('product_id', product.id);
       if (countErr) throw countErr;
-      const title = `Inspiration ${(existingCount || 0) + 1}`;
+      const baseCount = existingCount || 0;
 
+      // 2. Création du dossier Drive UNE FOIS (commun aux N fichiers)
       progressLabel.textContent = 'Création du dossier Drive…';
       const inspiFolder = await ensureInspirationsFolder(product);
 
-      progressLabel.textContent = 'Upload de la vidéo…';
-      const fileName = `${title} - ${file.name}`;
-      const uploaded = await driveUploadFile(file, inspiFolder.id, fileName, (pct) => {
-        progressBar.style.width = `${pct}%`;
-      });
+      // 3. Boucle séquentielle sur chaque fichier — upload + INSERT
+      // En cas d'échec sur un fichier, on continue avec les suivants pour pas perdre tout le batch.
+      let success = 0;
+      const failures = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const inspirationNumber = baseCount + i + 1;
+        const title = `Inspiration ${inspirationNumber}`;
+        try {
+          progressLabel.textContent = `(${i + 1}/${files.length}) ${title} — upload de "${file.name}"…`;
+          progressBar.style.width = `${Math.round((i / files.length) * 100)}%`;
+          const fileName = `${title} - ${file.name}`;
+          const uploaded = await driveUploadFile(file, inspiFolder.id, fileName, (pct) => {
+            // Progress par fichier dans la barre globale : (i + pct/100) / files.length
+            const overall = Math.round(((i + pct / 100) / files.length) * 100);
+            progressBar.style.width = `${overall}%`;
+          });
 
-      progressLabel.textContent = 'Enregistrement…';
-      const { error } = await sb.from('ad_inspirations').insert({
-        workspace_id: currentWorkspaceId,
-        product_id: product.id,
-        title,
-        notes: null,
-        source_url: null,
-        drive_file_id: uploaded.id,
-        assigned_to_user_id: null,  // pas d'assignment à la création — utilise "Réassigner" sur la card
-        replacements,
-        status: 'pending',
-        created_by: currentUser.id,
-      });
-      if (error) throw error;
+          progressLabel.textContent = `(${i + 1}/${files.length}) Enregistrement…`;
+          const { error: insertErr } = await sb.from('ad_inspirations').insert({
+            workspace_id: currentWorkspaceId,
+            product_id: product.id,
+            title,
+            notes: null,
+            source_url: null,
+            drive_file_id: uploaded.id,
+            assigned_to_user_id: null,
+            replacements,
+            status: 'pending',
+            created_by: currentUser.id,
+          });
+          if (insertErr) throw insertErr;
+          success++;
+        } catch (fileErr) {
+          console.error('[batch-inspiration]', file.name, fileErr);
+          failures.push({ name: file.name, error: fileErr?.message || fileErr?.details || String(fileErr) });
+        }
+      }
+      progressBar.style.width = '100%';
+      progressLabel.textContent = 'Terminé';
 
-      toast('Inspiration créée ✓', 'success');
+      // 4. Bilan
+      if (failures.length === 0) {
+        toast(`${success} inspiration${success > 1 ? 's' : ''} créée${success > 1 ? 's' : ''} ✓`, 'success');
+      } else if (success === 0) {
+        toast(`Aucune inspiration créée — ${failures.length} échec${failures.length > 1 ? 's' : ''}. Voir la console pour le détail.`, 'error', 8000);
+      } else {
+        toast(`${success} créée${success > 1 ? 's' : ''}, ${failures.length} échec${failures.length > 1 ? 's' : ''}. Voir la console.`, 'warn', 8000);
+      }
       close();
       loadInspirationsTab(product, true);
     } catch (e) {
       console.error('[openNewInspirationModal]', e);
-      // Supabase errors are objects {message, code, details, hint} — pas juste une string.
-      // Fallback en cascade pour toujours afficher un message lisible (jamais "[object Object]").
       const errMsg = e?.message
         || e?.error_description
         || e?.hint
