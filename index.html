@@ -11899,37 +11899,144 @@ async function openInspirationAssignModal(inspirationId, product, isAdminUser) {
 
 // Upload une vidéo rendu pour une inspiration donnée.
 // Utilisé à la fois par le bouton "Uploader le rendu" (file picker) et par la dropzone drag&drop.
+// Affiche un bandeau d'erreur PERSISTANT (bouton Fermer obligatoire) — pour les bugs upload
+// où le toast classique disparaît trop vite ou n'est pas vu par le user.
+// Le message peut faire plusieurs lignes (le détail de l'erreur reste lisible).
+function showPersistentError(title, detail) {
+  // Supprime un précédent si présent
+  document.querySelectorAll('[data-persistent-error]').forEach(el => el.remove());
+  const el = document.createElement('div');
+  el.setAttribute('data-persistent-error', '1');
+  el.style.cssText = `
+    position:fixed;bottom:20px;left:20px;right:20px;max-width:600px;margin:0 auto;z-index:99999;
+    background:var(--bg-card,#1a1a1f);border:2px solid var(--red,#f87171);
+    border-radius:10px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,0.5);
+    font-size:13px;color:var(--text,#fff);
+  `;
+  el.innerHTML = `
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="font-size:24px;flex-shrink:0">🚨</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;color:var(--red,#f87171);margin-bottom:6px;font-size:14px">${escapeHtml(title)}</div>
+        <div style="font-size:12px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;padding:8px 10px;background:rgba(0,0,0,0.3);border-radius:6px;border:1px solid var(--border-soft)">${escapeHtml(detail)}</div>
+        <div style="font-size:11px;color:var(--text-mute);margin-top:8px">📸 Screenshot ce message et envoie à Jallal pour débugger.</div>
+      </div>
+      <button type="button" data-close-persistent-error style="background:transparent;border:1px solid var(--border);color:var(--text);cursor:pointer;padding:6px 14px;border-radius:6px;font-size:12px;flex-shrink:0">Fermer</button>
+    </div>
+  `;
+  document.body.appendChild(el);
+  el.querySelector('[data-close-persistent-error]').addEventListener('click', () => el.remove());
+}
+
 async function uploadInspirationResultFile(file, inspirationId, product, isAdminUser) {
   if (!file) return;
-  const { data: row } = await sb.from('ad_inspirations').select('*').eq('id', inspirationId).single();
-  if (!row) { toast('Inspiration introuvable', 'error'); return; }
-  const overlay = createProgressOverlay('Upload du rendu inspiration');
+  // Log structuré pour debug — visible dans la console (F12) ET dans le persistent error si plante
+  const log = [];
+  const logStep = (step, extra) => {
+    const line = `[${new Date().toISOString().slice(11, 19)}] ${step}` + (extra ? ` — ${extra}` : '');
+    log.push(line);
+    console.log('[inspi-upload]', line);
+  };
+
+  logStep('START', `file=${file.name} size=${(file.size / 1024 / 1024).toFixed(1)}MB type=${file.type || 'unknown'} inspirationId=${inspirationId}`);
+
+  // Garde-fou taille : Drive API single-upload supporte ~5GB, mais le base64 inline
+  // utilisé par driveUploadFile peut planter au-delà de 500-800MB selon mémoire browser.
+  // Plus pratique : warn dès 500MB et bloquer à 2GB.
+  const sizeMB = file.size / 1024 / 1024;
+  if (sizeMB > 2048) {
+    showPersistentError(
+      'Fichier trop gros pour l\'upload (> 2 GB)',
+      `Taille du fichier : ${sizeMB.toFixed(0)} MB.\n\nDrive accepte les gros fichiers mais le navigateur peut crasher au-delà de 500-800 MB. Compresse la vidéo avant d'uploader (HandBrake, CapCut export 1080p, etc.).\n\nCible : <500 MB.`
+    );
+    return;
+  }
+  if (sizeMB > 500) {
+    logStep('WARN', `gros fichier (${sizeMB.toFixed(0)}MB) — upload peut être lent ou crash. Recommandé : <500MB`);
+  }
+
+  let overlay;
   try {
+    logStep('Fetch inspiration row');
+    const { data: row, error: fetchErr } = await sb.from('ad_inspirations').select('*').eq('id', inspirationId).single();
+    if (fetchErr) throw new Error('Fetch inspiration: ' + (fetchErr.message || JSON.stringify(fetchErr)));
+    if (!row) {
+      showPersistentError('Inspiration introuvable en DB', `ID: ${inspirationId}`);
+      return;
+    }
+    logStep('OK inspiration row', `title=${row.title} status=${row.status}`);
+
+    overlay = createProgressOverlay('Upload du rendu inspiration');
     overlay.update('Dossier Drive…', 0, 3);
+
+    logStep('ensureInspirationsFolder');
     const inspiFolder = await ensureInspirationsFolder(product);
+    logStep('OK folder Inspirations', `id=${inspiFolder.id}`);
+
+    logStep('ensure folder Rendus');
     const rendersFolder = await driveEnsureFolder('Rendus', inspiFolder.id);
+    logStep('OK folder Rendus', `id=${rendersFolder.id}`);
 
     overlay.update('Upload de la vidéo…', 1, 3);
     const fileName = `[RENDU] ${row.title.slice(0, 60).replace(/[/\\?%*:|"<>]/g, '_')} - ${file.name}`;
-    const uploaded = await driveUploadFile(file, rendersFolder.id, fileName, (pct) => {
-      overlay.update(`Upload ${pct}%…`, 1, 3);
-    });
+    logStep('driveUploadFile START', `fileName="${fileName}"`);
+
+    // Heartbeat : si le progress callback ne tick pas pendant 60s, on log un warning.
+    // Si pas de tick depuis 5 min, on throw (timeout). Sinon une connection morte
+    // laisse la promise pending forever et l'overlay disparaît sans message.
+    let lastTick = Date.now();
+    let lastPct = 0;
+    const heartbeatId = setInterval(() => {
+      const stale = Date.now() - lastTick;
+      if (stale > 5 * 60 * 1000) {
+        clearInterval(heartbeatId);
+        logStep('TIMEOUT', `aucun progress depuis 5 min (last pct=${lastPct})`);
+        showPersistentError(
+          'Upload bloqué (timeout 5 min sans progression)',
+          'Le upload Drive n\'a pas progressé depuis 5 min. Vérifie ta connexion internet et retente. Si tu es sur 4G, passe sur WiFi.\n\nLog :\n' + log.join('\n')
+        );
+      } else if (stale > 60 * 1000) {
+        logStep('SLOW', `aucun progress depuis ${Math.round(stale / 1000)}s (last pct=${lastPct})`);
+      }
+    }, 15000);
+
+    let uploaded;
+    try {
+      uploaded = await driveUploadFile(file, rendersFolder.id, fileName, (pct) => {
+        lastTick = Date.now();
+        lastPct = pct;
+        overlay.update(`Upload ${pct}%…`, 1, 3);
+      });
+    } finally {
+      clearInterval(heartbeatId);
+    }
+    logStep('OK driveUploadFile', `uploaded.id=${uploaded?.id}`);
 
     overlay.update('Enregistrement…', 2, 3);
+    logStep('Update DB');
     const { error } = await sb.from('ad_inspirations').update({
       result_drive_file_id: uploaded.id,
       status: 'done',
       rejection_reason: null,
     }).eq('id', inspirationId);
-    if (error) throw error;
+    if (error) throw new Error('Update DB: ' + (error.message || error.details || JSON.stringify(error)));
+    logStep('OK update DB');
 
     overlay.close();
-    toast('Rendu uploadé ✓ — en attente de validation admin', 'success');
+    toast('Rendu uploadé ✓ — en attente de validation admin', 'success', 6000);
+    logStep('DONE — success toast');
     loadInspirationsTab(product, isAdminUser);
   } catch (e) {
-    console.error('[uploadInspirationResultFile]', e);
-    overlay.close();
-    toast('Erreur : ' + (e.message || String(e)), 'error');
+    console.error('[uploadInspirationResultFile] CAUGHT:', e);
+    logStep('ERROR', e?.message || String(e));
+    if (overlay) overlay.close();
+    // Toast court ET bandeau persistant (pour pas le perdre)
+    const errMsg = e?.message || e?.details || e?.error_description || JSON.stringify(e);
+    toast('Erreur upload : ' + errMsg.slice(0, 200), 'error', 10000);
+    showPersistentError(
+      'Erreur lors du upload du rendu',
+      `Message : ${errMsg}\n\n--- Log complet ---\n${log.join('\n')}`
+    );
   }
 }
 
