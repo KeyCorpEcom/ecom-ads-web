@@ -11180,7 +11180,6 @@ function renderInspirationCard(r, assignedUser, isAdminUser) {
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
           <span style="font-weight:600;flex:1;min-width:0;font-size:14px">${escapeHtml(r.title)}</span>
           ${inspirationStatusBadge(r.status)}
-          ${assignedUser ? assigneeBadge(assignedUser, 'sm') : '<span style="font-size:10px;color:var(--text-mute)">non assigné</span>'}
           ${replCountChip}
           ${resultChip}
           <span style="color:var(--text-dim);font-size:18px;line-height:1;flex-shrink:0;margin-left:4px" title="Ouvrir l'inspiration">→</span>
@@ -11230,7 +11229,6 @@ async function renderInspirationDetail(el, inspirationId) {
           <div class="page-title" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <span>${escapeHtml(r.title)}</span>
             ${inspirationStatusBadge(r.status)}
-            ${assignedUser ? assigneeBadge(assignedUser, 'sm') : ''}
           </div>
           ${product?.name ? `<div class="page-subtitle">${escapeHtml(product.name)}</div>` : ''}
         </div>
@@ -11323,8 +11321,7 @@ async function renderInspirationDetail(el, inspirationId) {
               <button class="btn btn-danger" id="btn-inspi-detail-reject">Rejeter</button>
             ` : ''}
             ${isAdminUser ? `
-              <button class="btn btn-ghost btn-sm" id="btn-inspi-detail-reassign" style="margin-left:auto">Réassigner</button>
-              <button class="btn btn-ghost btn-sm" id="btn-inspi-detail-delete" style="color:var(--red)">Supprimer</button>
+              <button class="btn btn-ghost btn-sm" id="btn-inspi-detail-delete" style="margin-left:auto;color:var(--red)">Supprimer</button>
             ` : ''}
           </div>
         </div>
@@ -11430,11 +11427,6 @@ async function renderInspirationDetail(el, inspirationId) {
       if (error) { toast('Erreur : ' + (error.message || 'unknown'), 'error'); return; }
       toast('Inspiration rejetée', 'info');
       renderInspirationDetail(el, r.id);
-    });
-
-    // Réassigner
-    document.getElementById('btn-inspi-detail-reassign')?.addEventListener('click', () => {
-      if (product) openInspirationAssignModal(r.id, product, isAdminUser);
     });
 
     // Supprimer
@@ -11647,14 +11639,6 @@ function wireInspirationCardActions(wrap, product, isAdminUser) {
       if (error) { toast('Erreur : ' + error.message, 'error'); return; }
       toast('Inspiration rejetée', 'info');
       loadInspirationsTab(product, isAdminUser);
-    });
-  });
-
-  // Réassigner (admin)
-  wrap.querySelectorAll('[data-inspi-assign]').forEach(btn => {
-    btn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openInspirationAssignModal(btn.dataset.inspiAssign, product, isAdminUser);
     });
   });
 
@@ -11897,50 +11881,9 @@ async function openNewInspirationModal(product) {
   });
 }
 
-// Modal de réassignement
-async function openInspirationAssignModal(inspirationId, product, isAdminUser) {
-  if (document.querySelector('[data-inspi-reassign-modal]')) return;
-
-  const { data: profs } = await sb.from('profiles')
-    .select('id, full_name, email, role')
-    .in('role', ['admin', 'video_editor', 'editor']);
-  const opts = (profs || []).map(p =>
-    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.full_name || p.email)} (${escapeHtml(p.role)})</option>`
-  ).join('');
-
-  const container = document.getElementById('modal-container') || document.body;
-  const bd = document.createElement('div');
-  bd.className = 'modal-backdrop';
-  bd.setAttribute('data-inspi-reassign-modal', '1');
-  bd.innerHTML = `
-    <div class="modal" style="max-width:440px;width:100%">
-      <div class="modal-title">Réassigner l'inspiration</div>
-      <label class="input-label">Assigner à</label>
-      <select class="input" id="inspi-reassign-select">
-        <option value="">— Désassigner —</option>
-        ${opts}
-      </select>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" id="inspi-reassign-cancel" type="button">Annuler</button>
-        <button class="btn" id="inspi-reassign-save" type="button">Enregistrer</button>
-      </div>
-    </div>
-  `;
-  container.appendChild(bd);
-  const close = () => bd.remove();
-  bd.addEventListener('click', (e) => { if (e.target === bd) close(); });
-  bd.querySelector('#inspi-reassign-cancel').addEventListener('click', close);
-
-  bd.querySelector('#inspi-reassign-save').addEventListener('click', async () => {
-    const newAssignee = bd.querySelector('#inspi-reassign-select').value || null;
-    const { error } = await sb.from('ad_inspirations')
-      .update({ assigned_to_user_id: newAssignee }).eq('id', inspirationId);
-    if (error) { toast('Erreur : ' + error.message, 'error'); return; }
-    toast(newAssignee ? 'Inspiration réassignée' : 'Inspiration désassignée', 'success');
-    close();
-    loadInspirationsTab(product, isAdminUser);
-  });
-}
+// Modal de réassignement — supprimée le 5 juin 2026 sur demande user
+// (les inspirations ne sont plus assignées explicitement, le pool video_editor pioche ce qu'il veut)
+// La colonne assigned_to_user_id reste en DB pour usage futur éventuel.
 
 // Upload une vidéo rendu pour une inspiration donnée.
 // Utilisé à la fois par le bouton "Uploader le rendu" (file picker) et par la dropzone drag&drop.
