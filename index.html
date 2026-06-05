@@ -2448,6 +2448,45 @@ async function renderProduit(el, productId) {
     }
   }));
 
+  // === Pré-calcul du statut par ad pour les filtres ===
+  // Une ad est "100% finie" quand : master validé (ou IMAGE/SUBS) + trad+meta OK pour TOUS les pays actifs
+  // Une ad est "à lancer sur Meta" (admin) quand : master validé + trad OK mais Meta KO pour au moins 1 pays
+  const activeCsList = countries.filter(c => !(product.cut_countries || []).includes(c.id));
+  const adStatusByAd = new Map();
+  for (const ad of ads) {
+    const isMasterApproved = ad.master_status === 'approved'
+      || ad.translation_type === 'image'
+      || ad.translation_type === 'subs_only';
+    let tradCount = 0, metaCount = 0;
+    const acByCountry = acByAd[ad.id] || {};
+    for (const c of activeCsList) {
+      const ac = acByCountry[c.id];
+      if (ac?.trad) tradCount++;
+      if (ac?.meta) metaCount++;
+    }
+    const isFullyDone = isMasterApproved
+      && activeCsList.length > 0
+      && tradCount === activeCsList.length
+      && metaCount === activeCsList.length;
+    // "À lancer sur Meta" = master OK + au moins 1 trad faite + au moins 1 pays trad sans meta
+    const isPendingMetaLaunch = isMasterApproved && tradCount > 0 && metaCount < tradCount;
+    adStatusByAd.set(ad.id, { isFullyDone, isPendingMetaLaunch });
+  }
+
+  // Préférences utilisateur — persistées en localStorage globalement (vaut pour tous les produits)
+  const hideDoneAds = localStorage.getItem('produit_hide_done_ads') !== 'false'; // default ON
+  const showOnlyPendingMeta = isAdmin() && localStorage.getItem('produit_show_pending_meta') === 'true';
+
+  let visibleAds = ads;
+  if (showOnlyPendingMeta) {
+    // Mode admin : ne montre QUE les ads validées non-lancées Meta (priorité sur le toggle masquer)
+    visibleAds = ads.filter(ad => adStatusByAd.get(ad.id)?.isPendingMetaLaunch);
+  } else if (hideDoneAds) {
+    visibleAds = ads.filter(ad => !adStatusByAd.get(ad.id)?.isFullyDone);
+  }
+  const hiddenAdsCount = ads.length - visibleAds.length;
+  const pendingMetaCount = ads.filter(ad => adStatusByAd.get(ad.id)?.isPendingMetaLaunch).length;
+
   el.innerHTML = `
     <div class="page-head">
       <div>
@@ -2515,6 +2554,19 @@ async function renderProduit(el, productId) {
           </div>
         `;
       })() : ''}
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;padding:10px 14px;background:var(--bg-input);border:1px solid var(--border-soft);border-radius:8px;font-size:12px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;${showOnlyPendingMeta ? 'opacity:0.4' : ''}">
+          <input type="checkbox" id="toggle-hide-done-ads" ${hideDoneAds ? 'checked' : ''} ${showOnlyPendingMeta ? 'disabled' : ''} style="accent-color:var(--gold)">
+          <span>Masquer les ads 100% finies</span>
+        </label>
+        ${isAdmin() ? `
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;color:var(--blue);font-weight:${showOnlyPendingMeta ? '600' : '400'}" title="Affiche uniquement les ads dont le master est validé et au moins une trad est faite, mais qui ne sont pas encore lancées sur Meta (= prêtes à passer en pub mais oubliées)">
+            <input type="checkbox" id="toggle-pending-meta-only" ${showOnlyPendingMeta ? 'checked' : ''} style="accent-color:var(--blue)">
+            <span>📤 Seulement les ads validées non lancées Meta${pendingMetaCount > 0 ? ` (${pendingMetaCount})` : ''}</span>
+          </label>
+        ` : ''}
+        ${hiddenAdsCount > 0 ? `<span style="margin-left:auto;font-size:11px;color:var(--text-mute)">${hiddenAdsCount}/${ads.length} ad${hiddenAdsCount > 1 ? 's' : ''} cachée${hiddenAdsCount > 1 ? 's' : ''}</span>` : ''}
+      </div>
       <div class="card" style="overflow-x:auto">
         <table class="ads-table">
           <thead>
@@ -2531,7 +2583,8 @@ async function renderProduit(el, productId) {
             </tr>
           </thead>
           <tbody>
-            ${ads.map(ad => {
+            ${visibleAds.length === 0 ? `<tr><td colspan="999" style="padding:30px 16px;text-align:center;color:var(--text-mute);font-size:13px">${showOnlyPendingMeta ? 'Aucune ad validée en attente de lancement Meta 🎉' : 'Toutes les ads sont 100% finies — décoche le filtre pour les voir.'}</td></tr>` : ''}
+            ${visibleAds.map(ad => {
               const copy = ad.ad_copy || {};
               // Détection : override per-ad présent ?
               const hasOverride = Array.isArray(ad.ad_copies) && ad.ad_copies.some(c => {
@@ -3036,6 +3089,17 @@ async function renderProduit(el, productId) {
   document.getElementById('btn-edit-product')?.addEventListener('click', () => editProductFlow(productId));
   document.getElementById('btn-bulk-approve')?.addEventListener('click', () => bulkApproveTradFlow({ productId }));
   document.getElementById('btn-sync-drive-nomenclature')?.addEventListener('click', () => syncDriveNomenclatureFlow(productId));
+
+  // === Toggles de filtre sur la table des ads ===
+  // Persistés en localStorage global (vaut pour tous les produits) — re-render au changement.
+  document.getElementById('toggle-hide-done-ads')?.addEventListener('change', (e) => {
+    localStorage.setItem('produit_hide_done_ads', e.target.checked ? 'true' : 'false');
+    render();
+  });
+  document.getElementById('toggle-pending-meta-only')?.addEventListener('change', (e) => {
+    localStorage.setItem('produit_show_pending_meta', e.target.checked ? 'true' : 'false');
+    render();
+  });
 
   // Copier le suffixe UTM Facebook standalone (à coller en fin d'URL dans Meta Ads)
   document.getElementById('btn-copy-utm-fb')?.addEventListener('click', async () => {
