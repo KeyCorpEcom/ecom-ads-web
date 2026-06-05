@@ -10243,7 +10243,7 @@ async function renderScriptsList(el) {
           const totalPct = pScripts.length === 0 ? 0 : pct(done, pScripts.length);
           // Chip inspirations affiché si présentes (cliquable → va sur la page produit où l'onglet Inspirations est dispo)
           const inspisChip = inspisTodo > 0
-            ? `<div style="margin-top:8px;padding:8px 12px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);border-radius:8px;font-size:11px;color:var(--blue);font-weight:600">🎬 ${inspisTodo} inspiration${inspisTodo > 1 ? 's' : ''} à faire</div>`
+            ? `<div style="margin-top:8px;padding:8px 12px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);border-radius:8px;font-size:11px;color:var(--blue);font-weight:600">${inspisTodo} inspiration${inspisTodo > 1 ? 's' : ''} à faire</div>`
             : '';
           return `
             <div class="product-card" data-goto-script="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
