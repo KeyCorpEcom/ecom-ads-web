@@ -11520,8 +11520,13 @@ function wireInspirationCardActions(wrap, product, isAdminUser) {
       ev.stopPropagation();
       const id = btn.dataset.inspiSetStatus;
       const newStatus = btn.dataset.newStatus;
-      const { error } = await sb.from('ad_inspirations').update({ status: newStatus }).eq('id', id);
+      // .select() crucial pour détecter un UPDATE bloqué par RLS (renvoie 0 rows + error null)
+      const { data: updated, error } = await sb.from('ad_inspirations').update({ status: newStatus }).eq('id', id).select();
       if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+      if (!updated || updated.length === 0) {
+        toast('Pas les droits pour changer le statut — demande à Jallal d\'exécuter la migration 28', 'error', 10000);
+        return;
+      }
       toast('Statut mis à jour', 'success');
       loadInspirationsTab(product, isAdminUser);
     });
@@ -12054,13 +12059,24 @@ async function uploadInspirationResultFile(file, inspirationId, product, isAdmin
 
     overlay.update('Enregistrement…', 2, 3);
     logStep('Update DB');
-    const { error } = await sb.from('ad_inspirations').update({
+    // .select() crucial : sans ça, un UPDATE bloqué par RLS renvoie data=null + error=null,
+    // ce qui fait passer le code par le toast vert alors que RIEN n'a été modifié en DB.
+    // Bug rapporté par Fadel le 5 juin 2026 (cf. migration 28).
+    const { data: updated, error } = await sb.from('ad_inspirations').update({
       result_drive_file_id: uploaded.id,
       status: 'done',
       rejection_reason: null,
-    }).eq('id', inspirationId);
+    }).eq('id', inspirationId).select();
     if (error) throw new Error('Update DB: ' + (error.message || error.details || JSON.stringify(error)));
-    logStep('OK update DB');
+    if (!updated || updated.length === 0) {
+      // RLS a filtré l'UPDATE → 0 rows touchées. Erreur visible au lieu du faux succès.
+      throw new Error(
+        'UPDATE DB a touché 0 ligne — tu n\'as probablement pas les droits sur cette inspiration. '
+        + 'Demande à Jallal d\'exécuter la migration 28 (relax RLS update). '
+        + 'Inspiration ID: ' + inspirationId
+      );
+    }
+    logStep('OK update DB', `rows=${updated.length}`);
 
     overlay.close();
     toast('Rendu uploadé ✓ — en attente de validation admin', 'success', 6000);
