@@ -10148,9 +10148,11 @@ async function renderScriptsList(el) {
   // + les ads source='script' SANS parent_script_id (= templates uniquement, pas les
   //   Ad N spawned qui ont aussi source='script' mais parent_script_id rempli)
   // SAUF celles en mode IMAGE (pas de vidéo à produire pour ces ads)
-  const [{ data: products }, { data: scriptsRaw }] = await Promise.all([
+  // + les ad_inspirations en pending/in_progress (= rendus à produire par video_editor)
+  const [{ data: products }, { data: scriptsRaw }, { data: inspisRaw }] = await Promise.all([
     sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).eq('status', 'approved').eq('passed_testing', true).order('created_at', { ascending: false }),
-    sb.from('ads').select('id, product_id, name, master_file_id, master_status, master_pending_file_id, master_feedback, hooks, masters_by_hook, position, translation_type, created_at, parent_script_id').eq('workspace_id', currentWorkspaceId).eq('source', 'script').is('parent_script_id', null)
+    sb.from('ads').select('id, product_id, name, master_file_id, master_status, master_pending_file_id, master_feedback, hooks, masters_by_hook, position, translation_type, created_at, parent_script_id').eq('workspace_id', currentWorkspaceId).eq('source', 'script').is('parent_script_id', null),
+    sb.from('ad_inspirations').select('id, product_id, status').eq('workspace_id', currentWorkspaceId).in('status', ['pending', 'in_progress'])
   ]);
   // IMAGE et SUBS : pas de master vidéo à produire (image statique / VO concurrent conservée)
   const scripts = (scriptsRaw || []).filter(s => s.translation_type !== 'image' && s.translation_type !== 'subs_only');
@@ -10159,15 +10161,23 @@ async function renderScriptsList(el) {
   const scriptsByProduct = {};
   (scripts || []).forEach(s => { (scriptsByProduct[s.product_id] = scriptsByProduct[s.product_id] || []).push(s); });
 
+  // Group inspirations à faire par product
+  const inspisByProduct = {};
+  (inspisRaw || []).forEach(i => { (inspisByProduct[i.product_id] = inspisByProduct[i.product_id] || []).push(i); });
+
   const productStats = (products || []).map(p => {
     const pScripts = scriptsByProduct[p.id] || [];
     // Un script est "done" SEULEMENT si computeScriptStatus.isApproved est true
     // (en multi-master : tous les hooks validés ; en legacy : master_status === 'approved')
     const done = pScripts.filter(s => computeScriptStatus(s).isApproved).length;
     const todo = pScripts.length - done;
+    const inspisTodo = (inspisByProduct[p.id] || []).length;
     const priority = p.priority || 'normal';
     const priorityWeight = PRIORITY_META[priority]?.weight || 2;
-    return { p, pScripts, todo, done, priority, priorityWeight, hasScripts: pScripts.length > 0, allDone: pScripts.length > 0 && todo === 0 };
+    // allDone = aucun script à produire ET aucune inspiration en attente
+    const hasWork = pScripts.length > 0 || inspisTodo > 0;
+    const allDone = hasWork && todo === 0 && inspisTodo === 0;
+    return { p, pScripts, todo, done, inspisTodo, priority, priorityWeight, hasScripts: pScripts.length > 0, hasWork, allDone };
   });
 
   // Tri : priorité DESC puis date DESC
@@ -10186,13 +10196,21 @@ async function renderScriptsList(el) {
     return true;
   });
   const totalTodo = productStats.reduce((acc, s) => acc + s.todo, 0);
+  const totalInspisTodo = productStats.reduce((acc, s) => acc + s.inspisTodo, 0);
   const finishedCount = productStats.filter(s => s.allDone).length;
+
+  // Subtitle dynamique : montre scripts ET inspirations
+  const subtitleParts = [];
+  if (totalTodo > 0) subtitleParts.push(`${totalTodo} script(s) à produire`);
+  if (totalInspisTodo > 0) subtitleParts.push(`<span style="color:var(--blue)">${totalInspisTodo} inspiration(s) à faire</span>`);
+  if (subtitleParts.length === 0) subtitleParts.push('0 script à produire');
+  if (finishedCount > 0) subtitleParts.push(`<span style="color:var(--green)">${finishedCount} produit${finishedCount > 1 ? 's' : ''} 100% produit${finishedCount > 1 ? 's' : ''}</span>`);
 
   el.innerHTML = `
     <div class="page-head">
       <div>
-        <div class="page-title">Scripts</div>
-        <div class="page-subtitle">${totalTodo} script(s) à produire${finishedCount > 0 ? ` · <span style="color:var(--green)">${finishedCount} produit${finishedCount > 1 ? 's' : ''} 100% produit${finishedCount > 1 ? 's' : ''}</span>` : ''}</div>
+        <div class="page-title">Scripts &amp; Inspirations</div>
+        <div class="page-subtitle">${subtitleParts.join(' · ')}</div>
       </div>
       <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;font-size:12px">
@@ -10220,9 +10238,13 @@ async function renderScriptsList(el) {
     ` : `
       <div class="product-grid">
         ${visibleStats.map(s => {
-          const { p, pScripts, todo, done, priority, hasScripts } = s;
+          const { p, pScripts, todo, done, inspisTodo, priority, hasScripts } = s;
           const priorityMeta = PRIORITY_META[priority] || { color: '#60a5fa' };
           const totalPct = pScripts.length === 0 ? 0 : pct(done, pScripts.length);
+          // Chip inspirations affiché si présentes (cliquable → va sur la page produit où l'onglet Inspirations est dispo)
+          const inspisChip = inspisTodo > 0
+            ? `<div style="margin-top:8px;padding:8px 12px;background:rgba(96,165,250,0.08);border:1px solid rgba(96,165,250,0.25);border-radius:8px;font-size:11px;color:var(--blue);font-weight:600">🎬 ${inspisTodo} inspiration${inspisTodo > 1 ? 's' : ''} à faire</div>`
+            : '';
           return `
             <div class="product-card" data-goto-script="${p.id}" style="border-left:4px solid ${priorityMeta.color}">
               <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;gap:8px">
@@ -10244,6 +10266,7 @@ async function renderScriptsList(el) {
                   ${todo > 0 ? `<div style="margin-top:8px;font-size:11px;color:var(--orange);font-weight:600">${todo} à produire</div>` : `<div style="margin-top:8px;font-size:11px;color:var(--green);font-weight:600">Tous les scripts produits</div>`}
                 </div>
               `}
+              ${inspisChip}
             </div>
           `;
         }).join('')}
