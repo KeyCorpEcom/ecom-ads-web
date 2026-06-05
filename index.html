@@ -6712,7 +6712,34 @@ async function uploadToProductFolder(productId, files, targetFolderName) {
   console.log('[UPLOAD] Start', { productId, targetFolderName, fileCount: files.length });
   await ensureDriveReady();
   const filesArr = Array.from(files);
-  console.log('[UPLOAD] Files:', filesArr.map(f => f.name));
+
+  // Détection du type de fichier (MIME prioritaire, extension en fallback)
+  const detectKind = (f) => {
+    const t = (f.type || '').toLowerCase();
+    if (t.startsWith('image/')) return 'image';
+    if (t.startsWith('video/')) return 'video';
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'svg', 'heic', 'heif', 'tiff'].includes(ext)) return 'image';
+    if (['mp4', 'mov', 'avi', 'webm', 'mkv', 'm4v', 'mpeg', 'mpg', 'flv', 'wmv'].includes(ext)) return 'video';
+    return 'other';
+  };
+
+  // Tri : images d'abord, puis vidéos, puis le reste — alphabétique au sein de chaque groupe.
+  // Permet d'avoir : Ad 1-10 images, Ad 11-20 vidéos quand on bulk-upload un mix.
+  // Note : les fichiers déjà nommés "Ad N" gardent leur numéro de toute façon (réservation).
+  // Ce tri n'affecte donc que les fichiers SANS numéro pré-attribué (auto-increment).
+  const KIND_ORDER = { image: 0, video: 1, other: 2 };
+  filesArr.sort((a, b) => {
+    const aKind = detectKind(a);
+    const bKind = detectKind(b);
+    if (aKind !== bKind) return KIND_ORDER[aKind] - KIND_ORDER[bKind];
+    return a.name.localeCompare(b.name);
+  });
+
+  const imgCount = filesArr.filter(f => detectKind(f) === 'image').length;
+  const vidCount = filesArr.filter(f => detectKind(f) === 'video').length;
+  console.log(`[UPLOAD] Tri appliqué : ${imgCount} image(s) + ${vidCount} vidéo(s) — images d'abord`);
+  console.log('[UPLOAD] Files (post-sort):', filesArr.map(f => `${detectKind(f)[0].toUpperCase()}:${f.name}`));
   const { data: product } = await sb.from('products').select('*').eq('id', productId).single();
   if (!product) { toast('Produit introuvable', 'error'); return []; }
   console.log('[UPLOAD] Product:', product.id, 'drive_folder_id:', product.drive_folder_id);
