@@ -2449,12 +2449,16 @@ async function renderProduit(el, productId) {
   }));
 
   // === Pré-calcul du statut par ad pour les filtres ===
-  // Une ad est "100% finie" quand : master validé (ou IMAGE/SUBS) + trad+meta OK pour TOUS les pays actifs
-  // Une ad est "à lancer sur Meta" (admin) quand : master validé + trad OK mais Meta KO pour au moins 1 pays
+  // Une ad est "100% finie" quand : master uploadé (ou IMAGE/SUBS) + trad+meta OK pour TOUS les pays actifs
+  // Une ad est "à lancer sur Meta" (admin) quand : master uploadé + trad OK mais Meta KO pour au moins 1 pays
+  // NOTE: "master OK" se base sur master_file_id (= le checkbox MASTER visible sur le tableau ligne 2684),
+  // PAS sur master_status. Cohérent avec masterDone partout ailleurs dans le code (lignes 1491, 1751, 1838).
+  // Pourquoi : certaines ads ont master_file_id mais master_status null/pending (legacy ou not migrated),
+  // et l'utilisateur voit visuellement le master comme coché → s'attend à ce qu'elle compte comme finie.
   const activeCsList = countries.filter(c => !(product.cut_countries || []).includes(c.id));
   const adStatusByAd = new Map();
   for (const ad of ads) {
-    const isMasterApproved = ad.master_status === 'approved'
+    const isMasterApproved = !!ad.master_file_id
       || ad.translation_type === 'image'
       || ad.translation_type === 'subs_only';
     let tradCount = 0, metaCount = 0;
