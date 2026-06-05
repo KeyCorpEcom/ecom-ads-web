@@ -11547,7 +11547,12 @@ function wireInspirationCardActions(wrap, product, isAdminUser) {
     fileInput?.addEventListener('change', async (e) => {
       const file = e.target.files[0];
       e.target.value = '';
-      if (file) await uploadInspirationResultFile(file, inspirationId, product, isAdminUser);
+      if (file) {
+        await uploadInspirationResultFile(file, inspirationId, product, isAdminUser);
+        // Re-render la page pour refléter l'état "rendu uploadé — en attente validation"
+        // au lieu de laisser la dropzone vide (bug rapporté par Fadel le 5 juin 2026)
+        renderInspirationDetail(el, inspirationId);
+      }
     });
     // Drag & drop : highlight visuel + upload sur drop
     dz.addEventListener('dragover', (e) => {
@@ -11565,7 +11570,11 @@ function wireInspirationCardActions(wrap, product, isAdminUser) {
       dz.style.background = '';
       // Snapshot synchronously avant les awaits (DataTransfer peut être éphémère)
       const file = Array.from(e.dataTransfer.files)[0];
-      if (file) await uploadInspirationResultFile(file, inspirationId, product, isAdminUser);
+      if (file) {
+        await uploadInspirationResultFile(file, inspirationId, product, isAdminUser);
+        // Re-render la page après upload (sinon dropzone reste affichée, état stale)
+        renderInspirationDetail(el, inspirationId);
+      }
     });
   });
 
