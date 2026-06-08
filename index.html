@@ -1278,16 +1278,37 @@ async function fetchAll(opts = {}) {
     return _fetchAllCache.data;
   }
   //  Filtre explicite par workspace courant (RLS ne suffit pas si user dans plusieurs workspaces)
-  const [countriesR, productsR, adsR, adCountriesR, pendingValsR] = await Promise.all([
-    sb.from('countries').select('*').order('sort_order'),
-    sb.from('products').select('*').eq('workspace_id', wsId).order('id'),
-    sb.from('ads').select('*').eq('workspace_id', wsId).order('position').range(0, 9999),
-    // FIX 9 juin : Supabase JS plafonne à 1000 rows par défaut. Au-delà, les rows tronquées
-    // sont silencieusement ignorées → checkboxes TRAD/META vides côté UI alors que la DB est OK.
-    // .range(0, 9999) autorise jusqu'à 10 000 rows. Si on dépasse un jour, faire de la pagination.
-    sb.from('ad_countries').select('*').eq('workspace_id', wsId).range(0, 9999),
-    sb.from('pending_validations').select('ad_id, country_id, status, product_id').eq('workspace_id', wsId).in('status', ['pending', 'rejected']).range(0, 9999)
+  // FIX 9 juin (v2) : .range(0, 9999) ne suffit PAS — Supabase hosted impose db-max-rows=1000
+  // côté serveur, ce qui plafonne TOUS les SELECT à 1000 rows quoi qu'il arrive côté client.
+  // Solution : helper de pagination qui boucle par chunks de 1000 jusqu'à épuisement.
+  const fetchAllPaged = async (query) => {
+    const PAGE = 1000;
+    let from = 0;
+    const all = [];
+    while (true) {
+      const { data, error } = await query().range(from, from + PAGE - 1);
+      if (error) throw error;
+      const rows = data || [];
+      all.push(...rows);
+      if (rows.length < PAGE) break;
+      from += PAGE;
+    }
+    return all;
+  };
+
+  const [countries, products, ads, adCountries, pendingVals] = await Promise.all([
+    sb.from('countries').select('*').order('sort_order').then(r => r.data || []),
+    fetchAllPaged(() => sb.from('products').select('*').eq('workspace_id', wsId).order('id')),
+    fetchAllPaged(() => sb.from('ads').select('*').eq('workspace_id', wsId).order('position')),
+    fetchAllPaged(() => sb.from('ad_countries').select('*').eq('workspace_id', wsId)),
+    fetchAllPaged(() => sb.from('pending_validations').select('ad_id, country_id, status, product_id').eq('workspace_id', wsId).in('status', ['pending', 'rejected']))
   ]);
+  // Compat avec l'ancien shape `{data}` que le code en aval utilisait
+  const countriesR = { data: countries };
+  const productsR = { data: products };
+  const adsR = { data: ads };
+  const adCountriesR = { data: adCountries };
+  const pendingValsR = { data: pendingVals };
   // On cache TOUJOURS les drafts dans fetchAll (admin y accède via l'onglet "Drafts" dédié sur /produits).
   // Les drafts ne sont pas des "vraies données" pour Dashboard/Analytics/Ads/Pages — ils attendent validation.
   const productsAll = productsR.data || [];
