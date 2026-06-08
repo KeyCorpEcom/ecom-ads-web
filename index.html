@@ -7022,12 +7022,17 @@ async function syncDriveAll() {
   isSyncing = true;
   const btn = document.getElementById('btn-sync-now');
   if (btn) { btn.disabled = true; btn.textContent = ' Sync en cours...'; }
+  // Watchdog augmenté à 5 min (300s) — fix 6 juin 2026 : 60s était trop court
+  // pour un gros workspace (11 produits × 5 pays × ~50 ads = 300+ dossiers Drive
+  // à scanner, ~1-2s par fichier API Drive = 5-10 min total). Si le sync prend
+  // vraiment plus de 5 min, c'est qu'il y a un vrai problème (réseau Drive lent,
+  // bug, etc.) et on le force à finir pour ne pas laisser l'UI bloquée.
   const watchdog = setTimeout(() => {
     isSyncing = false;
     if (btn) { btn.disabled = false; btn.textContent = ' Sync maintenant'; }
-    logSync('Watchdog: sync forcée à se terminer', 'error');
-    toast(' Sync timeout (60s)', 'warn');
-  }, 60000);
+    logSync('Watchdog: sync forcée à se terminer après 5 min', 'error');
+    toast(' Sync timeout (5 min) — relance et regarde la console F12 pour les erreurs', 'warn', 10000);
+  }, 300000);
 
   let totalFound = 0, totalNew = 0;
   try {
