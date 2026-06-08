@@ -3620,6 +3620,11 @@ async function approveTradVideo(pv) {
     }).eq('id', pv.id);
 
     // 3. Update ad_countries → trad = true
+    // BUG FIX 6 juin 2026 : avant, le résultat de update/insert n'était JAMAIS checké.
+    // Si la RLS bloquait silencieusement (data=null, error=null = 0 row affected),
+    // l'utilisateur voyait le toast "Vidéo validée ✓" mais la DB n'avait pas changé →
+    // checkbox "TRAD" restait vide dans le tableau du produit. Maintenant on
+    // .select() + check le résultat pour détecter le silent fail.
     const { data: existing } = await sb.from('ad_countries').select('*').eq('ad_id', pv.ad_id).eq('country_id', pv.country_id).maybeSingle();
     const acPayload = {
       trad: true,
@@ -3628,10 +3633,17 @@ async function approveTradVideo(pv) {
       updated_at: new Date().toISOString(),
       updated_by: currentUser.id
     };
+    let acResult;
     if (existing) {
-      await sb.from('ad_countries').update(acPayload).eq('ad_id', pv.ad_id).eq('country_id', pv.country_id);
+      acResult = await sb.from('ad_countries').update(acPayload).eq('ad_id', pv.ad_id).eq('country_id', pv.country_id).select();
     } else {
-      await sb.from('ad_countries').insert({ ad_id: pv.ad_id, country_id: pv.country_id, ...acPayload, meta: false, workspace_id: currentWorkspaceId });
+      acResult = await sb.from('ad_countries').insert({ ad_id: pv.ad_id, country_id: pv.country_id, ...acPayload, meta: false, workspace_id: currentWorkspaceId }).select();
+    }
+    if (acResult.error) {
+      throw new Error(`Update ad_countries échoué : ${acResult.error.message}`);
+    }
+    if (!acResult.data || acResult.data.length === 0) {
+      throw new Error(`Update ad_countries silencieux : 0 row touchée (probablement RLS). Demande à un admin de vérifier les permissions.`);
     }
 
     toast('Vidéo validée', 'success');
@@ -3674,10 +3686,18 @@ async function approveTradVideoSilent(pv) {
       updated_at: new Date().toISOString(),
       updated_by: currentUser.id
     };
+    // Idem fix 6 juin 2026 : check le résultat pour détecter silent fail RLS.
+    let acResultSilent;
     if (existing) {
-      await sb.from('ad_countries').update(acPayload).eq('ad_id', pv.ad_id).eq('country_id', pv.country_id);
+      acResultSilent = await sb.from('ad_countries').update(acPayload).eq('ad_id', pv.ad_id).eq('country_id', pv.country_id).select();
     } else {
-      await sb.from('ad_countries').insert({ ad_id: pv.ad_id, country_id: pv.country_id, ...acPayload, meta: false, workspace_id: currentWorkspaceId });
+      acResultSilent = await sb.from('ad_countries').insert({ ad_id: pv.ad_id, country_id: pv.country_id, ...acPayload, meta: false, workspace_id: currentWorkspaceId }).select();
+    }
+    if (acResultSilent.error) {
+      throw new Error(`Update ad_countries échoué : ${acResultSilent.error.message}`);
+    }
+    if (!acResultSilent.data || acResultSilent.data.length === 0) {
+      throw new Error(`Update ad_countries silencieux : 0 row touchée (probablement RLS).`);
     }
 
     // Notif uploader (best effort, on n'attend pas)
