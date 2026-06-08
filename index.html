@@ -7175,13 +7175,24 @@ async function syncDriveProduit(p, adsAll) {
       found++;
       const { data: existing } = await sb.from('ad_countries').select('*').eq('ad_id', ad.id).eq('country_id', country.id).maybeSingle();
       if (!existing?.trad) {
+        // BUG FIX 6 juin 2026 : avant, le résultat de update/insert n'était pas
+        // checké. Si RLS bloquait silencieusement (data=null, error=null = 0 row),
+        // le `marked++` s'incrémentait alors que rien n'avait changé en DB. Maintenant
+        // on .select() + check le résultat pour catch les silent fails RLS.
+        let acResult;
         if (existing) {
-          await sb.from('ad_countries').update({ trad: true, trad_at: now, drive_file_id: file.id, updated_at: now, updated_by: currentUser.id }).eq('ad_id', ad.id).eq('country_id', country.id);
+          acResult = await sb.from('ad_countries').update({ trad: true, trad_at: now, drive_file_id: file.id, updated_at: now, updated_by: currentUser.id }).eq('ad_id', ad.id).eq('country_id', country.id).select();
         } else {
-          await sb.from('ad_countries').insert({ ad_id: ad.id, country_id: country.id, trad: true, trad_at: now, drive_file_id: file.id, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
+          acResult = await sb.from('ad_countries').insert({ ad_id: ad.id, country_id: country.id, trad: true, trad_at: now, drive_file_id: file.id, updated_by: currentUser.id, workspace_id: currentWorkspaceId }).select();
         }
-        marked++;
-        await logSync(` ${p.id} / ${country.id} / ${adName} marqué traduit`, 'success');
+        if (acResult.error) {
+          await logSync(`Erreur update ${p.id}/${country.id}/${adName} : ${acResult.error.message}`, 'error');
+        } else if (!acResult.data || acResult.data.length === 0) {
+          await logSync(`Silent fail ${p.id}/${country.id}/${adName} : 0 row touchée (RLS bloque probablement)`, 'error');
+        } else {
+          marked++;
+          await logSync(` ${p.id} / ${country.id} / ${adName} marqué traduit`, 'success');
+        }
       }
     }
   }
