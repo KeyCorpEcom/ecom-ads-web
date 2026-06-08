@@ -1281,9 +1281,12 @@ async function fetchAll(opts = {}) {
   const [countriesR, productsR, adsR, adCountriesR, pendingValsR] = await Promise.all([
     sb.from('countries').select('*').order('sort_order'),
     sb.from('products').select('*').eq('workspace_id', wsId).order('id'),
-    sb.from('ads').select('*').eq('workspace_id', wsId).order('position'),
-    sb.from('ad_countries').select('*').eq('workspace_id', wsId),
-    sb.from('pending_validations').select('ad_id, country_id, status, product_id').eq('workspace_id', wsId).in('status', ['pending', 'rejected'])
+    sb.from('ads').select('*').eq('workspace_id', wsId).order('position').range(0, 9999),
+    // FIX 9 juin : Supabase JS plafonne à 1000 rows par défaut. Au-delà, les rows tronquées
+    // sont silencieusement ignorées → checkboxes TRAD/META vides côté UI alors que la DB est OK.
+    // .range(0, 9999) autorise jusqu'à 10 000 rows. Si on dépasse un jour, faire de la pagination.
+    sb.from('ad_countries').select('*').eq('workspace_id', wsId).range(0, 9999),
+    sb.from('pending_validations').select('ad_id, country_id, status, product_id').eq('workspace_id', wsId).in('status', ['pending', 'rejected']).range(0, 9999)
   ]);
   // On cache TOUJOURS les drafts dans fetchAll (admin y accède via l'onglet "Drafts" dédié sur /produits).
   // Les drafts ne sont pas des "vraies données" pour Dashboard/Analytics/Ads/Pages — ils attendent validation.
@@ -2404,14 +2407,22 @@ function modalWithOpen(contentHtml, onOpen) {
    PAGE: PRODUIT DETAIL
    ============================================================ */
 async function renderProduit(el, productId) {
-  const [{ data: product }, { data: adsAll }, { data: countriesAll }, { data: adCountries }, { data: pendingVals }, { data: productPages }] = await Promise.all([
+  // FIX 9 juin : on chargeait `sb.from('ad_countries').select('*')` sans filtre, ce qui
+  // plafonnait silencieusement à 1000 rows (limite default Supabase JS / PostgREST).
+  // Au-delà de 1000 ad_countries dans le workspace, les rows tronquées étaient
+  // invisibles → checkboxes pas cochées même quand la DB disait trad=true.
+  // On filtre maintenant par ad_id IN (ads de ce produit) — load 2-step nécessaire.
+  const [{ data: product }, { data: adsAll }, { data: countriesAll }, { data: pendingVals }, { data: productPages }] = await Promise.all([
     sb.from('products').select('*').eq('id', productId).single(),
     sb.from('ads').select('*').eq('product_id', productId).order('position'),
     sb.from('countries').select('*').order('sort_order'),
-    sb.from('ad_countries').select('*'),
     sb.from('pending_validations').select('*').eq('product_id', productId),
     sb.from('product_pages').select('country_id, status, built_url').eq('product_id', productId)
   ]);
+  const adIdsForFetch = (adsAll || []).map(a => a.id);
+  const { data: adCountries } = adIdsForFetch.length > 0
+    ? await sb.from('ad_countries').select('*').in('ad_id', adIdsForFetch)
+    : { data: [] };
   // Map country_id → page info
   const pagesByCountry = {};
   (productPages || []).forEach(p => { pagesByCountry[p.country_id] = p; });
@@ -5176,10 +5187,11 @@ async function deleteProductWithDriveOption(productId) {
 }
 
 async function exportAllData() {
+  // FIX 9 juin : .range(0, 9999) sur les grosses tables pour éviter le plafond Supabase JS de 1000 rows.
   const { data: countries } = await sb.from('countries').select('*');
-  const { data: products } = await sb.from('products').select('*').eq('workspace_id', currentWorkspaceId);
-  const { data: ads } = await sb.from('ads').select('*').eq('workspace_id', currentWorkspaceId);
-  const { data: adCountries } = await sb.from('ad_countries').select('*').eq('workspace_id', currentWorkspaceId);
+  const { data: products } = await sb.from('products').select('*').eq('workspace_id', currentWorkspaceId).range(0, 9999);
+  const { data: ads } = await sb.from('ads').select('*').eq('workspace_id', currentWorkspaceId).range(0, 9999);
+  const { data: adCountries } = await sb.from('ad_countries').select('*').eq('workspace_id', currentWorkspaceId).range(0, 9999);
   const { data: profiles } = await sb.from('profiles').select('*');
   const exportData = { exported_at: new Date().toISOString(), countries, products, ads, adCountries, profiles };
   const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
