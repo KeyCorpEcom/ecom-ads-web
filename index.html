@@ -7162,8 +7162,25 @@ async function syncDriveProduit(p, adsAll) {
   // 2. Scanner les dossiers pays → auto-check Trad
   for (const cf of subfolders) {
     if (cf.mimeType !== 'application/vnd.google-apps.folder') continue;
-    const country = countries.find(c => c.id.toUpperCase() === cf.name.toUpperCase());
-    if (!country) continue;
+    // Matcher tolérant ajouté 6 juin 2026 (Jallal): avant, on faisait un match
+    // strict (folder.name === country.id). Mais si l'admin a renommé un dossier
+    // en "Italie (IT)", "01_IT", "IT - Italie", le strict ne trouvait rien et
+    // toutes les ads du pays restaient sans trad=true.
+    // Nouvelle logique: on match le countryId comme mot entier (entouré de
+    // caractères non-alphabétiques) dans le nom du dossier. Donc "IT" matche
+    // "Italie (IT)", "01_IT", "IT", "IT - Italie", mais PAS "FRIT" ou "BRITISH".
+    const country = countries.find(c => {
+      const upperFolder = cf.name.toUpperCase();
+      const upperCountryId = c.id.toUpperCase();
+      if (upperFolder === upperCountryId) return true;
+      // Mot entier : entouré de caractères non-alphabétiques (ou début/fin de chaîne)
+      const re = new RegExp('(?:^|[^A-Z])' + upperCountryId + '(?:[^A-Z]|$)');
+      return re.test(upperFolder);
+    });
+    if (!country) {
+      await logSync(`Dossier '${cf.name}' ignoré dans ${p.id} (aucun pays connu ne matche)`, 'info');
+      continue;
+    }
     const files = await driveListFolderContent(cf.id);
     for (const file of files) {
       if (file.mimeType === 'application/vnd.google-apps.folder') continue;
