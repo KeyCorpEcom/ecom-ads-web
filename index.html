@@ -7190,7 +7190,7 @@ async function syncCreativeTrackerFlow() {
   const allAds = [];
   while (true) {
     const { data, error } = await sb.from('ads')
-      .select('id, name, product_id, source_country_id, master_file_id')
+      .select('id, name, product_id, source_country, master_file_id')
       .eq('workspace_id', currentWorkspaceId)
       .not('master_file_id', 'is', null)
       .order('product_id')
@@ -7267,7 +7267,7 @@ async function syncCreativeTrackerFlow() {
         ad_id: ad.id,
         ad_name: `${ad.product_id} - ${ad.name}`, // pour matcher CSV Meta plus tard
         product_id: ad.product_id,
-        country_id: ad.source_country_id || null,
+        country_id: ad.source_country || null,
         video_drive_file_id: ad.master_file_id,
         video_url: `https://drive.google.com/file/d/${ad.master_file_id}/view`,
       })),
