@@ -2515,6 +2515,7 @@ async function renderProduit(el, productId) {
           ${isAdmin() && (pendingVals || []).filter(pv => pv.status === 'pending').length > 0
             ? `<button class="btn btn-sm" id="btn-bulk-approve" style="background:var(--green);color:#000;font-weight:600" title="Valider en lot toutes les vidéos en attente">✓ Tout valider (${(pendingVals || []).filter(pv => pv.status === 'pending').length})</button>`
             : ''}
+          ${isAdmin() && ads.length > 0 ? `<button class="btn btn-ghost btn-sm" id="btn-bulk-note" title="Appliquer la même note admin à plusieurs ads de ce produit en un clic">📝 Note groupée</button>` : ''}
           ${isAdmin() ? `<button class="btn btn-ghost btn-sm" id="btn-sync-drive-nomenclature" title="Renomme tous les fichiers master sur Drive pour matcher les noms 'Ad N' en DB">↺ Sync Drive</button>` : ''}
           <button class="btn btn-secondary btn-sm" id="btn-edit-product"> Éditer</button>
         </div>
@@ -3103,6 +3104,7 @@ async function renderProduit(el, productId) {
   document.getElementById('btn-add-ad')?.addEventListener('click', () => addAdFlow(productId));
   document.getElementById('btn-edit-product')?.addEventListener('click', () => editProductFlow(productId));
   document.getElementById('btn-bulk-approve')?.addEventListener('click', () => bulkApproveTradFlow({ productId }));
+  document.getElementById('btn-bulk-note')?.addEventListener('click', () => bulkAdNoteFlow(productId, ads));
   document.getElementById('btn-sync-drive-nomenclature')?.addEventListener('click', () => syncDriveNomenclatureFlow(productId));
 
   // === Toggles de filtre sur la table des ads ===
@@ -7934,6 +7936,100 @@ async function adNoteFlow(adId) {
   const { error } = await sb.from('ads').update({ admin_note: newNote || null }).eq('id', adId);
   if (error) { toast('Erreur : ' + error.message, 'error'); return; }
   toast(newNote ? 'Note enregistrée' : 'Note effacée', 'success');
+  render();
+}
+
+// Bulk : applique la même note admin à plusieurs ads d'un produit en 1 clic.
+// Cas d'usage : quand on importe une batch de concurrents qui ont tous les mêmes consignes
+// (ex: "Toujours mettre les subs en blanc", "Garder la VO masculine"), on évite d'éditer
+// 50 fois la même note.
+async function bulkAdNoteFlow(productId, ads) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+  if (!ads || ads.length === 0) { toast('Aucune ad sur ce produit', 'info'); return; }
+
+  const container = document.getElementById('modal-container');
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.innerHTML = `
+    <div class="modal" style="max-width:620px">
+      <div class="modal-title">📝 Note groupée · ${ads.length} ads</div>
+      <div class="text-sm text-dim mb-md">
+        Applique la même note admin aux ads sélectionnées. <strong>Écrase</strong> la note existante.
+        Laisse la note vide pour effacer.
+      </div>
+
+      <div class="input-group">
+        <label>Note à appliquer</label>
+        <textarea data-field="note" autofocus style="min-height:120px;font-size:13px;line-height:1.6"
+          placeholder="Ex: Sous-titres en blanc, jamais en jaune.&#10;Pas de musique sur les 5 dernières secondes."></textarea>
+      </div>
+
+      <div class="flex justify-between items-center" style="margin:14px 0 8px">
+        <span class="text-sm text-dim">Ads sélectionnées : <strong id="bulk-note-count">${ads.length}</strong>/${ads.length}</span>
+        <button class="btn btn-ghost btn-sm" data-toggle-all type="button">Tout cocher / décocher</button>
+      </div>
+
+      <div style="max-height:320px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px 8px;background:var(--bg-input)">
+        ${ads.map(ad => {
+          const hasNote = !!(ad.admin_note && ad.admin_note.trim());
+          return `
+            <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-bottom:1px solid var(--border-soft)" title="${hasNote ? 'A déjà une note : ' + escapeHtml(ad.admin_note.slice(0,80)) : ''}">
+              <input type="checkbox" data-bulk-note-ad="${ad.id}" checked style="accent-color:var(--gold);cursor:pointer">
+              <span style="flex:1;font-size:13px;color:var(--text)">${escapeHtml(ad.name)}</span>
+              ${hasNote ? '<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(200,165,90,0.15);color:var(--gold);font-weight:600">DÉJÀ NOTÉE</span>' : ''}
+            </label>
+          `;
+        }).join('')}
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-secondary" data-modal-close>Annuler</button>
+        <button class="btn" data-modal-ok>Appliquer</button>
+      </div>
+    </div>
+  `;
+  container.appendChild(bd);
+
+  // Compteur live
+  const updateCount = () => {
+    const n = bd.querySelectorAll('[data-bulk-note-ad]:checked').length;
+    bd.querySelector('#bulk-note-count').textContent = n;
+  };
+  bd.querySelectorAll('[data-bulk-note-ad]').forEach(c => c.addEventListener('change', updateCount));
+
+  // Toggle all
+  bd.querySelector('[data-toggle-all]').addEventListener('click', () => {
+    const checks = bd.querySelectorAll('[data-bulk-note-ad]');
+    const allChecked = [...checks].every(c => c.checked);
+    checks.forEach(c => c.checked = !allChecked);
+    updateCount();
+  });
+
+  // Modal lifecycle
+  const result = await new Promise(resolve => {
+    const close = (r) => { if (bd.parentNode) bd.remove(); resolve(r); };
+    bd.addEventListener('click', (e) => { if (e.target === bd) close(null); });
+    bd.querySelectorAll('[data-modal-close]').forEach(el => el.addEventListener('click', () => close(null)));
+    bd.querySelectorAll('[data-modal-ok]').forEach(el => el.addEventListener('click', () => {
+      const note = (bd.querySelector('[data-field="note"]').value || '').trim();
+      const selectedIds = [...bd.querySelectorAll('[data-bulk-note-ad]:checked')].map(c => c.dataset.bulkNoteAd);
+      close({ note, selectedIds });
+    }));
+  });
+
+  if (!result) return;
+  if (result.selectedIds.length === 0) { toast('Aucune ad sélectionnée', 'info'); return; }
+
+  // Confirm si on efface une note
+  if (!result.note) {
+    const ok = await confirmDialog('Effacer la note ?', `Tu vas effacer la note admin de ${result.selectedIds.length} ad(s). Sûr ?`);
+    if (!ok) return;
+  }
+
+  const { error } = await sb.from('ads').update({ admin_note: result.note || null }).in('id', result.selectedIds);
+  if (error) { toast('Erreur : ' + error.message, 'error'); return; }
+  toast(`Note ${result.note ? 'appliquée à' : 'effacée de'} ${result.selectedIds.length} ad${result.selectedIds.length > 1 ? 's' : ''}`, 'success');
+  bustFetchAllCache();
   render();
 }
 
