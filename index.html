@@ -7129,9 +7129,9 @@ async function shareAllMastersPublicly() {
 }
 
 // URL du hub Keycorp-pnl où on POST le sync Creative Tracker.
-// L'URL inclut le suffix team `-key-corp` (URL Vercel standard).
-// Si tu setup hub.keycorp-ecom.com en custom domain, change ici.
-const HUB_API_URL = 'https://keycorppnl-key-corp.vercel.app';
+// Le projet Next.js a basePath="/hub" donc l'API est sous /hub/api/...
+// (cf. Keycorp-pnl/next.config.js)
+const HUB_API_URL = 'https://keycorppnl.vercel.app/hub';
 
 // Modal de progression réutilisable (sync Creative Tracker, futurs batches lourds...).
 function createProgressModal(title, total) {
