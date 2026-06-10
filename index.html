@@ -8702,6 +8702,8 @@ function setupMetaDragSelect(container) {
     const currentMap = {};
     (current || []).forEach(ac => { currentMap[ac.ad_id + '|' + ac.country_id] = ac; });
 
+    // Collecte les paires qui passent NEWLY à true → on sync vers le hub après le UPDATE
+    const newlyChecked = [];
     for (const { adId, cId } of parsed) {
       const existing = currentMap[adId + '|' + cId];
       let newVal;
@@ -8713,10 +8715,23 @@ function setupMetaDragSelect(container) {
       } else {
         await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newVal, meta_at: newVal ? now : null, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
       }
+      // Track les transitions false→true (= ad lancée sur Meta) pour sync Creative Tracker
+      if (newVal && !existing?.meta) {
+        newlyChecked.push({ adId, cId });
+      }
     }
     toast(`${cells.length} case(s) mises à jour`, 'success');
     clearSelection();
     render();
+    // Fire-and-forget : sync les nouvelles paires vers Creative Tracker (sérialisé en background
+    // pour ne pas se faire throttle Drive avec 50 calls // si gros drag-select).
+    if (newlyChecked.length > 0) {
+      (async () => {
+        for (const { adId, cId } of newlyChecked) {
+          await syncSingleAdToHubCreativeTracker(adId, cId).catch(e => console.warn('[SYNC CT auto bulk]', e));
+        }
+      })();
+    }
   }
 }
 
@@ -8730,7 +8745,75 @@ async function toggleMetaCell(adId, cId) {
   } else {
     await sb.from('ad_countries').insert({ ad_id: adId, country_id: cId, meta: newMeta, meta_at: newMeta ? now : null, updated_by: currentUser.id, workspace_id: currentWorkspaceId });
   }
+  // Trigger auto-sync vers Creative Tracker quand META passe à true (Sprint 1 Phase B).
+  // Non bloquant : on lance fire-and-forget, ne ralentit pas le render.
+  if (newMeta) {
+    syncSingleAdToHubCreativeTracker(adId, cId).catch(e => console.warn('[SYNC CT auto]', e));
+  }
   render();
+}
+
+// Auto-sync 1 (ad × country) vers le Creative Tracker quand l'admin coche META.
+// Idempotent côté hub (lookup par video_drive_file_id). Non bloquant.
+// Si l'ad n'a pas de master_file_id, skip silencieux.
+async function syncSingleAdToHubCreativeTracker(adId, countryId) {
+  try {
+    // 1. Charge l'ad
+    const { data: ad, error: adErr } = await sb.from('ads')
+      .select('id, name, product_id, master_file_id')
+      .eq('id', adId)
+      .maybeSingle();
+    if (adErr || !ad) { console.warn('[SYNC CT auto] ad introuvable', adId); return; }
+    if (!ad.master_file_id) {
+      console.log(`[SYNC CT auto] ${ad.name} : pas de master_file_id → skip`);
+      return;
+    }
+
+    // 2. Ensure Drive share (idempotent, "already exists" = OK)
+    try {
+      await ensureDriveReady();
+      await gapi.client.drive.permissions.create({
+        fileId: ad.master_file_id,
+        resource: { role: 'reader', type: 'anyone' },
+      });
+    } catch (e) {
+      const msg = e?.result?.error?.message || e?.message || '';
+      if (!msg.includes('already exists') && !msg.includes('duplicate')) {
+        console.warn('[SYNC CT auto] share Drive', ad.name, e);
+      }
+    }
+
+    // 3. JWT + POST hub
+    const sessionResp = await sb.auth.getSession();
+    const accessToken = sessionResp?.data?.session?.access_token;
+    if (!accessToken) { console.warn('[SYNC CT auto] pas de session active'); return; }
+
+    const resp = await fetch(`${HUB_API_URL}/api/sync-creatives-batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        workspace_id: currentWorkspaceId,
+        ads: [{
+          ad_id: ad.id,
+          // batch_id inclut le country pour avoir 1 row par (ad × pays) — Option A choisie
+          ad_name: `${ad.product_id} - ${ad.name} - ${countryId}`,
+          product_id: ad.product_id,
+          country_id: countryId,
+          video_drive_file_id: ad.master_file_id,
+          video_url: `https://drive.google.com/file/d/${ad.master_file_id}/view`,
+        }],
+      }),
+    });
+    if (!resp.ok) {
+      const errBody = await resp.text().catch(() => '');
+      console.warn(`[SYNC CT auto] hub HTTP ${resp.status}`, errBody.slice(0, 200));
+    }
+  } catch (e) {
+    console.warn('[SYNC CT auto] erreur', e);
+  }
 }
 
 /* ============================================================
