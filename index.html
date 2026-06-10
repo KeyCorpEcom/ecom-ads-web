@@ -1543,6 +1543,7 @@ async function renderAds(el) {
         ${isAdmin() && pendingValidationsCount > 0
           ? `<button class="btn btn-sm" id="btn-bulk-approve-all" style="background:var(--green);color:#000;font-weight:600" title="Valider en lot toutes les vidéos en attente du workspace">✓ Tout valider (${pendingValidationsCount})</button>`
           : ''}
+        ${isAdmin() ? '<button class="btn btn-ghost btn-sm" id="btn-sync-creative-tracker" title="Sync tous les masters Drive vers le Creative Tracker (Keycorp-pnl). Le cron Gemini les analysera ensuite automatiquement.">🎬 Sync Creative Tracker</button>' : ''}
         ${isAdmin() ? '<button class="btn" id="btn-new-product">+ Nouveau produit</button>' : ''}
       </div>
     </div>
@@ -1660,6 +1661,7 @@ async function renderAds(el) {
   el.querySelectorAll('[data-goto]').forEach(c => c.addEventListener('click', () => navigate('produit/' + c.dataset.goto)));
   document.getElementById('btn-new-product')?.addEventListener('click', newProductFlow);
   document.getElementById('btn-bulk-approve-all')?.addEventListener('click', () => bulkApproveTradFlow({}));
+  document.getElementById('btn-sync-creative-tracker')?.addEventListener('click', syncCreativeTrackerFlow);
   document.getElementById('toggle-hide-all-done')?.addEventListener('change', (e) => {
     localStorage.setItem('ads_hide_all_done', e.target.checked ? 'true' : 'false');
     render();
@@ -7124,6 +7126,191 @@ async function shareAllMastersPublicly() {
   }
   await logSync(`Partage masters : ${ok} OK${fail > 0 ? `, ${fail} échecs` : ''}`, fail > 0 ? 'warn' : 'success');
   toast(`${ok}/${fileIds.size} masters partagés${fail > 0 ? ` (${fail} en échec)` : ''}`, fail > 0 ? 'warn' : 'success', 6000);
+}
+
+// URL du hub Keycorp-pnl où on POST le sync Creative Tracker.
+// À ajuster si on switch vers hub.keycorp-ecom.com plus tard.
+const HUB_API_URL = 'https://keycorppnl.vercel.app';
+
+// Modal de progression réutilisable (sync Creative Tracker, futurs batches lourds...).
+function createProgressModal(title, total) {
+  const container = document.getElementById('modal-container');
+  const bd = document.createElement('div');
+  bd.className = 'modal-backdrop';
+  bd.innerHTML = `
+    <div class="modal" style="max-width:440px">
+      <div class="modal-title">${escapeHtml(title)}</div>
+      <div class="text-sm text-dim" id="progress-msg" style="margin:8px 0 14px">Initialisation...</div>
+      <div style="height:10px;background:var(--bg-input);border-radius:5px;overflow:hidden;border:1px solid var(--border)">
+        <div id="progress-bar" style="height:100%;background:linear-gradient(90deg,var(--gold),var(--green));width:0%;transition:width 0.3s"></div>
+      </div>
+      <div style="text-align:right;margin-top:6px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-mute)" id="progress-count">0 / ${total}</div>
+    </div>
+  `;
+  container.appendChild(bd);
+
+  return {
+    update(msg, currentCount) {
+      const pct = Math.min(100, Math.round((currentCount / Math.max(total, 1)) * 100));
+      const msgEl = bd.querySelector('#progress-msg');
+      const barEl = bd.querySelector('#progress-bar');
+      const countEl = bd.querySelector('#progress-count');
+      if (msgEl) msgEl.textContent = msg;
+      if (barEl) barEl.style.width = pct + '%';
+      if (countEl) countEl.textContent = `${currentCount} / ${total}`;
+    },
+    close() {
+      if (bd.parentNode) bd.remove();
+    },
+  };
+}
+
+// Sync TOUS les masters Drive du workspace vers pnl.creatives_batch via Keycorp-pnl.
+// Workflow :
+//   1. Charge toutes les ads ayant master_file_id (paginé pour passer le 1000-limit)
+//   2. Ensure Drive share public read sur chaque master (1 fois suffit, idempotent côté Drive)
+//   3. POST par batches de 20 à /api/sync-creatives-batch (avec Bearer Supabase JWT)
+//   4. Le cron Gemini Flash analysera automatiquement les nouvelles rows la nuit
+//
+// Idempotent : refaire le sync 2x ne fait que des UPDATE (sur video_drive_file_id existant).
+async function syncCreativeTrackerFlow() {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  // 1. Drive ready
+  try {
+    await ensureDriveReady();
+  } catch (e) {
+    toast('Connexion Drive échouée : ' + (e?.message || e), 'error');
+    return;
+  }
+
+  // 2. Charge toutes les ads avec master_file_id (paginé)
+  const PAGE = 1000;
+  let from = 0;
+  const allAds = [];
+  while (true) {
+    const { data, error } = await sb.from('ads')
+      .select('id, name, product_id, source_country_id, master_file_id')
+      .eq('workspace_id', currentWorkspaceId)
+      .not('master_file_id', 'is', null)
+      .order('product_id')
+      .range(from, from + PAGE - 1);
+    if (error) { toast('Erreur DB : ' + error.message, 'error'); return; }
+    const rows = data || [];
+    allAds.push(...rows);
+    if (rows.length < PAGE) break;
+    from += PAGE;
+  }
+
+  if (allAds.length === 0) {
+    toast('Aucune ad avec master Drive à sync. Upload des masters d\'abord.', 'info');
+    return;
+  }
+
+  // 3. Confirm
+  const ok = await confirmDialog(
+    'Sync Creative Tracker ?',
+    `Tu vas sync ${allAds.length} ads vers le hub Creative Tracker. Chaque master sera partagé en lecture publique sur Drive (read-only). L'analyse Gemini se fera ensuite automatiquement (cron de nuit). Continuer ?`
+  );
+  if (!ok) return;
+
+  // 4. Récup le JWT Supabase pour authentifier les calls hub
+  const sessionResp = await sb.auth.getSession();
+  const accessToken = sessionResp?.data?.session?.access_token;
+  if (!accessToken) {
+    toast('Session expirée, reconnecte-toi puis réessaie', 'error');
+    return;
+  }
+
+  // 5. Progress modal (compte TOTAL = drive share + hub post)
+  const totalSteps = allAds.length * 2; // share + post
+  const progress = createProgressModal('🎬 Sync Creative Tracker', totalSteps);
+  let step = 0;
+  let driveShareOk = 0, driveShareFail = 0;
+  let synced = 0, syncFailed = 0;
+  const errorSamples = [];
+
+  // 6. Partage Drive (5 en parallèle pour pas se faire throttle)
+  const DRIVE_BATCH = 5;
+  for (let i = 0; i < allAds.length; i += DRIVE_BATCH) {
+    const chunk = allAds.slice(i, i + DRIVE_BATCH);
+    await Promise.all(chunk.map(async (ad) => {
+      try {
+        await gapi.client.drive.permissions.create({
+          fileId: ad.master_file_id,
+          resource: { role: 'reader', type: 'anyone' },
+        });
+        driveShareOk++;
+      } catch (e) {
+        // "already exists" = OK pour nous (déjà partagé)
+        const msg = e?.result?.error?.message || e?.message || '';
+        if (msg.includes('already exists') || msg.includes('duplicate')) {
+          driveShareOk++;
+        } else {
+          driveShareFail++;
+          if (errorSamples.length < 5) errorSamples.push(`Share ${ad.name}: ${msg.slice(0, 100)}`);
+        }
+      } finally {
+        step++;
+      }
+    }));
+    progress.update(`Partage Drive · ${Math.min(i + DRIVE_BATCH, allAds.length)}/${allAds.length}`, step);
+  }
+
+  // 7. POST par batches de 20 à l'endpoint hub
+  const POST_BATCH = 20;
+  for (let i = 0; i < allAds.length; i += POST_BATCH) {
+    const chunk = allAds.slice(i, i + POST_BATCH);
+    const payload = {
+      workspace_id: currentWorkspaceId,
+      ads: chunk.map(ad => ({
+        ad_id: ad.id,
+        ad_name: `${ad.product_id} - ${ad.name}`, // pour matcher CSV Meta plus tard
+        product_id: ad.product_id,
+        country_id: ad.source_country_id || null,
+        video_drive_file_id: ad.master_file_id,
+        video_url: `https://drive.google.com/file/d/${ad.master_file_id}/view`,
+      })),
+    };
+
+    try {
+      const resp = await fetch(`${HUB_API_URL}/api/sync-creatives-batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const result = await resp.json().catch(() => ({}));
+      if (resp.ok && result.success) {
+        synced += (result.inserted || 0) + (result.updated || 0);
+        if (result.errors_count > 0 && errorSamples.length < 5) {
+          (result.errors || []).slice(0, 2).forEach(e => errorSamples.push(`Hub: ${e.error?.slice(0, 100)}`));
+        }
+      } else {
+        syncFailed += chunk.length;
+        if (errorSamples.length < 5) errorSamples.push(`Hub HTTP ${resp.status}: ${(result.error || resp.statusText || '').slice(0, 100)}`);
+      }
+    } catch (e) {
+      syncFailed += chunk.length;
+      if (errorSamples.length < 5) errorSamples.push(`Network: ${(e?.message || e).toString().slice(0, 100)}`);
+    } finally {
+      step += chunk.length;
+    }
+    progress.update(`Hub upsert · ${Math.min(i + POST_BATCH, allAds.length)}/${allAds.length}`, step);
+  }
+
+  progress.close();
+
+  // 8. Récap
+  const hasErrors = driveShareFail > 0 || syncFailed > 0;
+  const msg = `🎬 Sync terminé · ${synced} hub ok · ${driveShareOk}/${allAds.length} share Drive${hasErrors ? ` · ${driveShareFail + syncFailed} erreurs` : ''}`;
+  toast(msg, hasErrors ? 'warn' : 'success', 9000);
+  if (hasErrors && errorSamples.length > 0) {
+    console.warn('[SYNC CT] erreurs (échantillon) :\n' + errorSamples.join('\n'));
+  }
+  toast(`Le tagging Gemini se lancera cette nuit (cron 3h UTC). Va voir /hub/creatives demain.`, 'info', 8000);
 }
 
 async function syncDriveProduit(p, adsAll) {
