@@ -3278,29 +3278,40 @@ async function uploadFinishedVideos(productId, countryId, filesArr) {
     const ad = adByNum.get(adNum);
     if (!ad) { errors.push({ file: f.name, reason: `Ad ${adNum} n'existe pas. Crée-la d'abord via Concurrent.` }); continue; }
 
-    // FIX 10 juin : détection préfixe pays dans le nom. Si le nom contient un code pays
-    // connu (entouré de délimiteurs : espace, tiret, point, underscore, parenthèses),
-    // et qu'il diffère du countryId de la dropzone → refus.
-    // Évite l'erreur Fadel : drop "Ad 5 - IT.mp4" dans la dropzone ES.
+    // FIX 10 juin : préfixe pays OBLIGATOIRE dans le nom de fichier.
+    // Cherche un code pays connu (IT, ES, FR, CZ, DE...) entouré de délimiteurs
+    // (espace, tiret, point, underscore, parenthèses). 3 cas :
+    //   - Aucun pays détecté → refus : "rename avec le préfixe {countryId}"
+    //   - Pays détecté mais différent de la dropzone → refus : "rename ou drop ailleurs"
+    //   - Pays détecté = countryId dropzone → OK
+    // Pas de regex sur "IT" au milieu d'un mot (= "petit", "fruit"...) sinon faux positifs.
+    const ext = f.name.split('.').pop() || 'mp4';
     const filenameUpper = f.name.toUpperCase();
+    const targetCountryUpper = countryId.toUpperCase();
     const countryInFilename = (() => {
       for (const cId of knownCountryIds) {
-        // Cherche le code pays entouré de délimiteurs (pas au milieu d'un mot)
         const re = new RegExp(`(?:^|[\\s\\-_.()\\[\\]])${cId}(?:[\\s\\-_.()\\[\\]]|$)`);
         if (re.test(filenameUpper)) return cId;
       }
       return null;
     })();
-    if (countryInFilename && countryInFilename !== countryId.toUpperCase()) {
+    const suggestedName = `Ad ${adNum} - ${productId} - ${countryId}.${ext}`;
+    if (countryInFilename === null) {
       errors.push({
         file: f.name,
-        reason: `Le nom contient le préfixe "${countryInFilename}" mais tu l'as déposé dans la zone "${countryId}". Vérifie que c'est la bonne langue avant d'uploader.`
+        reason: `Aucun préfixe pays détecté. Renomme ton fichier avec le code pays bien lisible (ex: "${suggestedName}") puis re-uploade.`
+      });
+      continue;
+    }
+    if (countryInFilename !== targetCountryUpper) {
+      errors.push({
+        file: f.name,
+        reason: `Le nom contient "${countryInFilename}" mais tu l'as déposé dans la zone "${countryId}". Soit tu renommes en "${suggestedName}", soit tu le déposes dans la zone "${countryInFilename}".`
       });
       continue;
     }
 
-    const ext = f.name.split('.').pop() || 'mp4';
-    const displayName = `Ad ${adNum} - ${productId} - ${countryId}.${ext}`;
+    const displayName = suggestedName;
     items.push({ file: f, ad, adNum, displayName });
   }
 
