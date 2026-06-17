@@ -11344,6 +11344,7 @@ async function renderSingleScript(el, scriptId) {
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap">
         <div style="font-weight:700;color:var(--blue);font-size:12px;letter-spacing:0.5px">🎬 MASTERS VIDÉO</div>
         <span style="font-size:11px;font-weight:500;color:var(--text-dim)">${approvedHooks}/${totalHooks} validé${approvedHooks > 1 ? 's' : ''}${pendingHooks > 0 ? ` · ${pendingHooks} en attente` : ''}</span>
+        ${isAdmin() && pendingHooks > 1 ? `<button class="btn btn-sm" data-approve-all-hooks="${s.id}" style="background:var(--green);color:#000;font-weight:600;margin-left:auto" title="Valide d'un coup tous les hooks en attente">✓ Valider TOUS (${pendingHooks})</button>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;gap:8px">
         ${s.hooks.map((h, i) => masterSlotHtml(i, h)).join('')}
@@ -11455,6 +11456,9 @@ async function renderSingleScript(el, scriptId) {
       const [sid, idx] = btn.dataset.approveHookMaster.split('|');
       approveScriptHookMasterFlow(sid, parseInt(idx, 10));
     });
+  });
+  el.querySelectorAll('[data-approve-all-hooks]').forEach(btn => {
+    btn.addEventListener('click', () => approveAllScriptHooksFlow(btn.dataset.approveAllHooks));
   });
   el.querySelectorAll('[data-reject-hook-master]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -13584,22 +13588,28 @@ async function uploadScriptHookMasterFlow(scriptId, hookIdx, scriptName) {
 }
 
 // Validation d'un master pour un hook spécifique
-async function approveScriptHookMasterFlow(scriptId, hookIdx) {
-  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+// opts.skipConfirm : sauter le confirmDialog (utilisé par approveAllScriptHooksFlow)
+// opts.silent      : pas de toast intermédiaire (utilisé par approveAllScriptHooksFlow)
+// Retourne true si validation réussie, false sinon (utile pour le bulk).
+async function approveScriptHookMasterFlow(scriptId, hookIdx, opts = {}) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return false; }
 
   const { data: scriptAd } = await sb.from('ads').select('*').eq('id', scriptId).single();
-  if (!scriptAd) { toast('Script introuvable', 'error'); return; }
+  if (!scriptAd) { toast('Script introuvable', 'error'); return false; }
   const masters = scriptAd.masters_by_hook || {};
   const hookMaster = masters[String(hookIdx)];
   if (!hookMaster || hookMaster.status !== 'pending' || !hookMaster.pending_file_id) {
-    toast(`Pas de version Hook ${hookIdx + 1} en attente`, 'warn'); return;
+    if (!opts.silent) toast(`Pas de version Hook ${hookIdx + 1} en attente`, 'warn');
+    return false;
   }
 
-  const ok = await confirmDialog(`Valider Hook ${hookIdx + 1} de ${scriptAd.name} ?`,
-    'Va créer une nouvelle ad "Ad N" indépendante qui passera en pipeline de traduction par pays.');
-  if (!ok) return;
+  if (!opts.skipConfirm) {
+    const ok = await confirmDialog(`Valider Hook ${hookIdx + 1} de ${scriptAd.name} ?`,
+      'Va créer une nouvelle ad "Ad N" indépendante qui passera en pipeline de traduction par pays.');
+    if (!ok) return false;
+  }
 
-  toast('Validation en cours...', 'info');
+  if (!opts.silent) toast('Validation en cours...', 'info');
 
   try {
     await ensureDriveReady();
@@ -13712,12 +13722,68 @@ async function approveScriptHookMasterFlow(scriptId, hookIdx) {
     } catch (e) { console.warn('[notify ve]', e); }
 
     await logSync(`${product.id} : ${scriptAd.name} Hook ${hookIdx + 1} → ${newAdName} (${enabled.length} pays)`, 'success');
-    toast(`✓ ${newAdName} créée (${enabled.length} pays à traduire)`, 'success', 6000);
-    render();
+    if (!opts.silent) {
+      toast(`✓ ${newAdName} créée (${enabled.length} pays à traduire)`, 'success', 6000);
+      render();
+    }
+    return true;
   } catch (e) {
     console.error('[APPROVE SCRIPT HOOK]', e);
-    toast('Erreur validation : ' + extractGapiError(e), 'error', 8000);
+    if (!opts.silent) toast('Erreur validation : ' + extractGapiError(e), 'error', 8000);
+    return false;
   }
+}
+
+// Valide TOUS les hooks en "pending" d'un script en 1 seul flow.
+// Pratique quand l'admin a uploadé les masters des 3-5 hooks et veut tout valider sans cliquer
+// 5 fois sur "Valider". Itère séquentiellement (pas en parallèle pour éviter race condition sur
+// l'incrément Ad N et les déplacements Drive).
+async function approveAllScriptHooksFlow(scriptId) {
+  if (!isAdmin()) { toast('Admin seulement', 'error'); return; }
+
+  const { data: scriptAd } = await sb.from('ads').select('id, name, masters_by_hook, hooks').eq('id', scriptId).single();
+  if (!scriptAd) { toast('Script introuvable', 'error'); return; }
+  const masters = scriptAd.masters_by_hook || {};
+
+  // Liste les hooks pending qui ont vraiment un fichier
+  const pendingHookIdxs = [];
+  const totalHooks = (scriptAd.hooks || []).length;
+  for (let i = 0; i < totalHooks; i++) {
+    const m = masters[String(i)];
+    if (m && m.status === 'pending' && m.pending_file_id) pendingHookIdxs.push(i);
+  }
+
+  if (pendingHookIdxs.length === 0) {
+    toast('Aucun hook en attente sur ce script', 'info');
+    return;
+  }
+
+  const ok = await confirmDialog(
+    `Valider ${pendingHookIdxs.length} hooks de ${scriptAd.name} ?`,
+    `Hooks concernés : ${pendingHookIdxs.map(i => i + 1).join(', ')}. Va créer ${pendingHookIdxs.length} nouvelles ads "Ad N" indépendantes (1 par hook) qui passeront en pipeline de traduction par pays.`
+  );
+  if (!ok) return;
+
+  // Modal de progression simple
+  const progress = createProgressModal(`Validation ${pendingHookIdxs.length} hooks`, pendingHookIdxs.length);
+  let okCount = 0, failCount = 0;
+  for (let i = 0; i < pendingHookIdxs.length; i++) {
+    const hookIdx = pendingHookIdxs[i];
+    progress.update(`Validation Hook ${hookIdx + 1}...`, i);
+    // skipConfirm + silent → on gère le récap nous-mêmes à la fin
+    const success = await approveScriptHookMasterFlow(scriptId, hookIdx, { skipConfirm: true, silent: true });
+    if (success) okCount++;
+    else failCount++;
+  }
+  progress.update('Terminé', pendingHookIdxs.length);
+  progress.close();
+
+  if (failCount === 0) {
+    toast(`✓ ${okCount} hook${okCount > 1 ? 's' : ''} validé${okCount > 1 ? 's' : ''} — ${okCount} nouvelle${okCount > 1 ? 's' : ''} ad${okCount > 1 ? 's' : ''} créée${okCount > 1 ? 's' : ''}`, 'success', 7000);
+  } else {
+    toast(`Validation partielle : ${okCount} OK, ${failCount} en erreur. Check la console F12 pour le détail.`, 'warn', 8000);
+  }
+  render();
 }
 
 // Sync nomenclature Drive : boucle sur toutes les ads d'un produit qui ont
