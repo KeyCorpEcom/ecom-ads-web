@@ -542,8 +542,8 @@ a{color:var(--gold);text-decoration:none}
       <a class="nav-item" data-route="analytics"><span class="nav-icon"></span>Analytics</a>
       <a class="nav-item" data-route="pages"><span class="nav-icon"></span>Product Page<span class="nav-badge" id="nav-pages"></span></a>
       <a class="nav-item" data-route="scripts"><span class="nav-icon"></span>Scripts<span class="nav-badge" id="nav-scripts"></span></a>
-      <a class="nav-item" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
-      <a class="nav-item" href="https://www.keycorp-ecom.com/hub" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>P&amp;L<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
+      <a class="nav-item" id="nav-sav" href="https://www.keycorp-ecom.com/sav" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>SAV<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
+      <a class="nav-item" id="nav-pnl" href="https://www.keycorp-ecom.com/hub" target="_blank" rel="noopener noreferrer"><span class="nav-icon"></span>P&amp;L<span style="margin-left:auto;font-size:11px;color:var(--text-dim)">↗</span></a>
       <div class="nav-section-label">Apprentissage</div>
       <a class="nav-item" data-route="formations"><span class="nav-icon"></span>Formations</a>
       <a class="nav-item" data-route="tools"><span class="nav-icon"></span>Tools</a>
@@ -1122,6 +1122,12 @@ async function initApp(user) {
     document.getElementById('nav-users').classList.remove('hidden');
     document.getElementById('nav-settings').classList.remove('hidden');
     document.getElementById('nav-formations-suivi').classList.remove('hidden');
+  }
+  // Cache SAV + P&L pour le rôle "le_h" qui n'y a pas accès (bloqué par middlewares)
+  // — éviter de montrer des liens cassés.
+  if (profile.role === 'le_h') {
+    document.getElementById('nav-sav')?.classList.add('hidden');
+    document.getElementById('nav-pnl')?.classList.add('hidden');
   }
   // Notifications : load + bind handlers + subscribe realtime
   setupNotifBellHandlers();
