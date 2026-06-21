@@ -1062,8 +1062,11 @@ async function initApp(user) {
   renderWorkspaceSwitcher();
 
   // Restriction nav par rôle — calcule l'UNION des routes autorisées si plusieurs rôles cumulés.
-  // Admin n'est jamais restreint.
-  if (profile.role !== 'admin' && !(Array.isArray(profile.extra_roles) && profile.extra_roles.includes('admin'))) {
+  // Admin + le_h ne sont jamais restreints (le_h = admin sur ecom-ads-web, juste
+  // bloqué sur P&L et SAV via les middlewares de ces apps).
+  const isFullAccess = (r) => r === 'admin' || r === 'le_h';
+  const extras = Array.isArray(profile.extra_roles) ? profile.extra_roles : [];
+  if (!isFullAccess(profile.role) && !extras.some(isFullAccess)) {
     const allRoles = [profile.role, ...(Array.isArray(profile.extra_roles) ? profile.extra_roles : [])].filter(Boolean);
     const ROLE_NAV_ROUTES = {
       page_builder:   ['pages', 'sections', 'formations', 'tools'],
@@ -1338,11 +1341,14 @@ function hasRole(r) {
   const extras = currentProfile.extra_roles;
   return Array.isArray(extras) && extras.includes(r);
 }
-function canEdit() { return hasRole('admin') || hasRole('ads_translator'); }
-function isAdmin() { return hasRole('admin'); }
+function canEdit() { return hasRole('admin') || hasRole('le_h') || hasRole('ads_translator'); }
+// "le_h" = admin sur ecom-ads-web mais bloqué sur P&L (Keycorp-pnl middleware
+// check role === 'admin' || 'media_buyer') et sur SAV (système users séparé).
+// Isolation naturelle, pas besoin de check spécifique côté ces 2 apps.
+function isAdmin() { return hasRole('admin') || hasRole('le_h'); }
 function isVideoEditor() { return hasRole('video_editor'); }
-function canEditPages() { return hasRole('admin') || hasRole('page_builder'); }
-function canProduceScripts() { return hasRole('admin') || hasRole('video_editor'); }
+function canEditPages() { return hasRole('admin') || hasRole('le_h') || hasRole('page_builder'); }
+function canProduceScripts() { return hasRole('admin') || hasRole('le_h') || hasRole('video_editor'); }
 function isPageBuilder() { return hasRole('page_builder'); }
 
 /* ============================================================
@@ -4637,7 +4643,7 @@ async function renderUsers(el) {
         <tbody>
           ${profiles.map(p => {
             const extras = Array.isArray(p.extra_roles) ? p.extra_roles : [];
-            const allRoles = ['admin', 'ads_translator', 'video_editor', 'page_builder', 'viewer'];
+            const allRoles = ['admin', 'le_h', 'ads_translator', 'video_editor', 'page_builder', 'viewer'];
             const isMe = p.id === currentUser.id;
             return `
             <tr>
@@ -8883,7 +8889,7 @@ async function syncSingleAdToHubCreativeTracker(adId, countryId) {
 /* ============================================================
    FORMATIONS
    ============================================================ */
-const ALL_ROLES = ['admin', 'media_buyer', 'ads_translator', 'video_editor', 'page_builder'];
+const ALL_ROLES = ['admin', 'le_h', 'media_buyer', 'ads_translator', 'video_editor', 'page_builder'];
 
 function escHtmlBasic(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 
