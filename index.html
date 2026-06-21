@@ -1141,7 +1141,12 @@ async function initApp(user) {
    ============================================================ */
 function getRoute() {
   const h = location.hash.slice(1) || 'dashboard';
-  const [page, ...params] = h.split('/');
+  const [page, ...rawParams] = h.split('/');
+  // FIX 22 juin : decodeURIComponent sur chaque param. Sinon les IDs avec espaces
+  // (ex: "F0001 - H") sont matchés à "F0001%20-%20H" → "Produit introuvable".
+  const params = rawParams.map((p) => {
+    try { return decodeURIComponent(p); } catch { return p; }
+  });
   return { page, params };
 }
 function navigate(route) { location.hash = '#' + route; }
